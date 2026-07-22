@@ -1,0 +1,9 @@
+.env
+cloudflared/*.json
+cloudflared/cert.pem
+
+docker-compose.override.yml
+
+data/
+
+.DS_Store
