@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="images/banner/dark.svg">
-  <img src="images/banner/light.svg" alt="TPHome" width="100%" />
+  <source media="(prefers-color-scheme: dark)" srcset="../images/banner/dark.svg">
+  <img src="../images/banner/light.svg" alt="TPHome" width="100%" />
 </picture>
 
 <br/>
@@ -20,9 +20,9 @@
 
 ---
 
-I'm a first-year computer engineering student and this repository is the visible layer of a home automation system I built from scratch. This project involves frontend, backend and firmware, located in different repos around my GitHub profile.
+I'm a first-year computer engineering student and this is the frontend layer of a home automation system I built from scratch. The full system lives in this monorepo: firmware (C++ for ESP8266/BK7231N switches), API (FastAPI on Raspberry Pi), and this frontend (Vue 3, also on the Pi).
 
-This repo contains the frontend layer that lets you easily interact with all devices, customize your house through JSON files, and host the web panel wherever you want.
+This module contains the frontend layer that lets you easily interact with all devices, customize your house through JSON files, and host the web panel wherever you want.
 
 ## How it started
 
@@ -38,37 +38,37 @@ Everything here is:
 
 ## Architecture
 
-Three repos, one for each layer of the stack:
+Three layers, one monorepo:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                      tphome                         │
+│                  frontend/                          │
 │           Vue 3 frontend · Tailwind CSS             │
 │         Hosted via Docker on Raspberry Pi           │
 └────────────────────────┬────────────────────────────┘
                          │ HTTP / WebSocket
 ┌────────────────────────▼────────────────────────────┐
-│                   tphome-api                        │
+│                     api/                            │
 │    FastAPI backend · MQTT orchestration · SQLite    │
 │          Hosted via Docker on Raspberry Pi          │
 └────────────────────────┬────────────────────────────┘
                          │ MQTT (binary protocol)
 ┌────────────────────────▼────────────────────────────┐
-│                 tphome-firmware                     │
+│                  firmware/                          │
 │   C++ firmware for ESP8266 / BK7231N smart switches │
 │           Flashing over factory firmware            │
 └─────────────────────────────────────────────────────┘
 ```
 
-Each repo is independently versioned and deployable, but the project depends on every layer being available. The firmware runs on the chips inside the switches. The backend is hosted on a Raspberry Pi and communicates with the firmware via MQTT using a custom protocol. The frontend also runs on the Pi and talks to the backend through HTTP requests and WebSockets.
+Each layer lives in its own subdirectory of this monorepo. The firmware runs on the chips inside the switches. The backend is hosted on a Raspberry Pi and communicates with the firmware via MQTT using a custom protocol. The frontend also runs on the Pi and talks to the backend through HTTP requests and WebSockets.
 
-## Repositories
+## Monorepo structure
 
 <table>
 <tr>
 <td width="33%">
 
-### [tphome-firmware](https://github.com/mtaibo/tphome-firmware)
+### [firmware/](../firmware/)
 
 Custom C++ firmware for proprietary chips, built with PlatformIO.
 
@@ -79,7 +79,7 @@ Replaces factory software on commercial blind controllers and light switches wit
 </td>
 <td width="33%">
 
-### [tphome-api](https://github.com/mtaibo/tphome-api)
+### [api/](../api/)
 
 FastAPI backend running on a Raspberry Pi alongside a Mosquitto MQTT broker, managed with Docker.
 
@@ -90,7 +90,7 @@ Handles device management, state persistence, OTA firmware serving and real-time
 </td>
 <td width="33%">
 
-### tphome (this repo)
+### frontend/ (this module)
 
 Vue 3 frontend served by Nginx behind a Caddy reverse proxy, also hosted on the Raspberry Pi.
 
