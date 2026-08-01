@@ -157,19 +157,20 @@ No cloud involved at any point. The entire system works on the local network.
 
 ## How to run
 
+**Production** — run from the monorepo root with a single command:
+
 ```bash
-# Development
-npm install
-npm run dev
-
-# Production build
-npm run build
-
-# Docker
+# From tphome/
 docker compose up --build -d
 ```
 
-The frontend expects `tphome-api` to be available on the same Docker network. See the [Caddyfile](Caddyfile) for routing details.
+**Development** — run the frontend standalone:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
 > **Note:** `package-lock.json` is committed to ensure reproducible installs. Requires **npm >= 10**. If you use a different npm version the lockfile may be reformatted — just commit the result.
 
