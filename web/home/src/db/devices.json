@@ -1,0 +1,44 @@
+{
+  "lights": {
+
+    "L0101": { "name": "Grande Salón",  "map": { "x": 112, "y": 272 }, "prefs": {} },
+    "L0102": { "name": "Pequeña Salón", "map": { "x": 77,  "y": 342 }, "prefs": {} },
+
+    "L0201": { "name": "Habitación Gemelas", "map": { "x": 202, "y": 322 }, "prefs": {} },
+
+    "L0301": { "name": "Habitación Ordenador Cama",    "map": { "x": 282, "y": 282 }, "prefs": {} },
+    "L0302": { "name": "Habitación Ordenador Armario", "map": { "x": 317, "y": 332 }, "prefs": {} },
+
+    "L0401": { "name": "Habitación Principal Cama",    "map": { "x": 422, "y": 342 }, "prefs": {} },
+    "L0402": { "name": "Habitación Principal Armario", "map": { "x": 377, "y": 242 }, "prefs": {} },
+
+    "L0501": { "name": "Entrada",  "map": { "x": 32,  "y": 127 }, "prefs": {} },
+    "L0502": { "name": "Pasillo",  "map": { "x": 162, "y": 213 }, "prefs": {} },
+    "L0503": { "name": "Exterior", "map": { "x": 32,  "y":  27 }, "prefs": {} },
+
+    "L0601": { "name": "Baño Invitados",        "map": { "x": 230, "y": 132 }, "prefs": {} },
+    "L0602": { "name": "Baño Invitados Espejo", "map": { "x": 207, "y": 162 }, "prefs": {} },
+
+    "L0701": { "name": "Baño Principal",        "map": { "x": 447, "y": 242 }, "prefs": {} },
+    "L0702": { "name": "Baño Principal Espejo", "map": { "x": 477, "y": 202 }, "prefs": {} },
+
+    "L0801": { "name": "Cocina",    "map": { "x": 127, "y": 127 }, "prefs": {} },
+    "L0802": { "name": "Tendedero", "map": { "x": 92,  "y":  27 }, "prefs": {} }
+  },
+
+  "switches": {
+
+  },
+
+  "blinds": {
+
+    "B0101": { "name": "Salón Grande",  "map": { "x": 12, "y": 429, "width": 60, "height":  7 }, "prefs" : { "up_time": 3200, "down_time": 3000, "down_pos": 2000, "inverted_relays": false } },
+    "B0102": { "name": "Salón Pequeña", "map": { "x": 79, "y": 407, "width":  7, "height": 20 }, "prefs" : { "up_time": 1750, "down_time": 1700, "down_pos": 2000, "inverted_relays": true  } },
+
+    "B0201": { "name": "Habitación Gemelas",   "map": { "x": 182, "y": 399, "width": 50, "height": 7 }, "prefs" : { "up_time": 1750, "down_time": 1700, "down_pos": 2000, "inverted_relays": true } },
+
+    "B0301": { "name": "Habitación Ordenador", "map": { "x": 272, "y": 399, "width": 50, "height": 7 }, "prefs" : { "up_time": 1750, "down_time": 1700, "down_pos": 2000, "inverted_relays": true } },
+
+    "B0401": { "name": "Habitación Principal", "map": { "x": 402, "y": 399, "width": 50, "height": 7 }, "prefs" : { "up_time": 1750, "down_time": 1700, "down_pos": 2000, "inverted_relays": true } }
+  }
+}

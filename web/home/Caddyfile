@@ -1,0 +1,22 @@
+:80 {
+    
+    handle /ws/* {
+        reverse_proxy tphome-api:8000
+    }
+
+    handle /api/* {
+        reverse_proxy tphome-api:8000
+    }
+    
+    handle /openapi.json {
+        reverse_proxy tphome-api:8000
+    }
+
+    handle /firmware {
+        reverse_proxy tphome-api:8000
+    }
+
+    handle {
+        reverse_proxy tphome-frontend:80
+    }
+}
