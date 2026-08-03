@@ -1,9 +1,11 @@
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from database import init_db
+from routes.passkey import router as passkey_router
 
 app = FastAPI()
+app.include_router(passkey_router)
 
-@app.on_event("startup")
 def on_startup():
     init_db()
 

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>tpauth – test</title>
+</head>
+<body>
+  <h2>Registro</h2>
+  <input id="reg-email" type="email" placeholder="email">
+  <button onclick="register()">Registrar passkey</button>
+
+  <h2>Login</h2>
+  <input id="login-email" type="email" placeholder="email">
+  <button onclick="login()">Entrar</button>
+
+  <pre id="log"></pre>
+
+  <script>
+    const log = msg => document.getElementById('log').textContent += msg + '\n';
+
+    async function register() {
+      const email = document.getElementById('reg-email').value;
+      log(`\n→ register/begin (${email})`);
+      try {
+        const opts = await fetch(`/auth/passkey/register/begin?email=${encodeURIComponent(email)}`, { method: 'POST' }).then(r => r.json());
+        log('← opciones recibidas');
+        const cred = await navigator.credentials.create({ publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(opts) });
+        log('← passkey creada');
+        const res = await fetch(`/auth/passkey/register/complete?email=${encodeURIComponent(email)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cred.toJSON()),
+        });
+        log('← ' + JSON.stringify(await res.json()));
+      } catch (e) { log('✗ ' + e); }
+    }
+
+    async function login() {
+      const email = document.getElementById('login-email').value;
+      log(`\n→ login/begin (${email})`);
+      try {
+        const opts = await fetch(`/auth/passkey/login/begin?email=${encodeURIComponent(email)}`, { method: 'POST' }).then(r => r.json());
+        log('← opciones recibidas');
+        const cred = await navigator.credentials.get({ publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(opts) });
+        log('← passkey firmada');
+        const res = await fetch(
+          `/auth/passkey/login/complete?email=${encodeURIComponent(email)}&redirect=localhost%3A8000&state=test`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cred.toJSON()), redirect: 'manual' }
+        );
+        log(res.type === 'opaqueredirect' ? '✓ login correcto' : '← ' + JSON.stringify(await res.json()));
+      } catch (e) { log('✗ ' + e); }
+    }
+  </script>
+</body>
+</html>
