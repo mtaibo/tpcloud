@@ -23,8 +23,7 @@ services:
 
   tphome:
     build: ./tphome
-    environment:
-      TPHOME_UPSTREAM: ${TPHOME_UPSTREAM}
+    env_file: .env
     depends_on:
       - auth
     networks:
