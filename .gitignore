@@ -7,3 +7,7 @@ docker-compose.override.yml
 data/
 
 .DS_Store
+
+# frontend
+login/node_modules/
+login/dist/
