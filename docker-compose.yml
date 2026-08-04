@@ -21,6 +21,16 @@ services:
     networks:
       - gateway
 
+  tphome:
+    build: ./tphome
+    environment:
+      TPHOME_UPSTREAM: ${TPHOME_UPSTREAM}
+    depends_on:
+      - auth
+    networks:
+      - gateway
+      - tphome-network
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
@@ -34,3 +44,6 @@ services:
 networks:
   gateway:
     driver: bridge
+  tphome-network:
+    external: true
+    name: tphome_tphome-network

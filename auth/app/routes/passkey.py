@@ -213,6 +213,18 @@ def login_complete(
     return response
 
 
+@router.get("/check")
+def check(request: Request, session: DBSession = Depends(get_session)):
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        db_session = session.exec(
+            select(SessionModel).where(SessionModel.session_id == session_id)
+        ).first()
+        if db_session and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+            return Response(status_code=200)
+    raise HTTPException(status_code=401, detail="no autenticado")
+
+
 @router.get("/me")
 def me(request: Request, session: DBSession = Depends(get_session)):
     session_id = request.cookies.get("session_id")

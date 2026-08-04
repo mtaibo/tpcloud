@@ -6,6 +6,7 @@ const loading = ref(true)
 
 const services = [
   { name: 'Login', description: 'Auth · Passkeys', url: 'https://login.migueltaibo.com' },
+  { name: 'TPHome', description: 'Home automation', url: 'https://tphome.migueltaibo.com' },
   { name: 'Portfolio', description: 'migueltaibo.com', url: 'https://migueltaibo.com' },
 ]
 
