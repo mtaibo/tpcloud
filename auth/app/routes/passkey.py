@@ -215,6 +215,35 @@ def login_complete(
     return response
 
 
+@router.get("/me")
+def me(request: Request, session: DBSession = Depends(get_session)):
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        db_session = session.exec(
+            select(SessionModel).where(SessionModel.session_id == session_id)
+        ).first()
+        if db_session and db_session.expires_at > datetime.now(timezone.utc):
+            user = session.exec(select(User).where(User.id == db_session.user_id)).first()
+            if user:
+                return {"email": user.email, "display_name": user.display_name}
+    raise HTTPException(status_code=401, detail="no autenticado")
+
+
+@router.post("/logout")
+def logout(request: Request, session: DBSession = Depends(get_session)):
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        db_session = session.exec(
+            select(SessionModel).where(SessionModel.session_id == session_id)
+        ).first()
+        if db_session:
+            session.delete(db_session)
+            session.commit()
+    response = Response(status_code=200)
+    response.delete_cookie(key="session_id", domain=".migueltaibo.com", path="/")
+    return response
+
+
 @router.get("/validate")
 def validate(request: Request, session: DBSession = Depends(get_session)):
     session_id = request.cookies.get("session_id")

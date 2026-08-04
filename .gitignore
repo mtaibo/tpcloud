@@ -11,3 +11,5 @@ data/
 # frontend
 login/node_modules/
 login/dist/
+cloud/node_modules/
+cloud/dist/

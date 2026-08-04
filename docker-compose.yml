@@ -14,6 +14,13 @@ services:
     networks:
       - gateway
 
+  cloud:
+    build: ./cloud
+    depends_on:
+      - auth
+    networks:
+      - gateway
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
