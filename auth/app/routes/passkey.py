@@ -262,5 +262,5 @@ def validate(request: Request, session: DBSession = Depends(get_session)):
     state = secrets.token_urlsafe(32)
     _pending_states[state] = original_url
 
-    login_url = f"https://login.migueltaibo.com/auth?redirect={original_host}&state={state}"
+    login_url = f"https://login.migueltaibo.com/?redirect={original_host}&state={state}"
     return RedirectResponse(url=login_url, status_code=302)

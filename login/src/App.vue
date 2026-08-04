@@ -7,7 +7,7 @@ const message = ref(null) // { type: 'error' | 'success', text: string }
 const loading = ref(false)
 
 const params = new URLSearchParams(window.location.search)
-const redirectHost = params.get('redirect') || ''
+const redirectHost = params.get('redirect') || 'cloud.migueltaibo.com'
 const state = params.get('state') || ''
 
 function setError(e) {

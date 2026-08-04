@@ -14,10 +14,10 @@ onMounted(async () => {
     if (res.ok) {
       user.value = await res.json()
     } else {
-      window.location.href = 'https://login.migueltaibo.com/auth?redirect=cloud.migueltaibo.com'
+      window.location.href = 'https://login.migueltaibo.com/?redirect=cloud.migueltaibo.com'
     }
   } catch {
-    window.location.href = 'https://login.migueltaibo.com/auth?redirect=cloud.migueltaibo.com'
+    window.location.href = 'https://login.migueltaibo.com/?redirect=cloud.migueltaibo.com'
   } finally {
     loading.value = false
   }
