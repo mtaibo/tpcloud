@@ -1,13 +1,15 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
 from database import init_db
 from routes.passkey import router as passkey_router
 
-app = FastAPI()
-app.include_router(passkey_router)
-
-def on_startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_db()
+    yield
+
+app = FastAPI(lifespan=lifespan)
+app.include_router(passkey_router)
 
 @app.get("/health")
 def health():
