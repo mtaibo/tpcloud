@@ -1,4 +1,7 @@
 import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from sqlmodel import Session as DBSession, select
 from database import engine, init_db
 from models import AllowedEmail
