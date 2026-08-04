@@ -25,10 +25,15 @@ def require_login(request: Request, session: DBSession = Depends(get_session)) -
     # Check if the session cookie is on the database and it is not expired
     db_session = session.exec(select(SessionModel).where(SessionModel.session_id == session_id)).first()
     if not db_session: raise HTTPException(status_code=401, detail="sesión inválida")
-    if db_session.expires_at < datetime.now(timezone.utc): raise HTTPException(status_code=401, detail="sesión expirada")
+    if db_session.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc): raise HTTPException(status_code=401, detail="sesión expirada")
 
-    #
     user = session.get(User, db_session.user_id)
     if not user: raise HTTPException(status_code=401, detail="usuario no encontrado")
 
+    return user
+
+
+def require_admin(user: User = Depends(require_login)) -> User:
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin required")
     return user

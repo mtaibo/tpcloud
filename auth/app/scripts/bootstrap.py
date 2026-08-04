@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from sqlmodel import Session as DBSession, select
 from database import engine, init_db
-from models import AllowedEmail
+from models import AllowedEmail, User
 
 OWNER_EMAIL = os.environ["OWNER_EMAIL"]
 
@@ -15,13 +15,19 @@ def bootstrap():
             select(AllowedEmail).where(AllowedEmail.email == OWNER_EMAIL)
         ).first()
 
-        if existing:
+        if not existing:
+            session.add(AllowedEmail(email=OWNER_EMAIL, invited_by=None))
+            session.commit()
+            print(f"{OWNER_EMAIL} added to allowed_emails")
+        else:
             print(f"{OWNER_EMAIL} is on allowed_emails.")
-            return
 
-        session.add(AllowedEmail(email=OWNER_EMAIL, invited_by=None))
-        session.commit()
-        print(f"{OWNER_EMAIL} added to allowed_emails")
+        owner = session.exec(select(User).where(User.email == OWNER_EMAIL)).first()
+        if owner and not owner.is_admin:
+            owner.is_admin = True
+            session.add(owner)
+            session.commit()
+            print(f"{OWNER_EMAIL} set as admin")
 
 if __name__ == "__main__":
     bootstrap()
