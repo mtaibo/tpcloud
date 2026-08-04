@@ -155,7 +155,7 @@
             </div>
 
             <!-- Prefs + Map + Firmware -->
-            <div class="flex gap-6 items-start">
+            <div class="flex flex-col md:flex-row gap-6 items-start">
 
                 <!-- Prefs editor -->
                 <div v-if="Object.keys(devicePrefs).length > 0" class="flex-1 min-w-0">
