@@ -1,8 +1,8 @@
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from sqlmodel import create_engine, SQLModel, Session as DBSession
 
-load_dotenv()
+load_dotenv(find_dotenv())
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///tpauth.db")
 
