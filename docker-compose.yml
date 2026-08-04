@@ -4,6 +4,15 @@ services:
     env_file: .env
     volumes:
       - ./data:/app/data
+    networks:
+      - gateway
+
+  login:
+    build: ./login
+    depends_on:
+      - auth
+    networks:
+      - gateway
 
   cloudflared:
     image: cloudflare/cloudflared:latest
