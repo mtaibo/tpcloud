@@ -23,7 +23,6 @@ services:
 
   tphome:
     build: ./tphome
-    env_file: .env
     depends_on:
       - auth
     networks:
