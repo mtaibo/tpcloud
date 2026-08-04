@@ -220,7 +220,7 @@ def me(request: Request, session: DBSession = Depends(get_session)):
         db_session = session.exec(
             select(SessionModel).where(SessionModel.session_id == session_id)
         ).first()
-        if db_session and db_session.expires_at > datetime.now(timezone.utc):
+        if db_session and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
             user = session.exec(select(User).where(User.id == db_session.user_id)).first()
             if user:
                 return {"email": user.email, "display_name": user.display_name}
@@ -250,7 +250,7 @@ def validate(request: Request, session: DBSession = Depends(get_session)):
         db_session = session.exec(
             select(SessionModel).where(SessionModel.session_id == session_id)
         ).first()
-        if db_session and db_session.expires_at > datetime.now(timezone.utc):
+        if db_session and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
             return Response(status_code=200)
 
     original_host = request.headers.get("X-Forwarded-Host", "")
