@@ -156,8 +156,6 @@ def login_begin(email: str, session: DBSession = Depends(get_session)):
 def login_complete(
     request_body: dict,
     email: str,
-    redirect: str,
-    state: str,
     session: DBSession = Depends(get_session),
 ):
     challenge = _pending_login_challenges.get(email)
@@ -202,7 +200,7 @@ def login_complete(
     session.commit()
     del _pending_login_challenges[email]
 
-    response = RedirectResponse(url=f"https://{redirect}?state={state}")
+    response = Response(status_code=200)
     response.set_cookie(
         key="session_id",
         value=new_session.session_id,

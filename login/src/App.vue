@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 
 const email = ref('')
 const mode = ref('login')
@@ -8,7 +8,11 @@ const loading = ref(false)
 
 const params = new URLSearchParams(window.location.search)
 const redirectHost = params.get('redirect') || 'cloud.migueltaibo.com'
-const state = params.get('state') || ''
+
+onMounted(async () => {
+  const res = await fetch('/auth/passkey/me')
+  if (res.ok) window.location.href = `https://${redirectHost}`
+})
 
 function setError(e) {
   if (e.name === 'NotAllowedError') {
@@ -71,22 +75,15 @@ async function login() {
 
     const completeUrl = new URL('/auth/passkey/login/complete', window.location.origin)
     completeUrl.searchParams.set('email', email.value)
-    completeUrl.searchParams.set('redirect', redirectHost)
-    completeUrl.searchParams.set('state', state)
 
     const res = await fetch(completeUrl.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cred.toJSON()),
-      redirect: 'manual',
     })
 
-    if (res.type === 'opaqueredirect' || res.ok) {
-      if (redirectHost) {
-        window.location.href = `https://${redirectHost}`
-      } else {
-        message.value = { type: 'success', text: 'Sesión iniciada correctamente.' }
-      }
+    if (res.ok) {
+      window.location.href = `https://${redirectHost}`
     } else {
       throw new Error((await res.json()).detail)
     }
