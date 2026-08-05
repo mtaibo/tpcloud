@@ -16,7 +16,7 @@ services:
 
   auth:
     build: ./auth
-    container_name: auth
+    container_name: tpcloud-auth
     env_file: .env
     volumes:
       - ./data:/app/data
@@ -26,7 +26,7 @@ services:
 
   login:
     build: ./login
-    container_name: login
+    container_name: tpcloud-login
     depends_on:
       - auth
     networks:
@@ -35,7 +35,7 @@ services:
 
   cloud:
     build: ./cloud
-    container_name: cloud
+    container_name: tpcloud-frontend
     depends_on:
       - auth
     networks:
