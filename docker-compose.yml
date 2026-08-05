@@ -1,43 +1,56 @@
 services:
-  auth:
-    build: ./auth
-    env_file: .env
+
+  gateway:
+    image: caddy:latest
+    container_name: gateway
     volumes:
-      - ./data:/app/data
-    networks:
-      - gateway
-
-  login:
-    build: ./login
-    depends_on:
-      - auth
-    networks:
-      - gateway
-
-  cloud:
-    build: ./cloud
-    depends_on:
-      - auth
-    networks:
-      - gateway
-
-  tphome:
-    build: ./tphome
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - auth
     networks:
       - gateway
       - tphome-network
+    restart: unless-stopped
+
+  auth:
+    build: ./auth
+    container_name: auth
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    networks:
+      - gateway
+    restart: unless-stopped
+
+  login:
+    build: ./login
+    container_name: login
+    depends_on:
+      - auth
+    networks:
+      - gateway
+    restart: unless-stopped
+
+  cloud:
+    build: ./cloud
+    container_name: cloud
+    depends_on:
+      - auth
+    networks:
+      - gateway
+    restart: unless-stopped
 
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
-    restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
     networks:
       - gateway
+    restart: unless-stopped
 
 networks:
   gateway:
@@ -45,3 +58,7 @@ networks:
   tphome-network:
     external: true
     name: tphome_tphome-network
+
+volumes:
+  caddy_data:
+  caddy_config:

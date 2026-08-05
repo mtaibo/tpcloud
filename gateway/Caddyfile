@@ -1,0 +1,51 @@
+{
+    auto_https off
+    admin off
+}
+
+(protected) {
+    forward_auth auth:8000 {
+        uri /auth/passkey/validate
+    }
+}
+
+login.migueltaibo.com {
+    handle /auth/* {
+        reverse_proxy auth:8000
+    }
+    handle {
+        reverse_proxy login:80
+    }
+}
+
+cloud.migueltaibo.com {
+    handle /auth/* {
+        reverse_proxy auth:8000
+    }
+    handle {
+        import protected
+        reverse_proxy cloud:80
+    }
+}
+
+tphome.migueltaibo.com {
+    import protected
+
+    header Cache-Control "no-store, no-cache, must-revalidate"
+
+    handle /api/* {
+        reverse_proxy tphome-api:8000
+    }
+    handle /ws/* {
+        reverse_proxy tphome-api:8000
+    }
+    handle /openapi.json {
+        reverse_proxy tphome-api:8000
+    }
+    handle /firmware {
+        reverse_proxy tphome-api:8000
+    }
+    handle {
+        reverse_proxy tphome-frontend:80
+    }
+}
