@@ -9,7 +9,7 @@
     }
 }
 
-login.migueltaibo.com {
+http://login.migueltaibo.com {
     handle /auth/* {
         reverse_proxy auth:8000
     }
@@ -18,7 +18,7 @@ login.migueltaibo.com {
     }
 }
 
-cloud.migueltaibo.com {
+http://cloud.migueltaibo.com {
     handle /auth/* {
         reverse_proxy auth:8000
     }
@@ -28,7 +28,7 @@ cloud.migueltaibo.com {
     }
 }
 
-tphome.migueltaibo.com {
+http://tphome.migueltaibo.com {
     import protected
 
     header Cache-Control "no-store, no-cache, must-revalidate"
