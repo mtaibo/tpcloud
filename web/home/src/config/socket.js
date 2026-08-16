@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useDevices } from './devices'
 import { useBlueprint } from './blueprint'
 
-const WS_URL = `ws://${window.location.host}/api/ws`
+const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws`
 
 let socket = null
 let reconnectTimer = null
