@@ -29,23 +29,25 @@ http://cloud.migueltaibo.com {
 }
 
 http://tphome.migueltaibo.com {
-    import protected
-
     header Cache-Control "no-store, no-cache, must-revalidate"
 
-    handle /api/* {
+    handle /api/ws {
         reverse_proxy tphome-api:8000
     }
-    handle /ws/* {
+    handle /api/* {
+        import protected
         reverse_proxy tphome-api:8000
     }
     handle /openapi.json {
+        import protected
         reverse_proxy tphome-api:8000
     }
     handle /firmware {
+        import protected
         reverse_proxy tphome-api:8000
     }
     handle {
+        import protected
         reverse_proxy tphome-frontend:80
     }
 }

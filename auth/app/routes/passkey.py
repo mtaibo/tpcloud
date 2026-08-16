@@ -42,6 +42,7 @@ router = APIRouter(prefix="/auth/passkey")
 RP_ID = os.environ["RP_ID"] # Relying Party ID as migueltaibo.com to use the authentication on all migueltaibo.com subdomains (like cloud.migueltaibo.com)
 RP_NAME = os.environ["RP_NAME"] # Relying Party Name, just a text naming the passkey on the user keychain, just cosmetic
 ORIGIN = os.environ["ORIGIN"] # URL where the navigator.credentials.create()/.get() is made
+IOS_BUNDLE_ID = os.environ.get("IOS_BUNDLE_ID", "com.migueltaibo.tpapp")
 
 SESSION_DURATION = timedelta(hours=1)
 
@@ -92,7 +93,7 @@ def register_complete(
             credential=request_body,
             expected_challenge=challenge,
             expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
+            expected_origin=[ORIGIN, f"ios:bundle-id:{IOS_BUNDLE_ID}"],
         )
     except Exception: raise HTTPException(status_code=400, detail="Passkey verification failed")
 
@@ -182,7 +183,7 @@ def login_complete(
             credential=request_body,
             expected_challenge=challenge,
             expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
+            expected_origin=[ORIGIN, f"ios:bundle-id:{IOS_BUNDLE_ID}"],
             credential_public_key=b64url_decode(stored_credential.public_key),
             credential_current_sign_count=0,
         )
