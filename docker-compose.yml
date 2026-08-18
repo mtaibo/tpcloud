@@ -5,6 +5,7 @@ services:
     container_name: gateway
     volumes:
       - ./gateway/Caddyfile:/etc/caddy/Caddyfile
+      - ./gateway/.well-known:/srv/.well-known
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

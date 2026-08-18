@@ -145,30 +145,10 @@ struct AdminInvitesView: View {
     @State private var newEmail = ""
 
     var body: some View {
-        List {
-            ForEach(invites) { invite in
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(invite.email).font(.subheadline)
-                        Text(invite.used ? "Usada" : "Pendiente")
-                            .font(.caption)
-                            .foregroundStyle(invite.used ? .secondary : .green)
-                    }
-                    Spacer()
-                    if invite.used {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    }
-                }
-                .swipeActions {
-                    if !invite.used {
-                        Button(role: .destructive) {
-                            Task { await revokeInvite(invite.email) }
-                        } label: {
-                            Label("Revocar", systemImage: "xmark")
-                        }
-                    }
-                }
-            }
+        List(invites, id: \.email) { invite in
+            InviteRow(invite: invite, onRevoke: {
+                Task { await revokeInvite(invite.email) }
+            })
         }
         .task { await reload() }
         .refreshable { await reload() }
@@ -203,5 +183,32 @@ struct AdminInvitesView: View {
     private func revokeInvite(_ email: String) async {
         try? await CloudAPI.adminRevokeInvite(email)
         await reload()
+    }
+}
+
+struct InviteRow: View {
+    let invite: Invite
+    let onRevoke: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text(invite.email).font(.subheadline)
+                Text(invite.used ? "Usada" : "Pendiente")
+                    .font(.caption)
+                    .foregroundStyle(invite.used ? Color.secondary : Color.green)
+            }
+            Spacer()
+            if invite.used {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.green)
+            }
+        }
+        .swipeActions {
+            if !invite.used {
+                Button(role: .destructive, action: onRevoke) {
+                    Label("Revocar", systemImage: "xmark")
+                }
+            }
+        }
     }
 }
