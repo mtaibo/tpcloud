@@ -31,6 +31,9 @@ http://cloud.migueltaibo.com {
 http://tphome.migueltaibo.com {
     header Cache-Control "no-store, no-cache, must-revalidate"
 
+    handle /auth/* {
+        reverse_proxy auth:8000
+    }
     handle /api/ws {
         reverse_proxy tphome-api:8000
     }
