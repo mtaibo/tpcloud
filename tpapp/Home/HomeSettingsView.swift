@@ -6,23 +6,21 @@ struct HomeSettingsView: View {
     @State private var selectedSection = 0
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Picker("Sección", selection: $selectedSection) {
-                    Text("Dispositivos").tag(0)
-                    Text("Firmware").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .padding()
-
-                if selectedSection == 0 {
-                    DevicesView()
-                } else {
-                    FirmwareView()
-                }
+        VStack(spacing: 0) {
+            Picker("Sección", selection: $selectedSection) {
+                Text("Dispositivos").tag(0)
+                Text("Firmware").tag(1)
             }
-            .navigationTitle("Ajustes")
+            .pickerStyle(.segmented)
+            .padding()
+
+            if selectedSection == 0 {
+                DevicesView()
+            } else {
+                FirmwareView()
+            }
         }
+        .navigationTitle("Ajustes")
     }
 }
 

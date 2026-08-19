@@ -4,31 +4,29 @@ struct BlindsView: View {
     @Binding var blinds: [BlindDevice]
 
     var body: some View {
-        NavigationStack {
-            List(blinds) { blind in
-                BlindCard(blind: blind)
-            }
-            .navigationTitle("Persianas")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        Task { try? await HomeAPI.adminUpdate() }
-                    } label: {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                    }
+        List(blinds) { blind in
+            BlindCard(blind: blind)
+        }
+        .navigationTitle("Persianas")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    Task { try? await HomeAPI.adminUpdate() }
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
                 }
             }
-            .refreshable {
-                blinds = (try? await HomeAPI.blinds()) ?? []
-            }
-            .overlay {
-                if blinds.isEmpty {
-                    ContentUnavailableView(
-                        "Sin persianas",
-                        systemImage: "blinds.horizontal.closed",
-                        description: Text("No hay dispositivos configurados")
-                    )
-                }
+        }
+        .refreshable {
+            blinds = (try? await HomeAPI.blinds()) ?? []
+        }
+        .overlay {
+            if blinds.isEmpty {
+                ContentUnavailableView(
+                    "Sin persianas",
+                    systemImage: "blinds.horizontal.closed",
+                    description: Text("No hay dispositivos configurados")
+                )
             }
         }
     }

@@ -27,7 +27,7 @@ struct CloudView: View {
             profile = try? await CloudAPI.profile()
         }
         .sheet(isPresented: $showHome) {
-            HomeView()
+            HomeView(me: me)
         }
     }
 }

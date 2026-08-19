@@ -4,14 +4,12 @@ struct LightsView: View {
     @Binding var lights: [LightDevice]
 
     var body: some View {
-        NavigationStack {
-            List($lights) { $light in
-                LightRow(light: $light)
-            }
-            .navigationTitle("Luces")
-            .refreshable {
-                lights = (try? await HomeAPI.lights()) ?? []
-            }
+        List($lights) { $light in
+            LightRow(light: $light)
+        }
+        .navigationTitle("Luces")
+        .refreshable {
+            lights = (try? await HomeAPI.lights()) ?? []
         }
     }
 }
