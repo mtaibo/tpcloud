@@ -7,6 +7,7 @@
     import { pendingDeviceId } from '@/config/sections.js'
     import MapPopup from './MapPopup.vue'
     import Btn from '@/components/Btn.vue'
+    import DeviceLogs from '@/components/DeviceLogs.vue'
     import { useDeviceDetail } from '@/config/useDeviceDetail'
 
     const store = useDevices()
@@ -248,6 +249,12 @@
                     </Transition>
                 </div>
 
+            </div>
+
+            <!-- Logs -->
+            <div>
+                <p class="text-base font-semibold text-white px-1 pb-3">Actividad MQTT</p>
+                <DeviceLogs :device-id="selectedDevice.id" />
             </div>
 
         </div>

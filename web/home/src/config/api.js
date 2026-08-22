@@ -97,4 +97,9 @@ export const api = {
     async deleteFirmware(id) {
         return client.delete(`/firmware/${id}`)
     },
+
+    async getLogs(deviceId, limit = 200) {
+        const response = await client.get(`/logs/${deviceId}?limit=${limit}`)
+        return response.data
+    },
 }

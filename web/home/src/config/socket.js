@@ -10,7 +10,17 @@ let reconnectTimer = null
 
 export const apiOnline = ref(true)
 
+const _listeners = {}
+
+export function onEvent(type, fn) {
+    if (!_listeners[type]) _listeners[type] = []
+    _listeners[type].push(fn)
+    return () => { _listeners[type] = _listeners[type].filter(f => f !== fn) }
+}
+
 function handle(store, type, data) {
+    if (_listeners[type]) _listeners[type].forEach(fn => fn(data))
+
     const category = Object.keys(store.storage).find(cat => data.id in store.storage[cat])
 
     switch (type) {
