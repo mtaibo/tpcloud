@@ -18,7 +18,6 @@ router = APIRouter(prefix="/auth/account")
 RP_ID = os.environ["RP_ID"]
 RP_NAME = os.environ["RP_NAME"]
 ORIGIN = os.environ["ORIGIN"]
-IOS_BUNDLE_ID = os.environ.get("IOS_BUNDLE_ID", "com.migueltaibo.tpapp")
 
 _pending_add_challenges: dict[int, bytes] = {}
 
@@ -145,7 +144,7 @@ def add_passkey_complete(
             credential=request_body,
             expected_challenge=challenge,
             expected_rp_id=RP_ID,
-            expected_origin=[ORIGIN, f"ios:bundle-id:{IOS_BUNDLE_ID}"],
+            expected_origin=ORIGIN,
         )
     except Exception:
         raise HTTPException(status_code=400, detail="Verificación fallida")
