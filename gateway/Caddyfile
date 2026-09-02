@@ -28,6 +28,16 @@ http://cloud.migueltaibo.com {
     }
 }
 
+http://accounts.migueltaibo.com {
+    handle /auth/* {
+        reverse_proxy auth:8000
+    }
+    handle {
+        import protected
+        reverse_proxy accounts:80
+    }
+}
+
 http://tphome.migueltaibo.com {
     header Cache-Control "no-store, no-cache, must-revalidate"
 

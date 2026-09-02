@@ -2,9 +2,12 @@
 import { ref, onMounted } from 'vue'
 
 const email = ref('')
-const mode = ref('login')
-const message = ref(null) // { type: 'error' | 'success', text: string }
+const password = ref('')
+const totpCode = ref('')
+const step = ref('credentials') // 'credentials' | 'totp'
+const message = ref(null)
 const loading = ref(false)
+const usingPasskey = ref(false)
 
 const params = new URLSearchParams(window.location.search)
 const redirectHost = params.get('redirect') || 'cloud.migueltaibo.com'
@@ -22,34 +25,23 @@ function setError(e) {
   }
 }
 
-async function register() {
-  if (!email.value || loading.value) return
+async function loginWithPassword() {
+  if (!email.value || !password.value || loading.value) return
   loading.value = true
   message.value = null
   try {
-    const optsRes = await fetch(
-      `/auth/passkey/register/begin?email=${encodeURIComponent(email.value)}`,
-      { method: 'POST' }
-    )
-    const optsBody = await optsRes.json()
-    if (!optsRes.ok) throw new Error(optsBody.detail)
-
-    const cred = await navigator.credentials.create({
-      publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(optsBody)
+    const res = await fetch('/auth/password/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.value, password: password.value }),
     })
-
-    const res = await fetch(
-      `/auth/passkey/register/complete?email=${encodeURIComponent(email.value)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cred.toJSON()),
-      }
-    )
-    if (!res.ok) throw new Error((await res.json()).detail)
-
-    message.value = { type: 'success', text: 'Passkey registrada. Ya puedes iniciar sesión.' }
-    mode.value = 'login'
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail)
+    if (data.totp_required) {
+      step.value = 'totp'
+    } else {
+      window.location.href = `https://${redirectHost}`
+    }
   } catch (e) {
     setError(e)
   } finally {
@@ -57,7 +49,27 @@ async function register() {
   }
 }
 
-async function login() {
+async function verifyTotp() {
+  if (!totpCode.value || loading.value) return
+  loading.value = true
+  message.value = null
+  try {
+    const res = await fetch('/auth/password/totp/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: totpCode.value }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail)
+    window.location.href = `https://${redirectHost}`
+  } catch (e) {
+    setError(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loginWithPasskey() {
   if (!email.value || loading.value) return
   loading.value = true
   message.value = null
@@ -94,8 +106,9 @@ async function login() {
   }
 }
 
-function switchMode(next) {
-  mode.value = next
+function backToCredentials() {
+  step.value = 'credentials'
+  totpCode.value = ''
   message.value = null
 }
 </script>
@@ -105,50 +118,88 @@ function switchMode(next) {
     <div class="container">
       <p class="label">tpcloud</p>
 
-      <div class="heading">
-        <h1>{{ mode === 'login' ? 'Accede a tu cuenta' : 'Registrar passkey' }}</h1>
-        <p class="subtitle">
-          {{ mode === 'login'
-            ? 'Introduce tu correo y usa tu passkey para autenticarte.'
-            : 'Introduce tu correo para vincular una nueva passkey a tu cuenta.' }}
-        </p>
-      </div>
-
-      <div class="form">
-        <div class="field">
-          <label for="email">Correo electrónico</label>
-          <input
-            id="email"
-            v-model="email"
-            type="email"
-            placeholder="usuario@ejemplo.com"
-            autocomplete="email"
-            :disabled="loading"
-            @keydown.enter="mode === 'login' ? login() : register()"
-          />
+      <!-- Step: credentials -->
+      <template v-if="step === 'credentials'">
+        <div class="heading">
+          <h1>Accede a tu cuenta</h1>
+          <p class="subtitle">Introduce tu correo y contraseña para autenticarte.</p>
         </div>
 
-        <button
-          :disabled="loading || !email"
-          @click="mode === 'login' ? login() : register()"
-        >
-          <span v-if="loading" class="spinner" />
-          <span v-else>{{ mode === 'login' ? 'Continuar con passkey' : 'Registrar passkey' }}</span>
-        </button>
-      </div>
+        <div class="form">
+          <div class="field">
+            <label for="email">Correo electrónico</label>
+            <input
+              id="email"
+              v-model="email"
+              type="email"
+              placeholder="usuario@ejemplo.com"
+              autocomplete="email"
+              :disabled="loading"
+              @keydown.enter="loginWithPassword"
+            />
+          </div>
+
+          <div class="field">
+            <label for="password">Contraseña</label>
+            <input
+              id="password"
+              v-model="password"
+              type="password"
+              placeholder="••••••••"
+              autocomplete="current-password"
+              :disabled="loading"
+              @keydown.enter="loginWithPassword"
+            />
+          </div>
+
+          <button :disabled="loading || !email || !password" @click="loginWithPassword">
+            <span v-if="loading" class="spinner" />
+            <span v-else>Iniciar sesión</span>
+          </button>
+
+          <button class="btn-secondary" :disabled="loading || !email" @click="loginWithPasskey">
+            <span v-if="loading" class="spinner" />
+            <span v-else>Usar passkey en su lugar</span>
+          </button>
+        </div>
+      </template>
+
+      <!-- Step: TOTP -->
+      <template v-else-if="step === 'totp'">
+        <div class="heading">
+          <h1>Verificación en dos pasos</h1>
+          <p class="subtitle">Introduce el código de 6 dígitos de tu aplicación de autenticación.</p>
+        </div>
+
+        <div class="form">
+          <div class="field">
+            <label for="totp">Código TOTP</label>
+            <input
+              id="totp"
+              v-model="totpCode"
+              type="text"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              maxlength="6"
+              placeholder="000000"
+              autocomplete="one-time-code"
+              :disabled="loading"
+              @keydown.enter="verifyTotp"
+            />
+          </div>
+
+          <button :disabled="loading || totpCode.length < 6" @click="verifyTotp">
+            <span v-if="loading" class="spinner" />
+            <span v-else>Verificar</span>
+          </button>
+        </div>
+
+        <p class="footer">
+          <button class="link" @click="backToCredentials">Volver</button>
+        </p>
+      </template>
 
       <p v-if="message" :class="['message', message.type]">{{ message.text }}</p>
-
-      <p class="footer">
-        <template v-if="mode === 'login'">
-          ¿Aún no tienes passkey?
-          <button class="link" @click="switchMode('register')">Registrar</button>
-        </template>
-        <template v-else>
-          ¿Ya tienes passkey?
-          <button class="link" @click="switchMode('login')">Iniciar sesión</button>
-        </template>
-      </p>
     </div>
   </div>
 </template>
@@ -234,7 +285,7 @@ label {
   letter-spacing: 0.05em;
 }
 
-input[type="email"] {
+input {
   width: 100%;
   background: #000;
   border: 1px solid #262626;
@@ -246,9 +297,9 @@ input[type="email"] {
   transition: border-color 0.2s;
 }
 
-input[type="email"]::placeholder { color: #404040; }
-input[type="email"]:focus { border-color: #525252; }
-input[type="email"]:disabled { opacity: 0.4; cursor: not-allowed; }
+input::placeholder { color: #404040; }
+input:focus { border-color: #525252; }
+input:disabled { opacity: 0.4; cursor: not-allowed; }
 
 button {
   width: 100%;
@@ -269,6 +320,17 @@ button {
 
 button:hover:not(:disabled) { border-color: #737373; }
 button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btn-secondary {
+  border-color: #262626;
+  color: #737373;
+  font-size: 0.85rem;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: #404040;
+  color: #a3a3a3;
+}
 
 .spinner {
   width: 14px;

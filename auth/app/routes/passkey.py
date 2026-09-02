@@ -3,18 +3,14 @@ import base64
 import secrets
 from datetime import datetime, timedelta, timezone
 
-# API imports
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
-
-# Database imports
 from database import get_session
 from sqlmodel import Session as DBSession, select
-from models import AllowedEmail, PasskeyCredential, Session as SessionModel, User
+from models import PasskeyCredential, Session as SessionModel, User
 
-# Passkey authentication imports
 import webauthn
-from dependencies import require_allowed_email
+from dependencies import require_password_session
 from webauthn import generate_authentication_options, verify_authentication_response
 from webauthn.helpers import options_to_json
 from webauthn.helpers.structs import (
@@ -22,12 +18,8 @@ from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor,
     UserVerificationRequirement,
 )
+from utils import get_client_ip, lookup_location, parse_device_info
 
-'''
-
-Auxiliar functions used to encode ...
-
-'''
 
 def b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
@@ -39,9 +31,10 @@ def b64url_decode(data: str) -> bytes:
 
 router = APIRouter(prefix="/auth/passkey")
 
-RP_ID = os.environ["RP_ID"] # Relying Party ID as migueltaibo.com to use the authentication on all migueltaibo.com subdomains (like cloud.migueltaibo.com)
-RP_NAME = os.environ["RP_NAME"] # Relying Party Name, just a text naming the passkey on the user keychain, just cosmetic
-ORIGIN = os.environ["ORIGIN"] # URL where the navigator.credentials.create()/.get() is made
+RP_ID = os.environ["RP_ID"]
+RP_NAME = os.environ["RP_NAME"]
+ORIGIN = os.environ["ORIGIN"]
+ACCOUNTS_ORIGIN = os.environ["ACCOUNTS_ORIGIN"]
 
 SESSION_DURATION = timedelta(hours=1)
 
@@ -51,92 +44,66 @@ _pending_states: dict[str, str] = {}
 
 
 @router.post("/register/begin")
-def register_begin( email: str = Depends(require_allowed_email) ):
-
-    # Options needed for the webauthn to generate a passkey registration
+def register_begin(user: User = Depends(require_password_session)):
     options = webauthn.generate_registration_options(
-
         rp_id=RP_ID,
         rp_name=RP_NAME,
-        user_name=email,
-        user_id=email.encode(),
-        user_display_name=email.split("@")[0],
-
-        # Authenticator type and options allowed
+        user_name=user.email,
+        user_id=user.email.encode(),
+        user_display_name=user.display_name,
         authenticator_selection=AuthenticatorSelectionCriteria(
-            user_verification=UserVerificationRequirement.REQUIRED, # Require Biometric verification
+            user_verification=UserVerificationRequirement.REQUIRED,
         ),
     )
-
-    # Register to keep the challenge of the new register to check it on register_complete
-    _pending_registration_challenges[email] = options.challenge
-
-    # Send options to the navigator after converting it to json
+    _pending_registration_challenges[user.email] = options.challenge
     return Response(content=options_to_json(options), media_type="application/json")
 
 
 @router.post("/register/complete")
 def register_complete(
     request_body: dict,
-    email: str = Depends(require_allowed_email),
+    user: User = Depends(require_password_session),
     session: DBSession = Depends(get_session),
 ):
+    challenge = _pending_registration_challenges.get(user.email)
+    if not challenge:
+        raise HTTPException(status_code=400, detail="No hay registro pendiente para este usuario")
 
-    # Recover the challenge asigned to the registration on register_begin
-    challenge = _pending_registration_challenges.get(email)
-    if not challenge: raise HTTPException(status_code=400, detail="Not pending register for this email")
-
-    # Check or verify if the registration was correct, with the expected challenge, rp_id and origin
     try:
         verification = webauthn.verify_registration_response(
             credential=request_body,
             expected_challenge=challenge,
             expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
+            expected_origin=ACCOUNTS_ORIGIN,
         )
-    except Exception: raise HTTPException(status_code=400, detail="Passkey verification failed")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Verificación de passkey fallida")
 
-    # Get/create the user asigned to the new passkey
-    user = session.exec(select(User).where(User.email == email)).first()
-    if not user:
-        user = User(email=email, display_name=email.split("@")[0])
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-
-    # Save the new passkey credential on the  database
     credential = PasskeyCredential(
         user_id=user.id,
         credential_id=b64url_encode(verification.credential_id),
         public_key=b64url_encode(verification.credential_public_key),
-        device_name=request_body.get("device_name", "unnamed device"),
+        device_name=request_body.get("device_name", "nuevo dispositivo"),
     )
     session.add(credential)
-
-    # Set the email that was used to register as used on the database
-    allowed = session.exec(select(AllowedEmail).where(AllowedEmail.email == email)).first()
-    allowed.used = True
-    session.add(allowed)
-
-    # Commit changes to the database and remove the pending registration challenge from its dict
     session.commit()
-    del _pending_registration_challenges[email]
+    del _pending_registration_challenges[user.email]
 
-    return {"status": "passkey registered", "user_id": user.id}
+    return {"status": "passkey registrada", "user_id": user.id}
 
 
 @router.post("/login/begin")
 def login_begin(email: str, session: DBSession = Depends(get_session)):
-
-    # 
     user = session.exec(select(User).where(User.email == email)).first()
-    if not user: raise HTTPException(status_code=404, detail="user not found")
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    #
-    credentials = session.exec(select(PasskeyCredential).where(PasskeyCredential.user_id == user.id)).all()
-    if not credentials: raise HTTPException(status_code=404, detail="not passkeys found for this user")
+    credentials = session.exec(
+        select(PasskeyCredential).where(PasskeyCredential.user_id == user.id)
+    ).all()
+    if not credentials:
+        raise HTTPException(status_code=404, detail="No hay passkeys para este usuario")
 
-    #
     allow_credentials = [
         PublicKeyCredentialDescriptor(id=b64url_decode(c.credential_id))
         for c in credentials
@@ -146,7 +113,6 @@ def login_begin(email: str, session: DBSession = Depends(get_session)):
         rp_id=RP_ID,
         allow_credentials=allow_credentials,
     )
-
     _pending_login_challenges[email] = options.challenge
 
     return Response(content=options_to_json(options), media_type="application/json")
@@ -156,15 +122,16 @@ def login_begin(email: str, session: DBSession = Depends(get_session)):
 def login_complete(
     request_body: dict,
     email: str,
+    request: Request,
     session: DBSession = Depends(get_session),
 ):
     challenge = _pending_login_challenges.get(email)
     if not challenge:
-        raise HTTPException(status_code=400, detail="no hay login pendiente para este email")
+        raise HTTPException(status_code=400, detail="No hay login pendiente para este email")
 
     user = session.exec(select(User).where(User.email == email)).first()
     if not user:
-        raise HTTPException(status_code=401, detail="credenciales inválidas")
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
     credential_id = request_body.get("id")
     stored_credential = session.exec(
@@ -173,9 +140,8 @@ def login_complete(
             PasskeyCredential.user_id == user.id,
         )
     ).first()
-
     if not stored_credential:
-        raise HTTPException(status_code=401, detail="credenciales inválidas")
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
     try:
         verify_authentication_response(
@@ -187,14 +153,23 @@ def login_complete(
             credential_current_sign_count=0,
         )
     except Exception:
-        raise HTTPException(status_code=401, detail="firma inválida")
+        raise HTTPException(status_code=401, detail="Firma inválida")
 
     stored_credential.last_used_at = datetime.now(timezone.utc)
     session.add(stored_credential)
 
+    ip = get_client_ip(request)
+    ua_string = request.headers.get("User-Agent", "")
+
     new_session = SessionModel(
         user_id=user.id,
         expires_at=datetime.now(timezone.utc) + SESSION_DURATION,
+        ip_address=ip,
+        user_agent=ua_string,
+        totp_verified=True,
+        auth_method="passkey",
+        device_info=parse_device_info(ua_string),
+        location=lookup_location(ip),
     )
     session.add(new_session)
     session.commit()
@@ -220,7 +195,11 @@ def check(request: Request, session: DBSession = Depends(get_session)):
         db_session = session.exec(
             select(SessionModel).where(SessionModel.session_id == session_id)
         ).first()
-        if db_session and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+        if (
+            db_session
+            and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc)
+            and db_session.totp_verified
+        ):
             return Response(status_code=200)
     raise HTTPException(status_code=401, detail="no autenticado")
 
@@ -232,10 +211,18 @@ def me(request: Request, session: DBSession = Depends(get_session)):
         db_session = session.exec(
             select(SessionModel).where(SessionModel.session_id == session_id)
         ).first()
-        if db_session and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+        if (
+            db_session
+            and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc)
+            and db_session.totp_verified
+        ):
             user = session.exec(select(User).where(User.id == db_session.user_id)).first()
             if user:
-                return {"email": user.email, "display_name": user.display_name}
+                return {
+                    "email": user.email,
+                    "display_name": user.display_name,
+                    "is_admin": user.is_admin,
+                }
     raise HTTPException(status_code=401, detail="no autenticado")
 
 
@@ -262,7 +249,11 @@ def validate(request: Request, session: DBSession = Depends(get_session)):
         db_session = session.exec(
             select(SessionModel).where(SessionModel.session_id == session_id)
         ).first()
-        if db_session and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+        if (
+            db_session
+            and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc)
+            and db_session.totp_verified
+        ):
             return Response(status_code=200)
 
     original_host = request.headers.get("X-Forwarded-Host", "")

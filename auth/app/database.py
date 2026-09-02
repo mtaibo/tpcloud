@@ -13,11 +13,20 @@ engine = create_engine(DATABASE_URL, echo=False)
 def init_db():
     SQLModel.metadata.create_all(engine)
     with engine.connect() as conn:
-        try:
-            conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"))
-            conn.commit()
-        except Exception:
-            pass
+        for sql in [
+            "ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN password_hash TEXT",
+            "ALTER TABLE users ADD COLUMN totp_secret TEXT",
+            "ALTER TABLE sessions ADD COLUMN totp_verified BOOLEAN NOT NULL DEFAULT 1",
+            "ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'passkey'",
+            "ALTER TABLE sessions ADD COLUMN device_info TEXT",
+            "ALTER TABLE sessions ADD COLUMN location TEXT",
+        ]:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception:
+                pass
 
 
 def get_session():

@@ -43,6 +43,15 @@ services:
       - gateway
     restart: unless-stopped
 
+  accounts:
+    build: ./accounts
+    container_name: tpcloud-accounts
+    depends_on:
+      - auth
+    networks:
+      - gateway
+    restart: unless-stopped
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared

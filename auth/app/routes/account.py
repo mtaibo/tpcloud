@@ -2,6 +2,7 @@ import os
 import base64
 from datetime import datetime, timezone
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from sqlmodel import Session as DBSession, select
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/auth/account")
 
 RP_ID = os.environ["RP_ID"]
 RP_NAME = os.environ["RP_NAME"]
-ORIGIN = os.environ["ORIGIN"]
+ACCOUNTS_ORIGIN = os.environ["ACCOUNTS_ORIGIN"]
 
 _pending_add_challenges: dict[int, bytes] = {}
 
@@ -54,6 +55,8 @@ def get_profile(
         "email": user.email,
         "display_name": user.display_name,
         "is_admin": user.is_admin,
+        "has_password": user.password_hash is not None,
+        "totp_enabled": user.totp_secret is not None,
         "passkeys": [
             {
                 "credential_id": p.credential_id,
@@ -69,6 +72,9 @@ def get_profile(
                 "created_at": s.created_at.isoformat(),
                 "expires_at": s.expires_at.isoformat(),
                 "ip_address": s.ip_address,
+                "device_info": s.device_info,
+                "location": s.location,
+                "auth_method": s.auth_method,
                 "current": s.session_id == current_session_id,
             }
             for s in sessions
@@ -91,6 +97,29 @@ def update_profile(
     return {"display_name": user.display_name}
 
 
+@router.patch("/password")
+def change_password(
+    body: dict,
+    user: User = Depends(require_login),
+    session: DBSession = Depends(get_session),
+):
+    new_password = body.get("new_password", "").strip()
+    if not new_password or len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
+
+    if user.password_hash:
+        current_password = body.get("current_password", "")
+        if not bcrypt.checkpw(current_password.encode(), user.password_hash.encode()):
+            raise HTTPException(status_code=401, detail="Contraseña actual incorrecta")
+
+    db_user = session.get(User, user.id)
+    db_user.password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+    session.add(db_user)
+    session.commit()
+
+    return {"status": "Contraseña actualizada"}
+
+
 @router.delete("/passkey/{credential_id}")
 def delete_passkey(
     credential_id: str,
@@ -101,12 +130,14 @@ def delete_passkey(
         select(PasskeyCredential).where(PasskeyCredential.user_id == user.id)
     ).all()
 
-    if len(passkeys) <= 1:
-        raise HTTPException(status_code=400, detail="No puedes eliminar tu única passkey")
-
     target = next((p for p in passkeys if p.credential_id == credential_id), None)
     if not target:
         raise HTTPException(status_code=404, detail="Passkey no encontrada")
+
+    # Prevent lockout: require either a password or another passkey
+    has_password = user.password_hash is not None
+    if not has_password and len(passkeys) <= 1:
+        raise HTTPException(status_code=400, detail="No puedes eliminar tu única passkey sin tener contraseña configurada")
 
     session.delete(target)
     session.commit()
@@ -144,7 +175,7 @@ def add_passkey_complete(
             credential=request_body,
             expected_challenge=challenge,
             expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
+            expected_origin=ACCOUNTS_ORIGIN,
         )
     except Exception:
         raise HTTPException(status_code=400, detail="Verificación fallida")

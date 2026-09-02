@@ -12,6 +12,8 @@ class User(SQLModel, table=True):
     display_name: str
     is_admin: bool = Field(default=False)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    password_hash: Optional[str] = Field(default=None)
+    totp_secret: Optional[str] = Field(default=None)
 
 
 class AllowedEmail(SQLModel, table=True):
@@ -48,3 +50,7 @@ class Session(SQLModel, table=True):
     expires_at: datetime
     ip_address: Optional[str] = Field(default=None)
     user_agent: Optional[str] = Field(default=None)
+    totp_verified: bool = Field(default=True)
+    auth_method: str = Field(default="passkey")
+    device_info: Optional[str] = Field(default=None)
+    location: Optional[str] = Field(default=None)

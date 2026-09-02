@@ -3,3 +3,7 @@ uvicorn[standard]
 sqlmodel
 webauthn
 python-dotenv
+bcrypt
+pyotp
+user-agents
+httpx

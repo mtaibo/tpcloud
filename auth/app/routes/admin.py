@@ -1,11 +1,12 @@
 from datetime import datetime, timezone
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session as DBSession, select, func
 
 from database import get_session
 from dependencies import require_admin
-from models import AllowedEmail, PasskeyCredential, Session as SessionModel, User
+from models import PasskeyCredential, Session as SessionModel, User
 
 router = APIRouter(prefix="/auth/admin")
 
@@ -33,11 +34,53 @@ def list_users(
             "email": u.email,
             "display_name": u.display_name,
             "is_admin": u.is_admin,
+            "has_password": u.password_hash is not None,
+            "totp_enabled": u.totp_secret is not None,
             "created_at": u.created_at.isoformat(),
             "passkey_count": passkey_count,
             "active_session_count": session_count,
         })
     return result
+
+
+@router.post("/users")
+def create_user(
+    body: dict,
+    admin: User = Depends(require_admin),
+    session: DBSession = Depends(get_session),
+):
+    email = body.get("email", "").strip().lower()
+    display_name = body.get("display_name", "").strip()
+    password = body.get("password", "")
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Email requerido")
+    if not password or len(password) < 8:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
+    if not display_name:
+        display_name = email.split("@")[0]
+
+    existing = session.exec(select(User).where(User.email == email)).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
+
+    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    new_user = User(
+        email=email,
+        display_name=display_name,
+        password_hash=password_hash,
+        is_admin=False,
+    )
+    session.add(new_user)
+    session.commit()
+    session.refresh(new_user)
+
+    return {
+        "id": new_user.id,
+        "email": new_user.email,
+        "display_name": new_user.display_name,
+        "is_admin": new_user.is_admin,
+    }
 
 
 @router.patch("/users/{user_id}")
@@ -92,10 +135,15 @@ def list_sessions(
         user = session.get(User, s.user_id)
         result.append({
             "session_id": s.session_id,
+            "user_id": s.user_id,
             "user_email": user.email if user else "—",
+            "user_display_name": user.display_name if user else "—",
+            "auth_method": s.auth_method,
+            "device_info": s.device_info,
+            "location": s.location,
+            "ip_address": s.ip_address,
             "created_at": s.created_at.isoformat(),
             "expires_at": s.expires_at.isoformat(),
-            "ip_address": s.ip_address,
         })
     return result
 
@@ -112,56 +160,5 @@ def revoke_session(
     if not db_session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
     session.delete(db_session)
-    session.commit()
-    return {"status": "revocada"}
-
-
-@router.get("/invites")
-def list_invites(
-    admin: User = Depends(require_admin),
-    session: DBSession = Depends(get_session),
-):
-    invites = session.exec(select(AllowedEmail)).all()
-    return [
-        {
-            "email": i.email,
-            "used": i.used,
-            "invited_by": i.invited_by,
-            "created_at": i.created_at.isoformat(),
-        }
-        for i in invites
-    ]
-
-
-@router.post("/invites")
-def create_invite(
-    body: dict,
-    admin: User = Depends(require_admin),
-    session: DBSession = Depends(get_session),
-):
-    email = body.get("email", "").strip().lower()
-    if not email:
-        raise HTTPException(status_code=400, detail="Email requerido")
-    existing = session.exec(select(AllowedEmail).where(AllowedEmail.email == email)).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="Email ya invitado")
-    invite = AllowedEmail(email=email, invited_by=admin.id)
-    session.add(invite)
-    session.commit()
-    return {"email": email, "status": "invitado"}
-
-
-@router.delete("/invites/{email}")
-def revoke_invite(
-    email: str,
-    admin: User = Depends(require_admin),
-    session: DBSession = Depends(get_session),
-):
-    invite = session.exec(select(AllowedEmail).where(AllowedEmail.email == email)).first()
-    if not invite:
-        raise HTTPException(status_code=404, detail="Invitación no encontrada")
-    if invite.used:
-        raise HTTPException(status_code=400, detail="La invitación ya fue usada")
-    session.delete(invite)
     session.commit()
     return {"status": "revocada"}
