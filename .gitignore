@@ -13,3 +13,5 @@ login/node_modules/
 login/dist/
 cloud/node_modules/
 cloud/dist/
+accounts/node_modules/
+accounts/dist/
