@@ -39,46 +39,86 @@ async function logout() {
 </script>
 
 <template>
-  <div v-if="appReady && user" class="flex flex-col h-screen bg-black overflow-hidden">
-    <!-- Header -->
-    <header
-      class="flex items-center justify-between px-5 py-3 shrink-0"
-      style="background: #1c1c1e; border-bottom: 1px solid rgba(255,255,255,0.08);"
-    >
-      <span class="text-white font-semibold text-sm tracking-wide select-none">TPStore</span>
-      <div class="flex items-center gap-4">
-        <span class="text-sm" style="color: #636366;">{{ user.display_name }}</span>
-        <button
-          @click="logout"
-          class="text-sm transition-colors"
-          style="color: #636366;"
-          onmouseover="this.style.color='#fff'"
-          onmouseout="this.style.color='#636366'"
-        >
-          Salir
-        </button>
+  <div v-if="appReady && user" class="app">
+    <header class="app-header">
+      <span class="brand">TPStore</span>
+      <div class="header-right">
+        <span class="user-name">{{ user.display_name }}</span>
+        <button class="logout-btn" @click="logout">Log out</button>
       </div>
     </header>
-
-    <!-- Body -->
-    <div class="flex flex-1 overflow-hidden">
-      <Sidebar
-        :user="user"
-        :location="location"
-        :current-path="currentPath"
-        @navigate="navigate"
-      />
-      <FileBrowser
-        :user="user"
-        :location="location"
-        :current-path="currentPath"
-        @navigate="navigate"
-      />
+    <div class="app-body">
+      <Sidebar :user="user" :location="location" :current-path="currentPath" @navigate="navigate" />
+      <FileBrowser :user="user" :location="location" :current-path="currentPath" @navigate="navigate" />
     </div>
   </div>
 
-  <!-- Loading / redirect -->
-  <div v-else class="h-screen bg-black flex items-center justify-center">
-    <span class="text-sm" style="color: #636366;">Cargando...</span>
+  <div v-else class="loading-screen">
+    <span>Loading…</span>
   </div>
 </template>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #app { height: 100%; background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+::-webkit-scrollbar { display: none; }
+* { -ms-overflow-style: none; scrollbar-width: none; }
+</style>
+
+<style scoped>
+.app { display: flex; flex-direction: column; height: 100dvh; background: #000; overflow: hidden; }
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 1.25rem;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.12);
+}
+
+.brand {
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.875rem;
+  letter-spacing: 0.03em;
+  user-select: none;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.user-name {
+  font-size: 0.8rem;
+  color: #525252;
+}
+
+.logout-btn {
+  background: none;
+  border: none;
+  font-size: 0.8rem;
+  color: #525252;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.logout-btn:hover { color: #fff; }
+
+.app-body { display: flex; flex: 1; overflow: hidden; }
+
+.loading-screen {
+  height: 100dvh;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-screen span { font-size: 0.875rem; color: #525252; }
+</style>

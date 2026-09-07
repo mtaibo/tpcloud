@@ -51,7 +51,7 @@ function formatSize(bytes) {
 }
 
 function formatDate(ts) {
-  return new Date(ts * 1000).toLocaleDateString('es-ES', {
+  return new Date(ts * 1000).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -60,59 +60,124 @@ function formatDate(ts) {
 </script>
 
 <template>
-  <tr
-    class="group transition-colors"
-    style="border-bottom: 1px solid rgba(255,255,255,0.04);"
-    @mouseover="(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'"
-    @mouseleave="(e) => e.currentTarget.style.background = ''"
-  >
-    <!-- Name -->
-    <td class="px-4 py-2">
+  <tr class="file-row">
+    <td class="cell-name">
       <button
-        class="flex items-center gap-2 text-sm text-left w-full"
-        :class="entry.type === 'directory' ? 'cursor-pointer' : 'cursor-default'"
+        class="name-btn"
+        :class="{ 'is-dir': entry.type === 'directory' }"
         @click="entry.type === 'directory' && emit('open', entry)"
       >
-        <component :is="fileIcon" class="w-4 h-4 shrink-0" :style="{ color: iconColor }" />
-        <span class="truncate" style="color: #d1d1d6;">{{ entry.name }}</span>
+        <component :is="fileIcon" class="file-icon" :style="{ color: iconColor }" />
+        <span class="file-name">{{ entry.name }}</span>
       </button>
     </td>
 
-    <!-- Size -->
-    <td class="px-4 py-2 text-right text-sm whitespace-nowrap" style="color: #636366;">
-      {{ formatSize(entry.size) }}
-    </td>
+    <td class="cell-meta">{{ formatSize(entry.size) }}</td>
+    <td class="cell-meta">{{ formatDate(entry.modified) }}</td>
 
-    <!-- Date -->
-    <td class="px-4 py-2 text-right text-sm whitespace-nowrap" style="color: #636366;">
-      {{ formatDate(entry.modified) }}
-    </td>
-
-    <!-- Actions -->
-    <td class="px-4 py-2">
-      <div class="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+    <td class="cell-actions">
+      <div class="row-actions">
         <button
           v-if="entry.type === 'file'"
+          class="action-btn"
           @click="emit('download', entry)"
-          class="p-1 rounded transition-colors"
-          title="Descargar"
-          style="color: #636366;"
-          @mouseover="(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff' }"
-          @mouseleave="(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = '#636366' }"
+          title="Download"
         >
-          <Download class="w-4 h-4" />
+          <Download class="action-icon" />
         </button>
         <button
+          class="action-btn delete-btn"
           @click="emit('delete', entry)"
-          class="p-1 rounded transition-colors"
-          title="Eliminar"
-          style="color: #636366;"
-          @mouseover="(e) => { e.currentTarget.style.background = 'rgba(255,69,58,0.15)'; e.currentTarget.style.color = '#ff453a' }"
-          @mouseleave="(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = '#636366' }"
+          title="Delete"
         >
-          <Trash2 class="w-4 h-4" />
+          <Trash2 class="action-icon" />
         </button>
       </div>
     </td>
   </tr>
 </template>
+
+<style scoped>
+.file-row {
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.1s;
+}
+
+.file-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.file-row:hover .row-actions {
+  opacity: 1;
+}
+
+.cell-name {
+  padding: 0.65rem 1.25rem;
+}
+
+.cell-meta {
+  padding: 0.65rem 1.25rem;
+  text-align: right;
+  font-size: 0.8rem;
+  color: #525252;
+  white-space: nowrap;
+}
+
+.cell-actions {
+  padding: 0.65rem 1.25rem;
+}
+
+.name-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.875rem;
+  text-align: left;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: default;
+}
+
+.name-btn.is-dir { cursor: pointer; }
+
+.file-icon { width: 16px; height: 16px; flex-shrink: 0; }
+
+.file-name {
+  color: #d1d1d6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.action-btn {
+  padding: 0.3rem;
+  border-radius: 6px;
+  background: none;
+  border: none;
+  color: #636366;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.action-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.delete-btn:hover {
+  background: rgba(255, 69, 58, 0.15);
+  color: #ff453a;
+}
+
+.action-icon { width: 14px; height: 14px; }
+</style>
