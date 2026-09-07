@@ -52,6 +52,30 @@ services:
       - gateway
     restart: unless-stopped
 
+  store-api:
+    build: ./store/api
+    container_name: tpstore-api
+    environment:
+      - EXTERNAL_DISK_PATH=/mnt/external
+      - AUTH_SERVICE_URL=http://auth:8000
+    volumes:
+      - ${EXTERNAL_DISK_PATH:-/mnt/external}:/mnt/external
+      - /:/mnt/server
+    depends_on:
+      - auth
+    networks:
+      - gateway
+    restart: unless-stopped
+
+  store-frontend:
+    build: ./store/frontend
+    container_name: tpstore-frontend
+    depends_on:
+      - store-api
+    networks:
+      - gateway
+    restart: unless-stopped
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared

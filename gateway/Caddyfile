@@ -38,6 +38,22 @@ http://accounts.migueltaibo.com {
     }
 }
 
+http://store.migueltaibo.com {
+    header Cache-Control "no-store, no-cache, must-revalidate"
+
+    handle /auth/* {
+        reverse_proxy auth:8000
+    }
+    handle /api/* {
+        import protected
+        reverse_proxy store-api:8000
+    }
+    handle {
+        import protected
+        reverse_proxy store-frontend:80
+    }
+}
+
 http://tphome.migueltaibo.com {
     header Cache-Control "no-store, no-cache, must-revalidate"
 
