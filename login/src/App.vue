@@ -4,10 +4,9 @@ import { ref, onMounted } from 'vue'
 const email = ref('')
 const password = ref('')
 const totpCode = ref('')
-const step = ref('credentials') // 'credentials' | 'totp'
+const step = ref('email') // 'email' | 'password' | 'totp'
 const message = ref(null)
 const loading = ref(false)
-const usingPasskey = ref(false)
 
 const params = new URLSearchParams(window.location.search)
 const redirectHost = params.get('redirect') || 'cloud.migueltaibo.com'
@@ -23,6 +22,12 @@ function setError(e) {
   } else {
     message.value = { type: 'error', text: e.message || 'Error inesperado' }
   }
+}
+
+function continueWithPassword() {
+  if (!email.value) return
+  step.value = 'password'
+  message.value = null
 }
 
 async function loginWithPassword() {
@@ -106,8 +111,8 @@ async function loginWithPasskey() {
   }
 }
 
-function backToCredentials() {
-  step.value = 'credentials'
+function backToPassword() {
+  step.value = 'password'
   totpCode.value = ''
   message.value = null
 }
@@ -116,31 +121,60 @@ function backToCredentials() {
 <template>
   <div class="page">
     <div class="container">
-      <p class="label">tpcloud</p>
 
-      <!-- Step: credentials -->
-      <template v-if="step === 'credentials'">
-        <div class="heading">
-          <h1>Accede a tu cuenta</h1>
-          <p class="subtitle">Introduce tu correo y contraseña para autenticarte.</p>
-        </div>
+      <!-- Step: email -->
+      <template v-if="step === 'email'">
+        <h1>Login</h1>
 
         <div class="form">
           <div class="field">
-            <label for="email">Correo electrónico</label>
+            <label for="email">MAIL</label>
             <input
               id="email"
               v-model="email"
               type="email"
-              placeholder="usuario@ejemplo.com"
+              placeholder=""
               autocomplete="email"
               :disabled="loading"
-              @keydown.enter="loginWithPassword"
+              @keydown.enter="continueWithPassword"
+            />
+          </div>
+
+          <div class="btn-row">
+            <button :disabled="!email" @click="continueWithPassword">
+              Continue
+            </button>
+
+            <button class="btn-secondary" :disabled="loading || !email" @click="loginWithPasskey">
+              <span v-if="loading" class="spinner" />
+              <template v-else>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6"/><path d="M15.5 7.5l3 3L22 7l-3-3"/></svg>
+                Passkey
+              </template>
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- Step: password -->
+      <template v-else-if="step === 'password'">
+        <h1>Login</h1>
+
+        <div class="form">
+          <div class="field">
+            <label for="email">MAIL</label>
+            <input
+              id="email"
+              v-model="email"
+              type="email"
+              placeholder=""
+              autocomplete="email"
+              :disabled="loading"
             />
           </div>
 
           <div class="field">
-            <label for="password">Contraseña</label>
+            <label for="password">PASSWORD</label>
             <input
               id="password"
               v-model="password"
@@ -152,28 +186,30 @@ function backToCredentials() {
             />
           </div>
 
-          <button :disabled="loading || !email || !password" @click="loginWithPassword">
-            <span v-if="loading" class="spinner" />
-            <span v-else>Iniciar sesión</span>
-          </button>
+          <div class="btn-row">
+            <button :disabled="loading || !email || !password" @click="loginWithPassword">
+              <span v-if="loading" class="spinner" />
+              <span v-else>Log in</span>
+            </button>
 
-          <button class="btn-secondary" :disabled="loading || !email" @click="loginWithPasskey">
-            <span v-if="loading" class="spinner" />
-            <span v-else>Usar passkey en su lugar</span>
-          </button>
+            <button class="btn-secondary" :disabled="loading || !email" @click="loginWithPasskey">
+              <span v-if="loading" class="spinner" />
+              <template v-else>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6"/><path d="M15.5 7.5l3 3L22 7l-3-3"/></svg>
+                Passkey
+              </template>
+            </button>
+          </div>
         </div>
       </template>
 
       <!-- Step: TOTP -->
       <template v-else-if="step === 'totp'">
-        <div class="heading">
-          <h1>Verificación en dos pasos</h1>
-          <p class="subtitle">Introduce el código de 6 dígitos de tu aplicación de autenticación.</p>
-        </div>
+        <h1>Two-factor authentication</h1>
 
         <div class="form">
           <div class="field">
-            <label for="totp">Código TOTP</label>
+            <label for="totp">CODE</label>
             <input
               id="totp"
               v-model="totpCode"
@@ -181,22 +217,22 @@ function backToCredentials() {
               inputmode="numeric"
               pattern="[0-9]*"
               maxlength="6"
-              placeholder="000000"
+              placeholder="······"
               autocomplete="one-time-code"
               :disabled="loading"
               @keydown.enter="verifyTotp"
             />
           </div>
 
-          <button :disabled="loading || totpCode.length < 6" @click="verifyTotp">
-            <span v-if="loading" class="spinner" />
-            <span v-else>Verificar</span>
-          </button>
-        </div>
+          <div class="btn-row">
+            <button :disabled="loading || totpCode.length < 6" @click="verifyTotp">
+              <span v-if="loading" class="spinner" />
+              <span v-else>Continue</span>
+            </button>
 
-        <p class="footer">
-          <button class="link" @click="backToCredentials">Volver</button>
-        </p>
+            <button class="btn-secondary" @click="backToPassword">Back</button>
+          </div>
+        </div>
       </template>
 
       <p v-if="message" :class="['message', message.type]">{{ message.text }}</p>
@@ -230,20 +266,19 @@ html, body, #app {
 .container {
   width: 100%;
   max-width: 380px;
-  border: 1px solid #262626;
-  border-radius: 0.5rem;
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+  border-radius: 22px;
   padding: 2rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-}
-
-.label {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: #737373;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  background: rgba(255, 255, 255, 0.065);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.15);
 }
 
 .heading {
@@ -287,9 +322,9 @@ label {
 
 input {
   width: 100%;
-  background: #000;
-  border: 1px solid #262626;
-  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
   padding: 0.6rem 0.75rem;
   color: #fff;
   font-size: 0.9rem;
@@ -298,44 +333,97 @@ input {
 }
 
 input::placeholder { color: #404040; }
-input:focus { border-color: #525252; }
+input:focus { border-color: rgba(255, 255, 255, 0.3); }
 input:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 2rem;
+}
+
+.btn-row button {
+  flex: 1;
+  font-size: 0.85rem;
+}
 
 button {
   width: 100%;
-  background: transparent;
-  border: 1px solid #404040;
-  border-radius: 0.5rem;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.07) 50%,
+    rgba(255, 255, 255, 0.10) 100%
+  );
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 0.5px solid rgba(255, 255, 255, 0.22);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.18),
+    0 4px 12px rgba(0, 0, 0, 0.24),
+    0 1px 3px rgba(0, 0, 0, 0.14);
   padding: 0.65rem 1rem;
   color: #fff;
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.3s;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
   min-height: 2.5rem;
 }
 
-button:hover:not(:disabled) { border-color: #737373; }
+button:hover:not(:disabled) {
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.20) 0%,
+    rgba(255, 255, 255, 0.11) 50%,
+    rgba(255, 255, 255, 0.16) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.18),
+    0 6px 18px rgba(0, 0, 0, 0.30),
+    0 1px 3px rgba(0, 0, 0, 0.14);
+}
+
 button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .btn-secondary {
-  border-color: #262626;
-  color: #737373;
-  font-size: 0.85rem;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.07) 0%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.11);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.16);
+  color: #a3a3a3;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  border-color: #404040;
-  color: #a3a3a3;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.11) 0%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.22);
+  color: #e4e4e7;
 }
 
 .spinner {
   width: 14px;
   height: 14px;
-  border: 1.5px solid #525252;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
