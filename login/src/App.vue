@@ -136,7 +136,7 @@ function backToPassword() {
               placeholder=""
               autocomplete="email"
               :disabled="loading"
-              @keydown.enter="continueWithPassword"
+              @keydown.enter="loginWithPasskey"
             />
           </div>
 
@@ -333,6 +333,13 @@ input {
 }
 
 input::placeholder { color: #404040; }
+
+input:-webkit-autofill,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px rgba(30, 30, 30, 0.95) inset;
+  -webkit-text-fill-color: #fff;
+  caret-color: #fff;
+}
 input:focus { border-color: rgba(255, 255, 255, 0.3); }
 input:disabled { opacity: 0.4; cursor: not-allowed; }
 
