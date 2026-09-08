@@ -15,3 +15,6 @@ cloud/node_modules/
 cloud/dist/
 accounts/node_modules/
 accounts/dist/
+store/frontend/node_modules/
+store/frontend/dist/
+package-lock.json
