@@ -46,31 +46,31 @@ function navigate(view, name) {
         <p class="brand">tpcloud</p>
 
         <nav class="nav">
-          <p class="nav-section">Cuenta</p>
+          <p class="nav-section">Account</p>
           <button
             class="nav-item"
             :class="{ active: activeNav === 'account' }"
             @click="navigate(AccountView, 'account')"
-          >Mi cuenta</button>
+          >My account</button>
 
           <template v-if="user.is_admin">
-            <p class="nav-section">Administración</p>
+            <p class="nav-section">Administration</p>
             <button
               class="nav-item"
               :class="{ active: activeNav === 'users' }"
               @click="navigate(UsersView, 'users')"
-            >Usuarios</button>
+            >Users</button>
             <button
               class="nav-item"
               :class="{ active: activeNav === 'sessions' }"
               @click="navigate(SessionsView, 'sessions')"
-            >Sesiones</button>
+            >Sessions</button>
           </template>
         </nav>
 
         <div class="sidebar-footer">
           <p class="user-email">{{ user.email }}</p>
-          <button class="logout" @click="logout">Cerrar sesión</button>
+          <button class="logout" @click="logout">Log out</button>
         </div>
       </aside>
 
@@ -104,18 +104,21 @@ html, body, #app { height: 100%; background: #000; color: #fff; font-family: -ap
 .sidebar {
   width: 220px;
   min-height: 100dvh;
-  border-right: 1px solid #1a1a1a;
+  border-right: 0.5px solid rgba(255, 255, 255, 0.1);
   padding: 2rem 1rem;
   display: flex;
   flex-direction: column;
   gap: 2rem;
   flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
 }
 
 .brand {
   font-size: 0.75rem;
   font-weight: 500;
-  color: #737373;
+  color: #525252;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: 0 0.5rem;
@@ -131,7 +134,7 @@ html, body, #app { height: 100%; background: #000; color: #fff; font-family: -ap
 .nav-section {
   font-size: 0.65rem;
   font-weight: 500;
-  color: #525252;
+  color: #404040;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 0.75rem 0.5rem 0.25rem;
@@ -139,19 +142,25 @@ html, body, #app { height: 100%; background: #000; color: #fff; font-family: -ap
 
 .nav-item {
   background: none;
-  border: none;
+  border: 0.5px solid transparent;
   color: #737373;
   font-size: 0.85rem;
   cursor: pointer;
   padding: 0.4rem 0.5rem;
-  border-radius: 0.375rem;
+  border-radius: 8px;
   text-align: left;
   width: 100%;
-  transition: color 0.2s, background 0.2s;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
 }
 
-.nav-item:hover { color: #fff; background: #111; }
-.nav-item.active { color: #fff; background: #1a1a1a; }
+.nav-item:hover { color: #fff; }
+.nav-item.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
 
 .sidebar-footer {
   display: flex;
@@ -161,7 +170,7 @@ html, body, #app { height: 100%; background: #000; color: #fff; font-family: -ap
 
 .user-email {
   font-size: 0.75rem;
-  color: #525252;
+  color: #404040;
   padding: 0 0.5rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -171,17 +180,17 @@ html, body, #app { height: 100%; background: #000; color: #fff; font-family: -ap
 .logout {
   background: none;
   border: none;
-  color: #737373;
+  color: #525252;
   font-size: 0.8rem;
   cursor: pointer;
   padding: 0.4rem 0.5rem;
-  border-radius: 0.375rem;
+  border-radius: 8px;
   text-align: left;
   width: 100%;
   transition: color 0.2s;
 }
 
-.logout:hover { color: #fca5a5; }
+.logout:hover { color: #fff; }
 
 .content {
   flex: 1;
@@ -192,8 +201,8 @@ html, body, #app { height: 100%; background: #000; color: #fff; font-family: -ap
 .spinner {
   width: 24px;
   height: 24px;
-  border: 2px solid #262626;
-  border-top-color: #737373;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-top-color: rgba(255, 255, 255, 0.5);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }

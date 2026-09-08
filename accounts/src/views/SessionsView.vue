@@ -21,17 +21,17 @@ async function revokeSession(sessionId) {
 function relativeTime(iso) {
   const diff = Date.now() - new Date(iso).getTime()
   const m = Math.floor(diff / 60000)
-  if (m < 1) return 'ahora mismo'
-  if (m < 60) return `hace ${m}m`
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
   const h = Math.floor(m / 60)
-  if (h < 24) return `hace ${h}h`
-  return `hace ${Math.floor(h / 24)}d`
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
 }
 
 function expiresIn(iso) {
   const diff = new Date(iso).getTime() - Date.now()
   const m = Math.floor(diff / 60000)
-  if (m < 1) return 'expirada'
+  if (m < 1) return 'expired'
   if (m < 60) return `${m}m`
   return `${Math.floor(m / 60)}h`
 }
@@ -40,17 +40,17 @@ function expiresIn(iso) {
 <template>
   <div class="view">
     <div class="page-header">
-      <h1>Sesiones activas</h1>
-      <p class="muted">{{ sessions.length }} sesión{{ sessions.length !== 1 ? 'es' : '' }}</p>
+      <h1>Active sessions</h1>
+      <p class="muted">{{ sessions.length }} session{{ sessions.length !== 1 ? 's' : '' }}</p>
     </div>
 
     <section class="section">
       <div class="block">
         <div v-if="loading" class="row">
-          <span class="muted">Cargando…</span>
+          <span class="muted">Loading…</span>
         </div>
         <div v-else-if="sessions.length === 0" class="row">
-          <span class="muted">No hay sesiones activas</span>
+          <span class="muted">No active sessions</span>
         </div>
         <div v-for="s in sessions" :key="s.session_id" class="row">
           <div class="session-info">
@@ -62,15 +62,15 @@ function expiresIn(iso) {
               <span class="badge" :class="s.auth_method === 'passkey' ? 'badge-passkey' : 'badge-password'">
                 {{ s.auth_method }}
               </span>
-              <span class="muted text-xs">{{ s.device_info || 'Dispositivo desconocido' }}</span>
+              <span class="muted text-xs">{{ s.device_info || 'Unknown device' }}</span>
             </p>
             <p class="muted text-xs">
-              {{ s.location || s.ip_address || 'Ubicación desconocida' }}
-              · Iniciada {{ relativeTime(s.created_at) }}
-              · Expira en {{ expiresIn(s.expires_at) }}
+              {{ s.location || s.ip_address || 'Unknown location' }}
+              · Started {{ relativeTime(s.created_at) }}
+              · Expires in {{ expiresIn(s.expires_at) }}
             </p>
           </div>
-          <button class="btn-danger" @click="revokeSession(s.session_id)">Revocar</button>
+          <button class="btn-danger" @click="revokeSession(s.session_id)">Revoke</button>
         </div>
       </div>
     </section>
@@ -88,8 +88,15 @@ h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; }
 
 .section { display: flex; flex-direction: column; gap: 0.75rem; }
 
-.block { border: 1px solid #262626; border-radius: 0.5rem; overflow: hidden; }
-.row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1rem; border-bottom: 1px solid #1a1a1a; }
+.block {
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+.row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
 .row:last-child { border-bottom: none; }
 
 .session-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
@@ -99,6 +106,6 @@ h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; }
 .btn-danger:hover { color: #fca5a5; }
 
 .badge { font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.15rem 0.4rem; border-radius: 0.25rem; }
-.badge-passkey { color: #93c5fd; background: rgba(59,130,246,0.08); }
-.badge-password { color: #fcd34d; background: rgba(251,191,36,0.08); }
+.badge-passkey { color: #93c5fd; background: rgba(59, 130, 246, 0.08); }
+.badge-password { color: #fcd34d; background: rgba(251, 191, 36, 0.08); }
 </style>
