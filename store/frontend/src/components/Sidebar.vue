@@ -139,7 +139,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           </button>
           <button :class="['nav-item', { active: isActive('external', '') }]" @click="go('external', '')">
             <HardDrive class="nav-icon" />
-            <span>Root</span>
+            <span>Disk</span>
           </button>
         </template>
       </template>
