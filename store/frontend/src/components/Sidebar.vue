@@ -12,7 +12,7 @@ const props = defineProps({
 
 const emit = defineEmits(['navigate'])
 
-const serverOpen = ref(false)
+const serverOpen = ref(true)
 const menuOpen = ref(false)
 const cardRef = ref(null)
 
@@ -153,7 +153,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 }
 
 .separator-clickable {
-  cursor: pointer;
+  cursor: default;
 }
 
 .separator-clickable:hover .chevron {
@@ -187,7 +187,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   align-items: center;
   gap: 1rem;
   width: 100%;
-  padding: 0.625rem 1rem;
+  padding: 0.35rem 1rem;
   border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 500;
@@ -195,7 +195,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   color: #fff;
   background: transparent;
   border: none;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.2s;
 }
 
@@ -247,7 +247,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   color: rgba(255, 255, 255, 0.7);
   background: none;
   border: none;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s, color 0.15s;
   text-align: left;
 }
@@ -274,7 +274,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   border-radius: 8px;
   background: none;
   border: none;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s;
 }
 
