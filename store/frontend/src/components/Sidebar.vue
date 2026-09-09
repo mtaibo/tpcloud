@@ -99,7 +99,10 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         <p v-if="favourites.length === 0" class="empty-hint">No favourites yet</p>
         <div v-for="fav in favourites" :key="fav.id" class="fav-row">
           <button :class="['nav-item', { active: isActive(fav.location, fav.path) }]" @click="go(fav.location, fav.path)">
-            <Star class="nav-icon fav-star" />
+            <span class="fav-icon-wrap">
+              <Folder class="nav-icon" />
+              <Star class="fav-badge" />
+            </span>
             <span>{{ fav.label }}</span>
           </button>
           <button class="remove-btn" @click="removeFavourite(fav.id)" title="Remove">
@@ -357,8 +360,21 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   color: #007AFF;
 }
 
-.fav-star {
+.fav-icon-wrap {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.fav-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -3px;
+  width: 9px;
+  height: 9px;
   color: #FFD60A;
+  stroke-width: 2.5;
 }
 
 .sidebar-footer {
