@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Server, ChevronRight, User, LogOut } from 'lucide-vue-next'
+import { HardDrive, Folder, Server, ChevronRight, User, LogOut, Cloud } from 'lucide-vue-next'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -84,6 +84,14 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
         <Transition name="fade">
           <div v-if="menuOpen" class="user-menu">
+            <a href="https://accounts.migueltaibo.com" class="user-menu-item">
+              <User class="menu-icon" />
+              Account
+            </a>
+            <a href="https://cloud.migueltaibo.com" class="user-menu-item">
+              <Cloud class="menu-icon" />
+              TPCloud
+            </a>
             <button @click="logout" class="user-menu-item logout-item">
               <LogOut class="menu-icon" />
               Log out
@@ -245,6 +253,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   cursor: default;
   transition: background 0.15s, color 0.15s;
   text-align: left;
+  text-decoration: none;
 }
 
 
