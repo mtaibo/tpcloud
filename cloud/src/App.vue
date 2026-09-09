@@ -5,10 +5,10 @@ const user = ref(null)
 const loading = ref(true)
 
 const services = [
-  { name: 'TPHome',    icon: 'home',      description: 'Domótica',  url: 'https://tphome.migueltaibo.com' },
-  { name: 'Accounts', icon: 'person',    description: 'Cuentas',   url: 'https://accounts.migueltaibo.com' },
-  { name: 'Store',    icon: 'database',  description: 'Tienda',    url: 'https://store.migueltaibo.com' },
-  { name: 'Portfolio',icon: 'portfolio', description: 'Portfolio',  url: 'https://migueltaibo.com' },
+  { name: 'TPHome',    icon: 'home',      description: 'Home Automation',   url: 'https://tphome.migueltaibo.com' },
+  { name: 'Accounts', icon: 'person',    description: 'Account Management', url: 'https://accounts.migueltaibo.com' },
+  { name: 'Store',    icon: 'database',  description: 'Storage',            url: 'https://store.migueltaibo.com' },
+  { name: 'Portfolio',icon: 'portfolio', description: 'www.migueltaibo.com',  url: 'https://migueltaibo.com' },
 ]
 
 onMounted(async () => {
@@ -46,15 +46,16 @@ async function logout() {
 
     <div v-if="!loading && user" class="container">
 
+      <div class="section-top">
+        <button class="logout" @click="logout">Log out</button>
+      </div>
+
       <div class="hero">
         <h1>Hello, {{ user.display_name }}.</h1>
         <p class="muted">{{ user.email }}</p>
       </div>
 
       <div class="section">
-        <div class="section-top">
-          <button class="logout" @click="logout">Log out</button>
-        </div>
         <div class="grid">
           <a v-for="s in services" :key="s.name" :href="s.url" class="card">
             <div class="card-icon">
@@ -163,5 +164,5 @@ h1 { font-size: 2rem; font-weight: 600; letter-spacing: -0.02em; }
 }
 .card-icon { color: rgba(255, 255, 255, 0.55); margin-bottom: 0.35rem; }
 .card-name { font-size: 0.95rem; font-weight: 500; color: #fff; }
-.card-desc { font-size: 0.8rem; color: #737373; }
+.card-desc { font-size: 0.7rem; color: #737373; }
 </style>
