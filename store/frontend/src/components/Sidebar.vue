@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Server, ChevronRight, User, LogOut, Cloud } from 'lucide-vue-next'
+import { HardDrive, Folder, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X } from 'lucide-vue-next'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -13,8 +13,45 @@ const props = defineProps({
 const emit = defineEmits(['navigate'])
 
 const serverOpen = ref(true)
+const cloudOpen = ref(true)
+const favouritesOpen = ref(true)
 const menuOpen = ref(false)
 const cardRef = ref(null)
+const favourites = ref([])
+
+function loadFavourites() {
+  try {
+    const stored = localStorage.getItem('tpcloud-favourites')
+    if (stored) favourites.value = JSON.parse(stored)
+  } catch {}
+}
+
+function saveFavourites() {
+  localStorage.setItem('tpcloud-favourites', JSON.stringify(favourites.value))
+}
+
+function derivLabel(loc, path) {
+  if (!path) return loc === 'server' ? 'Server Root' : 'Disk Root'
+  const parts = path.split('/').filter(Boolean)
+  const last = parts[parts.length - 1]
+  if (path === `users/${props.user.email}`) return 'Personal'
+  if (last === 'shared') return 'Shared'
+  return last.charAt(0).toUpperCase() + last.slice(1)
+}
+
+function addFavourite() {
+  const loc = props.location
+  const path = props.currentPath
+  const exists = favourites.value.some(f => f.location === loc && f.path === path)
+  if (exists) return
+  favourites.value.push({ id: `${loc}:${path}`, label: derivLabel(loc, path), location: loc, path })
+  saveFavourites()
+}
+
+function removeFavourite(id) {
+  favourites.value = favourites.value.filter(f => f.id !== id)
+  saveFavourites()
+}
 
 function isActive(loc, path) {
   return props.location === loc && props.currentPath === path
@@ -33,7 +70,10 @@ async function logout() {
   window.location.href = `${LOGIN_URL}/`
 }
 
-onMounted(() => document.addEventListener('click', onClickOutside))
+onMounted(() => {
+  document.addEventListener('click', onClickOutside)
+  loadFavourites()
+})
 onUnmounted(() => document.removeEventListener('click', onClickOutside))
 </script>
 
@@ -44,26 +84,49 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
     <nav class="sidebar-nav">
 
-      <div class="separator-row separator-first">
-        <p class="section-label">External Disk</p>
+      <!-- FAVOURITES -->
+      <div class="separator-row separator-first separator-clickable" @click="favouritesOpen = !favouritesOpen">
+        <p class="section-label">Favourites</p>
+        <div class="section-actions">
+          <button class="add-btn" @click.stop="addFavourite" title="Add current folder">
+            <Plus class="add-icon" />
+          </button>
+          <ChevronRight class="chevron" :class="{ open: favouritesOpen }" />
+        </div>
       </div>
 
-      <button :class="['nav-item', { active: isActive('external', 'shared') }]" @click="go('external', 'shared')">
-        <Folder class="nav-icon" />
-        <span>Shared</span>
-      </button>
+      <template v-if="favouritesOpen">
+        <p v-if="favourites.length === 0" class="empty-hint">No favourites yet</p>
+        <div v-for="fav in favourites" :key="fav.id" class="fav-row">
+          <button :class="['nav-item', { active: isActive(fav.location, fav.path) }]" @click="go(fav.location, fav.path)">
+            <Star class="nav-icon fav-star" />
+            <span>{{ fav.label }}</span>
+          </button>
+          <button class="remove-btn" @click="removeFavourite(fav.id)" title="Remove">
+            <X class="remove-icon" />
+          </button>
+        </div>
+      </template>
 
-      <button :class="['nav-item', { active: isActive('external', `users/${user.email}`) }]" @click="go('external', `users/${user.email}`)">
-        <Folder class="nav-icon" />
-        <span>Personal</span>
-      </button>
+      <!-- CLOUD -->
+      <div class="separator-row separator-clickable" @click="cloudOpen = !cloudOpen">
+        <p class="section-label">Cloud</p>
+        <ChevronRight class="chevron" :class="{ open: cloudOpen }" />
+      </div>
 
-      <template v-if="user.is_admin">
-        <button :class="['nav-item', { active: isActive('external', '') }]" @click="go('external', '')">
-          <HardDrive class="nav-icon" />
-          <span>Root</span>
+      <template v-if="cloudOpen">
+        <button :class="['nav-item', { active: isActive('external', 'shared') }]" @click="go('external', 'shared')">
+          <Folder class="nav-icon" />
+          <span>Shared</span>
         </button>
+        <button :class="['nav-item', { active: isActive('external', `users/${user.email}`) }]" @click="go('external', `users/${user.email}`)">
+          <Folder class="nav-icon" />
+          <span>Personal</span>
+        </button>
+      </template>
 
+      <!-- SERVER (admin only) -->
+      <template v-if="user.is_admin">
         <div class="separator-row separator-clickable" @click="serverOpen = !serverOpen">
           <p class="section-label">Server</p>
           <ChevronRight class="chevron" :class="{ open: serverOpen }" />
@@ -73,6 +136,10 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           <button :class="['nav-item', { active: isActive('server', '') }]" @click="go('server', '')">
             <Server class="nav-icon" />
             <span>System</span>
+          </button>
+          <button :class="['nav-item', { active: isActive('external', '') }]" @click="go('external', '')">
+            <HardDrive class="nav-icon" />
+            <span>Root</span>
           </button>
         </template>
       </template>
@@ -130,14 +197,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   flex-shrink: 0;
 }
 
-.sidebar-brand span {
-  color: #fff;
-  font-weight: 600;
-  font-size: 0.875rem;
-  letter-spacing: 0.03em;
-  user-select: none;
-}
-
 .sidebar-nav {
   flex: 1;
   padding: 0.75rem;
@@ -175,6 +234,12 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   user-select: none;
 }
 
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
 .chevron {
   width: 14px;
   height: 14px;
@@ -186,6 +251,81 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 .chevron.open {
   transform: rotate(90deg);
   opacity: 1;
+}
+
+.add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: default;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.separator-clickable:hover .add-btn {
+  opacity: 1;
+}
+
+.add-icon {
+  width: 12px;
+  height: 12px;
+  color: #636366;
+  transition: color 0.15s;
+}
+
+.add-btn:hover .add-icon {
+  color: #fff;
+}
+
+.empty-hint {
+  padding: 0.2rem 1rem 0.25rem;
+  font-size: 0.75rem;
+  color: #3a3a3c;
+  user-select: none;
+}
+
+.fav-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.fav-row .nav-item {
+  flex: 1;
+}
+
+.remove-btn {
+  position: absolute;
+  right: 0.375rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: default;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.fav-row:hover .remove-btn {
+  opacity: 1;
+}
+
+.remove-icon {
+  width: 12px;
+  height: 12px;
+  color: #636366;
+  transition: color 0.15s;
+}
+
+.remove-btn:hover .remove-icon {
+  color: #f87171;
 }
 
 .nav-item {
@@ -205,7 +345,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   transition: background 0.2s;
 }
 
-
 .nav-item.active {
   background: #1c1c1e;
   font-weight: 700;
@@ -216,6 +355,10 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   height: 20px;
   flex-shrink: 0;
   color: #007AFF;
+}
+
+.fav-star {
+  color: #FFD60A;
 }
 
 .sidebar-footer {
@@ -256,7 +399,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   text-decoration: none;
 }
 
-
 .logout-item:hover {
   color: #f87171;
 }
@@ -278,7 +420,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   cursor: default;
   transition: background 0.15s;
 }
-
 
 .user-avatar {
   width: 36px;
