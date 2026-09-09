@@ -371,10 +371,11 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   position: absolute;
   bottom: -2px;
   right: -3px;
-  width: 9px;
-  height: 9px;
+  width: 11px;
+  height: 11px;
   color: #FFD60A;
-  stroke-width: 2.5;
+  fill: #FFD60A;
+  stroke-width: 2;
 }
 
 .sidebar-footer {
