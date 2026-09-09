@@ -135,6 +135,7 @@ function onDrop(e) {
     <!-- Toolbar -->
     <div class="toolbar">
       <Breadcrumb
+        :user="user"
         :location="location"
         :path="currentPath"
         @navigate="(loc, p) => emit('navigate', loc, p)"

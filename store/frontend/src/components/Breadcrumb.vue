@@ -1,38 +1,104 @@
 <script setup>
 import { computed } from 'vue'
-import { HardDrive, Server } from 'lucide-vue-next'
+import { HardDrive, Server, Folder } from 'lucide-vue-next'
 
 const props = defineProps({
+  user: Object,
   location: String,
   path: String,
 })
 
 const emit = defineEmits(['navigate'])
 
-const segments = computed(() => {
+const crumbs = computed(() => {
+  const isAdmin = props.user?.is_admin
+  const loc = props.location
   const parts = (props.path || '').split('/').filter(Boolean)
-  return parts.map((part, i) => ({
-    name: part,
-    path: parts.slice(0, i + 1).join('/'),
-  }))
+  const items = []
+
+  if (isAdmin) {
+    // Root: Disk or System
+    items.push({
+      label: loc === 'external' ? 'Disk' : 'System',
+      icon: loc === 'external' ? 'disk' : 'system',
+      navigateLoc: loc,
+      navigatePath: '',
+    })
+
+    // Path segments, collapsing users/email into "Personal"
+    let i = 0
+    while (i < parts.length) {
+      if (loc === 'external' && parts[i] === 'users' && parts[i + 1] === props.user?.email) {
+        items.push({
+          label: 'Personal',
+          icon: 'folder',
+          navigateLoc: loc,
+          navigatePath: parts.slice(0, i + 2).join('/'),
+        })
+        i += 2
+      } else {
+        items.push({
+          label: parts[i],
+          icon: 'folder',
+          navigateLoc: loc,
+          navigatePath: parts.slice(0, i + 1).join('/'),
+        })
+        i++
+      }
+    }
+  } else {
+    // Non-admin: root is Personal or Shared, no Disk prefix
+    if (parts[0] === 'users' && parts[1] === props.user?.email) {
+      items.push({
+        label: 'Personal',
+        icon: 'folder',
+        navigateLoc: 'external',
+        navigatePath: `users/${props.user.email}`,
+      })
+      for (let i = 2; i < parts.length; i++) {
+        items.push({
+          label: parts[i],
+          icon: 'folder',
+          navigateLoc: 'external',
+          navigatePath: parts.slice(0, i + 1).join('/'),
+        })
+      }
+    } else if (parts[0] === 'shared') {
+      items.push({
+        label: 'Shared',
+        icon: 'folder',
+        navigateLoc: 'external',
+        navigatePath: 'shared',
+      })
+      for (let i = 1; i < parts.length; i++) {
+        items.push({
+          label: parts[i],
+          icon: 'folder',
+          navigateLoc: 'external',
+          navigatePath: parts.slice(0, i + 1).join('/'),
+        })
+      }
+    }
+  }
+
+  return items
 })
 
-function goTo(path) {
-  emit('navigate', props.location, path)
+function goTo(crumb) {
+  emit('navigate', crumb.navigateLoc, crumb.navigatePath)
 }
 </script>
 
 <template>
   <div class="breadcrumb">
-    <button class="seg root-seg" @click="goTo('')">
-      <HardDrive v-if="location === 'external'" class="seg-icon" />
-      <Server v-else class="seg-icon" />
-      <span>{{ location === 'external' ? 'Disk' : 'Server' }}</span>
-    </button>
-
-    <template v-for="seg in segments" :key="seg.path">
-      <span class="sep">/</span>
-      <button class="seg" @click="goTo(seg.path)">{{ seg.name }}</button>
+    <template v-for="(crumb, i) in crumbs" :key="i">
+      <span v-if="i > 0" class="sep">/</span>
+      <button class="seg" :class="{ 'root-seg': i === 0 }" @click="goTo(crumb)">
+        <HardDrive v-if="crumb.icon === 'disk'" class="seg-icon" />
+        <Server v-else-if="crumb.icon === 'system'" class="seg-icon" />
+        <Folder v-else class="seg-icon" />
+        <span>{{ crumb.label }}</span>
+      </button>
     </template>
   </div>
 </template>
