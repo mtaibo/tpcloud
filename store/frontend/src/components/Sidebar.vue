@@ -40,9 +40,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 <template>
   <aside class="sidebar">
 
-    <div class="sidebar-brand">
-      <span>TPStore</span>
-    </div>
+    <div class="sidebar-brand" />
 
     <nav class="sidebar-nav">
 
@@ -57,7 +55,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
       <button :class="['nav-item', { active: isActive('external', `users/${user.email}`) }]" @click="go('external', `users/${user.email}`)">
         <Folder class="nav-icon" />
-        <span>My Storage</span>
+        <span>Personal</span>
       </button>
 
       <template v-if="user.is_admin">
@@ -199,9 +197,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   transition: background 0.2s;
 }
 
-.nav-item:hover:not(.active) {
-  background: rgba(255, 255, 255, 0.05);
-}
 
 .nav-item.active {
   background: #1c1c1e;
@@ -252,9 +247,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   text-align: left;
 }
 
-.user-menu-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
 
 .logout-item:hover {
   color: #f87171;
@@ -278,9 +270,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   transition: background 0.15s;
 }
 
-.user-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
 
 .user-avatar {
   width: 36px;
