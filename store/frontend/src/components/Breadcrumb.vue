@@ -92,7 +92,7 @@ function goTo(crumb) {
 <template>
   <div class="breadcrumb">
     <template v-for="(crumb, i) in crumbs" :key="i">
-      <span v-if="i > 0" class="sep">/</span>
+      <span v-if="i > 0" class="sep">›</span>
       <button class="seg" :class="{ 'root-seg': i === 0 }" @click="goTo(crumb)">
         <HardDrive v-if="crumb.icon === 'disk'" class="seg-icon" />
         <Server v-else-if="crumb.icon === 'system'" class="seg-icon" />

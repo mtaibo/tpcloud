@@ -134,13 +134,6 @@ function onDrop(e) {
   <div class="browser">
     <!-- Toolbar -->
     <div class="toolbar">
-      <Breadcrumb
-        :user="user"
-        :location="location"
-        :path="currentPath"
-        @navigate="(loc, p) => emit('navigate', loc, p)"
-      />
-
       <div class="toolbar-actions">
         <button class="btn-tool" @click="createFolder">
           <FolderPlus class="btn-icon" />
@@ -206,6 +199,16 @@ function onDrop(e) {
         </tbody>
       </table>
     </div>
+
+    <!-- Bottom bar -->
+    <div class="bottom-bar">
+      <Breadcrumb
+        :user="user"
+        :location="location"
+        :path="currentPath"
+        @navigate="(loc, p) => emit('navigate', loc, p)"
+      />
+    </div>
   </div>
 </template>
 
@@ -220,7 +223,7 @@ function onDrop(e) {
 .toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 0.6rem 1.25rem;
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.03);
@@ -340,4 +343,11 @@ function onDrop(e) {
 .th-size { text-align: right; white-space: nowrap; }
 .th-date { text-align: right; white-space: nowrap; }
 .th-actions { width: 5rem; }
+
+.bottom-bar {
+  flex-shrink: 0;
+  padding: 0.5rem 1.25rem;
+  border-top: 0.5px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
 </style>
