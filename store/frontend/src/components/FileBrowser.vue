@@ -346,7 +346,7 @@ function onDrop(e) {
 
 .bottom-bar {
   flex-shrink: 0;
-  padding: 0.5rem 1.25rem;
+  padding: 0.65rem 1.25rem;
   border-top: 0.5px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
 }

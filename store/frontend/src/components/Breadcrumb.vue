@@ -108,7 +108,7 @@ function goTo(crumb) {
   display: flex;
   align-items: center;
   gap: 0.2rem;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   min-width: 0;
   overflow: hidden;
 }
