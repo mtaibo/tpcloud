@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
@@ -235,6 +235,12 @@ async function duplicateItem() {
   }
 }
 
+function openActiveItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  viewItem(entry)
+}
+
 function downloadActiveItem() {
   const entry = activeEntry.value
   hideMenu()
@@ -350,19 +356,18 @@ function onDrop(e) {
 
     <!-- Navigation buttons -->
     <div class="file-topbar">
-      <div class="nav-btns">
+      <div class="nav-pill">
         <button
           class="nav-btn"
-          :class="{ visible: canGoBack }"
           :disabled="!canGoBack"
           @click="emit('go-back')"
           title="Back"
         >
           <ChevronLeft class="nav-icon" />
         </button>
+        <div class="nav-divider" />
         <button
           class="nav-btn"
-          :class="{ visible: canGoForward }"
           :disabled="!canGoForward"
           @click="emit('go-forward')"
           title="Forward"
@@ -445,6 +450,10 @@ function onDrop(e) {
         >
           <!-- Entry menu (right-click on a file/folder) -->
           <template v-if="activeEntry">
+            <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="openActiveItem">
+              <ExternalLink class="ctx-icon" />
+              <span>Open</span>
+            </button>
             <button class="ctx-item" @click="renameItem">
               <Pencil class="ctx-icon" />
               <span>Rename</span>
@@ -559,61 +568,49 @@ function onDrop(e) {
   padding: 0 1.25rem;
 }
 
-.nav-btns {
+.nav-pill {
   display: flex;
   align-items: center;
-  gap: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+  overflow: hidden;
 }
 
 .nav-btn {
-  width: 30px;
+  width: 36px;
   height: 30px;
-  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: none;
   border: none;
   cursor: pointer;
-  background: linear-gradient(180deg,
-    rgba(255, 255, 255, 0.16) 0%,
-    rgba(255, 255, 255, 0.06) 100%
-  );
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow:
-    0 0 0 0.5px rgba(255, 255, 255, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    inset 0 -0.5px 0 rgba(0, 0, 0, 0.28),
-    0 4px 14px rgba(0, 0, 0, 0.32),
-    0 1px 4px rgba(0, 0, 0, 0.2);
-  color: rgba(255, 255, 255, 0.75);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s, background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.18s;
+  color: rgba(255, 255, 255, 0.85);
+  transition: background 0.12s, color 0.12s;
 }
 
-.nav-btn.visible {
-  opacity: 1;
-  pointer-events: auto;
+.nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
 }
 
-.nav-btn:hover {
-  background: linear-gradient(180deg,
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(255, 255, 255, 0.1) 100%
-  );
-  box-shadow:
-    0 0 0 0.5px rgba(255, 255, 255, 0.26),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    inset 0 -0.5px 0 rgba(0, 0, 0, 0.28),
-    0 6px 20px rgba(0, 0, 0, 0.38),
-    0 2px 6px rgba(0, 0, 0, 0.24);
-  color: #fff;
-  transform: translateY(-0.5px);
+.nav-btn:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.nav-btn:active {
-  transform: translateY(0) scale(0.96);
+.nav-btn:disabled {
+  color: rgba(255, 255, 255, 0.2);
+  cursor: default;
+}
+
+.nav-divider {
+  width: 0.5px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
 }
 
 .nav-icon {
