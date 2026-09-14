@@ -50,7 +50,7 @@ function goForward() {
   if (canGoForward.value) _applyState(navIndex.value + 1)
 }
 
-const mobileTab = ref('browse')
+const mobileTab = ref('personal')
 
 const activeTab = computed(() => {
   if (mobileTab.value === 'browse') return 'browse'
