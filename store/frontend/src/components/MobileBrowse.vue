@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Folder, Star } from 'lucide-vue-next'
+import { Folder, Star, ChevronRight } from 'lucide-vue-next'
 
 const props = defineProps({
   user: Object,
@@ -9,6 +9,7 @@ const props = defineProps({
 const emit = defineEmits(['navigate'])
 
 const favourites = ref([])
+const favouritesOpen = ref(true)
 
 onMounted(() => {
   try {
@@ -26,28 +27,31 @@ function go(fav) {
   <div class="browse-panel">
     <div class="browse-header">
       <span class="browse-large-title">Browse</span>
-      <div class="browse-tabs">
-        <button class="browse-tab active">Favourites</button>
-      </div>
     </div>
 
     <div class="browse-list">
-      <p v-if="favourites.length === 0" class="empty-hint">
-        No favourites yet.<br>Add them from desktop.
-      </p>
+      <div class="section-row" @click="favouritesOpen = !favouritesOpen">
+        <span class="section-label">Favourites</span>
+        <ChevronRight class="section-chevron" :class="{ open: favouritesOpen }" />
+      </div>
 
-      <button
-        v-for="fav in favourites"
-        :key="fav.id"
-        class="fav-row"
-        @click="go(fav)"
-      >
-        <span class="fav-icon-wrap">
-          <Folder class="fav-folder-icon" />
-          <Star class="fav-badge" />
-        </span>
-        <span class="fav-label">{{ fav.label }}</span>
-      </button>
+      <template v-if="favouritesOpen">
+        <p v-if="favourites.length === 0" class="empty-hint">
+          No favourites yet.<br>Add them from desktop.
+        </p>
+        <button
+          v-for="fav in favourites"
+          :key="fav.id"
+          class="fav-row"
+          @click="go(fav)"
+        >
+          <span class="fav-icon-wrap">
+            <Folder class="fav-folder-icon" />
+            <Star class="fav-badge" />
+          </span>
+          <span class="fav-label">{{ fav.label }}</span>
+        </button>
+      </template>
     </div>
   </div>
 </template>
@@ -68,8 +72,7 @@ function go(fav) {
   padding-left: 1.25rem;
   padding-right: 1.25rem;
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: flex-end;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -87,27 +90,32 @@ function go(fav) {
   line-height: 1;
 }
 
-.browse-tabs {
+.section-row {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 0.4rem;
+  cursor: default;
 }
 
-.browse-tab {
-  padding: 6px 16px;
-  border-radius: 999px;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  border: none;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.45);
-  font-family: inherit;
-  transition: background 0.15s, color 0.15s;
+.section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #636366;
+  user-select: none;
 }
 
-.browse-tab.active {
-  background: #007AFF;
-  color: #fff;
+.section-chevron {
+  width: 14px;
+  height: 14px;
+  color: #636366;
+  transition: transform 0.2s;
+}
+
+.section-chevron.open {
+  transform: rotate(90deg);
 }
 
 .browse-list {
