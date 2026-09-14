@@ -5,6 +5,8 @@ import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
 import RenameModal from './RenameModal.vue'
+import DeleteModal from './DeleteModal.vue'
+import CreateModal from './CreateModal.vue'
 
 const props = defineProps({
   user: Object,
@@ -29,6 +31,8 @@ const activeEntry = ref(null)
 const pickerEntry = ref(null)
 const pickerMode = ref('move')
 const renameEntry = ref(null)
+const deleteEntry = ref(null)
+const createMode = ref(null)
 
 const activeIsZip = computed(() =>
   activeEntry.value?.name?.toLowerCase().endsWith('.zip') ?? false
@@ -87,6 +91,8 @@ function onDocKeydown(e) {
     hideMenu()
     pickerEntry.value = null
     renameEntry.value = null
+    deleteEntry.value = null
+    createMode.value = null
   }
 }
 
@@ -131,7 +137,6 @@ function openItem(entry) {
 }
 
 async function deleteItem(entry) {
-  if (!confirm(`Delete "${entry.name}"?\nThis action cannot be undone.`)) return
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
   const params = new URLSearchParams({ path, location: props.location })
   const res = await fetch(`/api/files?${params}`, { method: 'DELETE' })
@@ -152,30 +157,22 @@ function downloadItem(entry) {
   a.click()
 }
 
-async function createFolder() {
+function createFolder() {
   hideMenu()
-  const name = prompt('New folder name:')
-  if (!name || !name.trim()) return
-  const path = props.currentPath ? `${props.currentPath}/${name.trim()}` : name.trim()
-  const res = await fetch('/api/files/mkdir', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, location: props.location }),
-  })
-  if (res.ok) {
-    loadDirectory()
-  } else {
-    const data = await res.json().catch(() => ({}))
-    alert(data.detail || 'Error creating folder')
-  }
+  createMode.value = 'folder'
 }
 
-async function createFile() {
+function createFile() {
   hideMenu()
-  const name = prompt('New file name:')
-  if (!name || !name.trim()) return
-  const path = props.currentPath ? `${props.currentPath}/${name.trim()}` : name.trim()
-  const res = await fetch('/api/files/touch', {
+  createMode.value = 'file'
+}
+
+async function onCreated(name) {
+  const mode = createMode.value
+  createMode.value = null
+  const path = props.currentPath ? `${props.currentPath}/${name}` : name
+  const endpoint = mode === 'folder' ? '/api/files/mkdir' : '/api/files/touch'
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, location: props.location }),
@@ -184,7 +181,7 @@ async function createFile() {
     loadDirectory()
   } else {
     const data = await res.json().catch(() => ({}))
-    alert(data.detail || 'Error creating file')
+    alert(data.detail || `Error creating ${mode}`)
   }
 }
 
@@ -290,9 +287,14 @@ async function decompressItem() {
   }
 }
 
-async function deleteActiveItem() {
-  const entry = activeEntry.value
+function deleteActiveItem() {
+  deleteEntry.value = activeEntry.value
   hideMenu()
+}
+
+async function onDeleteConfirmed() {
+  const entry = deleteEntry.value
+  deleteEntry.value = null
   await deleteItem(entry)
 }
 
@@ -492,6 +494,22 @@ function onDrop(e) {
         </div>
       </Transition>
     </Teleport>
+
+    <!-- Delete modal -->
+    <DeleteModal
+      v-if="deleteEntry"
+      :entry="deleteEntry"
+      @close="deleteEntry = null"
+      @confirmed="onDeleteConfirmed"
+    />
+
+    <!-- Create modal -->
+    <CreateModal
+      v-if="createMode"
+      :type="createMode"
+      @close="createMode = null"
+      @created="onCreated"
+    />
 
     <!-- Rename modal -->
     <RenameModal
