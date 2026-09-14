@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { Search, Users, User } from 'lucide-vue-next'
+import { Search, Users, Folder } from 'lucide-vue-next'
 
 const props = defineProps({
   activeTab: String,
@@ -10,7 +10,7 @@ const emit = defineEmits(['tab-change'])
 const tabs = [
   { id: 'browse',   label: 'Browse',   icon: Search },
   { id: 'shared',   label: 'Shared',   icon: Users },
-  { id: 'personal', label: 'Personal', icon: User },
+  { id: 'personal', label: 'Personal', icon: Folder },
 ]
 
 const navRef      = ref(null)
@@ -145,7 +145,7 @@ onUnmounted(() => {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  width: 200px;
+  width: 230px;
   bottom: 20px;
   z-index: 9000;
   border-radius: 32px;
