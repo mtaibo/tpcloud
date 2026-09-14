@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Trash2 } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Trash2, ChevronLeft } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
@@ -27,6 +27,15 @@ const activeEntry = ref(null)
 
 const pickerEntry = ref(null)
 const pickerMode = ref('move')
+
+const canGoBack = computed(() => !!props.currentPath)
+
+function goBack() {
+  if (!props.currentPath) return
+  const parts = props.currentPath.split('/').filter(Boolean)
+  parts.pop()
+  emit('navigate', props.location, parts.join('/'))
+}
 
 const menuStyle = computed(() => ({
   left: menuPos.value.x + 'px',
@@ -283,6 +292,19 @@ function onDrop(e) {
   <div class="browser">
     <input ref="fileInput" type="file" multiple style="display:none" @change="onFileInputChange" />
 
+    <!-- Back button -->
+    <div class="file-topbar">
+      <button
+        class="back-btn"
+        :class="{ visible: canGoBack }"
+        :disabled="!canGoBack"
+        @click="goBack"
+        title="Go back"
+      >
+        <ChevronLeft class="back-icon" />
+      </button>
+    </div>
+
     <!-- File area -->
     <div
       class="file-area"
@@ -422,6 +444,72 @@ function onDrop(e) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.file-topbar {
+  flex-shrink: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 1.25rem;
+}
+
+.back-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.28),
+    0 4px 14px rgba(0, 0, 0, 0.32),
+    0 1px 4px rgba(0, 0, 0, 0.2);
+  color: rgba(255, 255, 255, 0.75);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.18s;
+}
+
+.back-btn.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.back-btn:hover {
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.28),
+    0 6px 20px rgba(0, 0, 0, 0.38),
+    0 2px 6px rgba(0, 0, 0, 0.24);
+  color: #fff;
+  transform: translateY(-0.5px);
+}
+
+.back-btn:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.back-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.5;
+  margin-right: -1px;
 }
 
 .file-area {

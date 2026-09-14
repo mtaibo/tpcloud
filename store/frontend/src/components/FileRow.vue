@@ -58,16 +58,16 @@ function formatDate(ts) {
 </script>
 
 <template>
-  <tr class="file-row" @contextmenu.stop="emit('contextmenu', entry, $event)">
+  <tr
+    class="file-row"
+    @click="entry.type === 'directory' && emit('open', entry)"
+    @contextmenu.stop="emit('contextmenu', entry, $event)"
+  >
     <td class="cell-name">
-      <button
-        class="name-btn"
-        :class="{ 'is-dir': entry.type === 'directory' }"
-        @click="entry.type === 'directory' && emit('open', entry)"
-      >
+      <div class="name-btn">
         <component :is="fileIcon" class="file-icon" :style="{ color: iconColor }" />
         <span class="file-name">{{ entry.name }}</span>
-      </button>
+      </div>
     </td>
 
     <td class="cell-meta">{{ formatSize(entry.size) }}</td>
@@ -106,14 +106,8 @@ function formatDate(ts) {
   align-items: center;
   gap: 0.6rem;
   font-size: 0.875rem;
-  text-align: left;
   width: 100%;
-  background: none;
-  border: none;
-  cursor: default;
 }
-
-.name-btn.is-dir { cursor: pointer; }
 
 .file-icon { width: 16px; height: 16px; flex-shrink: 0; }
 
