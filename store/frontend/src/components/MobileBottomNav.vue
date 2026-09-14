@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { BookMarked, Users, User } from 'lucide-vue-next'
+import { Search, Users, User } from 'lucide-vue-next'
 
 const props = defineProps({
   activeTab: String,
@@ -8,7 +8,7 @@ const props = defineProps({
 const emit = defineEmits(['tab-change'])
 
 const tabs = [
-  { id: 'browse',   label: 'Browse',   icon: BookMarked },
+  { id: 'browse',   label: 'Browse',   icon: Search },
   { id: 'shared',   label: 'Shared',   icon: Users },
   { id: 'personal', label: 'Personal', icon: User },
 ]
@@ -136,7 +136,6 @@ onUnmounted(() => {
       @click="activate(tab)"
     >
       <component :is="tab.icon" class="tab-icon" />
-      <span class="tab-label">{{ tab.label }}</span>
     </button>
   </nav>
 </template>
@@ -144,8 +143,9 @@ onUnmounted(() => {
 <style scoped>
 .liquid-bar {
   position: fixed;
-  left: 8px;
-  right: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
   bottom: 20px;
   z-index: 9000;
   border-radius: 32px;
@@ -207,8 +207,7 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  height: 56px;
+  height: 48px;
   flex: 1;
   border-radius: 26px;
   border: none;
@@ -232,15 +231,4 @@ onUnmounted(() => {
   transform: scale(1.05);
 }
 
-.tab-label {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.5);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  transition: color 0.2s;
-  letter-spacing: 0.01em;
-}
-
-.tab-item.active .tab-label {
-  color: #007AFF;
-}
 </style>
