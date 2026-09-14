@@ -1,4 +1,5 @@
 import io
+import mimetypes
 import os
 import shutil
 import zipfile
@@ -130,6 +131,30 @@ async def upload_files(
         uploaded.append(filename)
 
     return {"uploaded": uploaded}
+
+
+@router.get("/view")
+async def view_file(
+    request: Request,
+    path: str = Query(...),
+    location: str = Query(default="external"),
+):
+    user = await get_current_user(request)
+    _check_access(location, path, user["email"], user["is_admin"])
+    base = _base(location)
+    file_path = _resolve(base, path)
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+
+    media_type, _ = mimetypes.guess_type(str(file_path))
+    media_type = media_type or "application/octet-stream"
+
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
+    )
 
 
 @router.get("/download")

@@ -141,6 +141,12 @@ async function deleteItem(entry) {
   }
 }
 
+function viewItem(entry) {
+  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const params = new URLSearchParams({ path, location: props.location })
+  window.open(`/api/files/view?${params}`, '_blank')
+}
+
 function downloadItem(entry) {
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
   const params = new URLSearchParams({ path, location: props.location })
@@ -410,6 +416,7 @@ function onDrop(e) {
             :key="entry.name"
             :entry="entry"
             @open="openItem"
+            @view="viewItem"
             @contextmenu="showMenuForEntry"
           />
         </tbody>

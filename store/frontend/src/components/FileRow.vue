@@ -15,7 +15,7 @@ const props = defineProps({
   entry: Object,
 })
 
-const emit = defineEmits(['open', 'contextmenu'])
+const emit = defineEmits(['open', 'view', 'contextmenu'])
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'heic'])
 const VIDEO_EXTS = new Set(['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v'])
@@ -61,6 +61,7 @@ function formatDate(ts) {
   <tr
     class="file-row"
     @click="entry.type === 'directory' && emit('open', entry)"
+    @dblclick="entry.type === 'file' && emit('view', entry)"
     @contextmenu.stop="emit('contextmenu', entry, $event)"
   >
     <td class="cell-name">
