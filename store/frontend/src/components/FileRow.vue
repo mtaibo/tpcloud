@@ -9,15 +9,13 @@ import {
   Music,
   Archive,
   Code,
-  Download,
-  Trash2,
 } from 'lucide-vue-next'
 
 const props = defineProps({
   entry: Object,
 })
 
-const emit = defineEmits(['open', 'delete', 'download', 'contextmenu'])
+const emit = defineEmits(['open', 'contextmenu'])
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'heic'])
 const VIDEO_EXTS = new Set(['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v'])
@@ -74,26 +72,6 @@ function formatDate(ts) {
 
     <td class="cell-meta">{{ formatSize(entry.size) }}</td>
     <td class="cell-meta">{{ formatDate(entry.modified) }}</td>
-
-    <td class="cell-actions">
-      <div class="row-actions">
-        <button
-          v-if="entry.type === 'file'"
-          class="action-btn"
-          @click="emit('download', entry)"
-          title="Download"
-        >
-          <Download class="action-icon" />
-        </button>
-        <button
-          class="action-btn delete-btn"
-          @click="emit('delete', entry)"
-          title="Delete"
-        >
-          <Trash2 class="action-icon" />
-        </button>
-      </div>
-    </td>
   </tr>
 </template>
 
@@ -123,10 +101,6 @@ function formatDate(ts) {
   white-space: nowrap;
 }
 
-.cell-actions {
-  padding: 0.65rem 1.25rem;
-}
-
 .name-btn {
   display: flex;
   align-items: center;
@@ -150,34 +124,4 @@ function formatDate(ts) {
   white-space: nowrap;
 }
 
-.row-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.25rem;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.action-btn {
-  padding: 0.3rem;
-  border-radius: 6px;
-  background: none;
-  border: none;
-  color: #636366;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.action-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-}
-
-.delete-btn:hover {
-  background: rgba(255, 69, 58, 0.15);
-  color: #ff453a;
-}
-
-.action-icon { width: 14px; height: 14px; }
 </style>

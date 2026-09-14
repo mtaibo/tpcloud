@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X } from 'lucide-vue-next'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { HardDrive, Folder, Server, ChevronRight, ChevronLeft, User, LogOut, Cloud, Star, Plus, X } from 'lucide-vue-next'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -61,6 +61,15 @@ function go(loc, path) {
   emit('navigate', loc, path)
 }
 
+const canGoBack = computed(() => !!props.currentPath)
+
+function goBack() {
+  if (!props.currentPath) return
+  const parts = props.currentPath.split('/').filter(Boolean)
+  parts.pop()
+  emit('navigate', props.location, parts.join('/'))
+}
+
 function onClickOutside(e) {
   if (cardRef.value && !cardRef.value.contains(e.target)) menuOpen.value = false
 }
@@ -80,7 +89,11 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 <template>
   <aside class="sidebar">
 
-    <div class="sidebar-brand" />
+    <div class="sidebar-brand">
+      <button class="back-btn" :disabled="!canGoBack" @click="goBack" title="Go back">
+        <ChevronLeft class="back-icon" />
+      </button>
+    </div>
 
     <nav class="sidebar-nav">
 
@@ -198,6 +211,66 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   align-items: center;
   padding: 0 1.25rem;
   flex-shrink: 0;
+}
+
+.back-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.25),
+    0 4px 12px rgba(0, 0, 0, 0.28),
+    0 1px 3px rgba(0, 0, 0, 0.18);
+  color: rgba(255, 255, 255, 0.75);
+  transition: background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.18s;
+}
+
+.back-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0.09) 100%
+  );
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.25),
+    0 6px 20px rgba(0, 0, 0, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.22);
+  color: #fff;
+  transform: translateY(-0.5px);
+}
+
+.back-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.25),
+    0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.back-btn:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.back-icon {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.5;
 }
 
 .sidebar-nav {

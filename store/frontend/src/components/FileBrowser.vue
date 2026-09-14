@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Trash2 } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Trash2 } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
@@ -220,6 +220,12 @@ async function duplicateItem() {
   }
 }
 
+function downloadActiveItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  downloadItem(entry)
+}
+
 async function deleteActiveItem() {
   const entry = activeEntry.value
   hideMenu()
@@ -313,7 +319,6 @@ function onDrop(e) {
             <th class="th-name">Name</th>
             <th class="th-size">Size</th>
             <th class="th-date">Modified</th>
-            <th class="th-actions"></th>
           </tr>
         </thead>
         <tbody>
@@ -322,8 +327,6 @@ function onDrop(e) {
             :key="entry.name"
             :entry="entry"
             @open="openItem"
-            @delete="deleteItem"
-            @download="downloadItem"
             @contextmenu="showMenuForEntry"
           />
         </tbody>
@@ -370,6 +373,10 @@ function onDrop(e) {
               <span>Duplicate</span>
             </button>
             <div class="ctx-sep" />
+            <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="downloadActiveItem">
+              <Download class="ctx-icon" />
+              <span>Download</span>
+            </button>
             <button class="ctx-item ctx-item--danger" @click="deleteActiveItem">
               <Trash2 class="ctx-icon" />
               <span>Delete</span>
@@ -473,7 +480,6 @@ function onDrop(e) {
 .th-name { text-align: left; width: 100%; }
 .th-size { text-align: right; white-space: nowrap; }
 .th-date { text-align: right; white-space: nowrap; }
-.th-actions { width: 5rem; }
 
 .bottom-bar {
   flex-shrink: 0;
