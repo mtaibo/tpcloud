@@ -25,7 +25,10 @@ function go(fav) {
 <template>
   <div class="browse-panel">
     <div class="browse-header">
-      <span class="browse-title">Favourites</span>
+      <span class="browse-large-title">Browse</span>
+      <div class="browse-tabs">
+        <button class="browse-tab active">Favourites</button>
+      </div>
     </div>
 
     <div class="browse-list">
@@ -60,12 +63,13 @@ function go(fav) {
 
 .browse-header {
   flex-shrink: 0;
-  height: calc(80px + env(safe-area-inset-top));
-  padding-top: env(safe-area-inset-top);
-  display: flex;
-  align-items: center;
+  padding-top: calc(env(safe-area-inset-top) + 18px);
+  padding-bottom: 14px;
   padding-left: 1.25rem;
   padding-right: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -75,11 +79,35 @@ function go(fav) {
   z-index: 10;
 }
 
-.browse-title {
-  font-size: 0.9rem;
+.browse-large-title {
+  font-size: 2rem;
   font-weight: 700;
   color: #fff;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.browse-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.browse-tab {
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.45);
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+
+.browse-tab.active {
+  background: #007AFF;
+  color: #fff;
 }
 
 .browse-list {
