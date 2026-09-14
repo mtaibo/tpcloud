@@ -60,8 +60,8 @@ function go(fav) {
 
 .browse-header {
   flex-shrink: 0;
-  height: calc(56px + env(safe-area-inset-top));
-  padding-top: calc(10px + env(safe-area-inset-top));
+  height: calc(80px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
   display: flex;
   align-items: center;
   padding-left: 1.25rem;

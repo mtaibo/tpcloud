@@ -715,16 +715,14 @@ function onDrop(e) {
 }
 
 @media (max-width: 767px) {
-  .browser { position: relative; }
-
   .file-topbar {
-    position: absolute;
+    position: fixed;
     top: 0; left: 0; right: 0;
-    height: calc(56px + env(safe-area-inset-top));
-    padding-top: calc(10px + env(safe-area-inset-top));
+    height: calc(80px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
     padding-left: 1.25rem;
     padding-right: 1.25rem;
-    z-index: 10;
+    z-index: 100;
     background: rgba(0, 0, 0, 0.65);
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -732,24 +730,28 @@ function onDrop(e) {
   }
 
   .file-area {
-    padding-top: calc(56px + env(safe-area-inset-top));
-    padding-bottom: 100px;
+    padding-top: calc(80px + env(safe-area-inset-top));
+    padding-bottom: 110px;
   }
 
   .mobile-folder-name {
     display: block;
-    font-size: 1.1rem;
-    margin-left: 1.25rem;
+    font-size: 1.25rem;
+    margin-left: 1.5rem;
+  }
+
+  .nav-pill {
+    flex-shrink: 0;
   }
 
   .nav-btn {
-    width: 44px;
-    height: 36px;
+    width: 52px;
+    height: 46px;
   }
 
   .nav-icon {
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
   }
 
   .bottom-bar { display: none; }
