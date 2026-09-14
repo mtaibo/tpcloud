@@ -755,6 +755,7 @@ function onDrop(e) {
   }
 
   .bottom-bar { display: none; }
+  .th-size, .th-date { display: none; }
 }
 </style>
 

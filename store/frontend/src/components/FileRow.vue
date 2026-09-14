@@ -17,6 +17,40 @@ const props = defineProps({
 
 const emit = defineEmits(['open', 'view', 'contextmenu'])
 
+let longPressTimer = null
+let longPressActivated = false
+
+function onTouchStart(e) {
+  longPressActivated = false
+  const touch = e.touches[0]
+  longPressTimer = setTimeout(() => {
+    longPressActivated = true
+    emit('contextmenu', props.entry, {
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      preventDefault: () => {},
+      stopPropagation: () => {},
+    })
+  }, 600)
+}
+
+function onTouchEnd() {
+  clearTimeout(longPressTimer)
+}
+
+function onTouchMove() {
+  clearTimeout(longPressTimer)
+}
+
+function onRowClick() {
+  if (longPressActivated) return
+  if (props.entry.type === 'directory') emit('open', props.entry)
+}
+
+function onRowDblClick() {
+  if (props.entry.type === 'file') emit('view', props.entry)
+}
+
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'heic'])
 const VIDEO_EXTS = new Set(['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v'])
 const AUDIO_EXTS = new Set(['mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a', 'opus'])
@@ -60,9 +94,13 @@ function formatDate(ts) {
 <template>
   <tr
     class="file-row"
-    @click="entry.type === 'directory' && emit('open', entry)"
-    @dblclick="entry.type === 'file' && emit('view', entry)"
+    @click="onRowClick"
+    @dblclick="onRowDblClick"
     @contextmenu.stop="emit('contextmenu', entry, $event)"
+    @touchstart.passive="onTouchStart"
+    @touchend="onTouchEnd"
+    @touchmove="onTouchMove"
+    @touchcancel="onTouchEnd"
   >
     <td class="cell-name">
       <div class="name-btn">
@@ -119,4 +157,7 @@ function formatDate(ts) {
   white-space: nowrap;
 }
 
+@media (max-width: 767px) {
+  .cell-meta { display: none; }
+}
 </style>
