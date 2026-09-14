@@ -4,6 +4,7 @@ import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Down
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
+import RenameModal from './RenameModal.vue'
 
 const props = defineProps({
   user: Object,
@@ -27,6 +28,7 @@ const activeEntry = ref(null)
 
 const pickerEntry = ref(null)
 const pickerMode = ref('move')
+const renameEntry = ref(null)
 
 const activeIsZip = computed(() =>
   activeEntry.value?.name?.toLowerCase().endsWith('.zip') ?? false
@@ -84,6 +86,7 @@ function onDocKeydown(e) {
   if (e.key === 'Escape') {
     hideMenu()
     pickerEntry.value = null
+    renameEntry.value = null
   }
 }
 
@@ -185,16 +188,19 @@ async function createFile() {
   }
 }
 
-async function renameItem() {
-  const entry = activeEntry.value
+function renameItem() {
+  renameEntry.value = activeEntry.value
   hideMenu()
-  const newName = prompt('Rename to:', entry.name)
-  if (!newName || !newName.trim() || newName.trim() === entry.name) return
+}
+
+async function onRenamed(newName) {
+  const entry = renameEntry.value
+  renameEntry.value = null
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
   const res = await fetch('/api/files/rename', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, new_name: newName.trim(), location: props.location }),
+    body: JSON.stringify({ path, new_name: newName, location: props.location }),
   })
   if (res.ok) {
     loadDirectory()
@@ -486,6 +492,14 @@ function onDrop(e) {
         </div>
       </Transition>
     </Teleport>
+
+    <!-- Rename modal -->
+    <RenameModal
+      v-if="renameEntry"
+      :entry="renameEntry"
+      @close="renameEntry = null"
+      @renamed="onRenamed"
+    />
 
     <!-- Move / Copy modal -->
     <MoveModal
