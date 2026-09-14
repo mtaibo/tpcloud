@@ -17,7 +17,7 @@ const props = defineProps({
   entry: Object,
 })
 
-const emit = defineEmits(['open', 'delete', 'download'])
+const emit = defineEmits(['open', 'delete', 'download', 'contextmenu'])
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'heic'])
 const VIDEO_EXTS = new Set(['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v'])
@@ -60,7 +60,7 @@ function formatDate(ts) {
 </script>
 
 <template>
-  <tr class="file-row">
+  <tr class="file-row" @contextmenu.stop="emit('contextmenu', entry, $event)">
     <td class="cell-name">
       <button
         class="name-btn"

@@ -225,3 +225,70 @@ async def create_file(request: Request, body: TouchBody):
         raise HTTPException(403, "Permission denied")
 
     return {"created": body.path}
+
+
+class RenameBody(BaseModel):
+    path: str
+    new_name: str
+    location: str = "external"
+
+
+@router.post("/rename")
+async def rename_item(request: Request, body: RenameBody):
+    user = await get_current_user(request)
+    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    base = _base(body.location)
+    item = _resolve(base, body.path)
+
+    if not item.exists():
+        raise HTTPException(404, "Not found")
+
+    new_name = Path(body.new_name).name
+    if not new_name:
+        raise HTTPException(400, "Invalid name")
+
+    dest = item.parent / new_name
+    if dest.exists():
+        raise HTTPException(400, "Already exists")
+
+    try:
+        item.rename(dest)
+    except PermissionError:
+        raise HTTPException(403, "Permission denied")
+
+    return {"renamed": body.path}
+
+
+class MoveBody(BaseModel):
+    path: str
+    dest_dir: str
+    location: str = "external"
+
+
+@router.post("/move")
+async def move_item(request: Request, body: MoveBody):
+    user = await get_current_user(request)
+    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    _check_access(body.location, body.dest_dir, user["email"], user["is_admin"])
+    base = _base(body.location)
+    item = _resolve(base, body.path)
+    dest_dir = _resolve(base, body.dest_dir)
+
+    if not item.exists():
+        raise HTTPException(404, "Source not found")
+    if not dest_dir.is_dir():
+        raise HTTPException(400, "Destination is not a directory")
+
+    if item.is_dir() and str(dest_dir).startswith(str(item) + os.sep):
+        raise HTTPException(400, "Cannot move a folder into itself")
+
+    dest = dest_dir / item.name
+    if dest.exists():
+        raise HTTPException(400, "Item already exists at destination")
+
+    try:
+        shutil.move(str(item), str(dest))
+    except PermissionError:
+        raise HTTPException(403, "Permission denied")
+
+    return {"moved": str(dest.relative_to(base))}

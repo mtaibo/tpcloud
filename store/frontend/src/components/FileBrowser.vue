@@ -1,8 +1,9 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Trash2 } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
+import MoveModal from './MoveModal.vue'
 
 const props = defineProps({
   user: Object,
@@ -22,6 +23,9 @@ const fileInput = ref(null)
 const contextMenu = ref(null)
 const menuVisible = ref(false)
 const menuPos = ref({ x: 0, y: 0 })
+const activeEntry = ref(null)
+
+const moveEntry = ref(null)
 
 const menuStyle = computed(() => ({
   left: menuPos.value.x + 'px',
@@ -30,6 +34,17 @@ const menuStyle = computed(() => ({
 
 function showMenu(e) {
   e.preventDefault()
+  activeEntry.value = null
+  _openMenu(e)
+}
+
+function showMenuForEntry(entry, e) {
+  e.preventDefault()
+  activeEntry.value = entry
+  _openMenu(e)
+}
+
+function _openMenu(e) {
   menuPos.value = { x: e.clientX, y: e.clientY }
   menuVisible.value = true
   nextTick(() => {
@@ -52,7 +67,10 @@ function onDocClick(e) {
 }
 
 function onDocKeydown(e) {
-  if (e.key === 'Escape') hideMenu()
+  if (e.key === 'Escape') {
+    hideMenu()
+    moveEntry.value = null
+  }
 }
 
 onMounted(() => {
@@ -153,6 +171,36 @@ async function createFile() {
   }
 }
 
+async function renameItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  const newName = prompt('Rename to:', entry.name)
+  if (!newName || !newName.trim() || newName.trim() === entry.name) return
+  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const res = await fetch('/api/files/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, new_name: newName.trim(), location: props.location }),
+  })
+  if (res.ok) {
+    loadDirectory()
+  } else {
+    const data = await res.json().catch(() => ({}))
+    alert(data.detail || 'Error renaming')
+  }
+}
+
+function startMove() {
+  moveEntry.value = activeEntry.value
+  hideMenu()
+}
+
+async function deleteActiveItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  await deleteItem(entry)
+}
+
 function triggerUpload() {
   hideMenu()
   fileInput.value.click()
@@ -251,6 +299,7 @@ function onDrop(e) {
             @open="openItem"
             @delete="deleteItem"
             @download="downloadItem"
+            @contextmenu="showMenuForEntry"
           />
         </tbody>
       </table>
@@ -276,22 +325,52 @@ function onDrop(e) {
           class="ctx-menu"
           :style="menuStyle"
         >
-          <button class="ctx-item" @click="triggerUpload">
-            <Upload class="ctx-icon" />
-            <span>Upload Files…</span>
-          </button>
-          <div class="ctx-sep" />
-          <button class="ctx-item" @click="createFolder">
-            <FolderPlus class="ctx-icon" />
-            <span>New Folder</span>
-          </button>
-          <button class="ctx-item" @click="createFile">
-            <FilePlus class="ctx-icon" />
-            <span>New File</span>
-          </button>
+          <!-- Entry menu (right-click on a file/folder) -->
+          <template v-if="activeEntry">
+            <button class="ctx-item" @click="renameItem">
+              <Pencil class="ctx-icon" />
+              <span>Rename</span>
+            </button>
+            <button class="ctx-item" @click="startMove">
+              <FolderInput class="ctx-icon" />
+              <span>Move to…</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item ctx-item--danger" @click="deleteActiveItem">
+              <Trash2 class="ctx-icon" />
+              <span>Delete</span>
+            </button>
+          </template>
+
+          <!-- Background menu (right-click on empty area) -->
+          <template v-else>
+            <button class="ctx-item" @click="triggerUpload">
+              <Upload class="ctx-icon" />
+              <span>Upload Files…</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item" @click="createFolder">
+              <FolderPlus class="ctx-icon" />
+              <span>New Folder</span>
+            </button>
+            <button class="ctx-item" @click="createFile">
+              <FilePlus class="ctx-icon" />
+              <span>New File</span>
+            </button>
+          </template>
         </div>
       </Transition>
     </Teleport>
+
+    <!-- Move modal -->
+    <MoveModal
+      v-if="moveEntry"
+      :entry="moveEntry"
+      :location="location"
+      :current-path="currentPath"
+      @close="moveEntry = null"
+      @moved="moveEntry = null; loadDirectory()"
+    />
   </div>
 </template>
 
@@ -421,6 +500,9 @@ function onDrop(e) {
 .ctx-item:hover .ctx-icon {
   opacity: 1;
 }
+
+.ctx-item--danger { color: #ff453a; }
+.ctx-item--danger:hover { background: rgba(255, 69, 58, 0.18); color: #ff453a; }
 
 .ctx-icon {
   width: 14px;
