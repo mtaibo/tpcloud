@@ -715,7 +715,24 @@ function onDrop(e) {
 }
 
 @media (max-width: 767px) {
-  .mobile-folder-name { display: block; }
+  .mobile-folder-name {
+    display: block;
+    font-size: 1.1rem;
+    margin-left: 1.25rem;
+  }
+  .file-topbar {
+    height: 56px;
+    padding: 0 1.25rem;
+    padding-top: 10px;
+  }
+  .nav-btn {
+    width: 44px;
+    height: 36px;
+  }
+  .nav-icon {
+    width: 18px;
+    height: 18px;
+  }
   .bottom-bar { display: none; }
   .file-area { padding-bottom: 90px; }
 }
