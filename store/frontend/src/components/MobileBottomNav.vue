@@ -146,7 +146,7 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%);
   width: 230px;
-  bottom: 20px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
   z-index: 9000;
   border-radius: 32px;
   padding: 6px;

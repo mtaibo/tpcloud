@@ -715,26 +715,44 @@ function onDrop(e) {
 }
 
 @media (max-width: 767px) {
+  .browser { position: relative; }
+
+  .file-topbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: calc(56px + env(safe-area-inset-top));
+    padding-top: calc(10px + env(safe-area-inset-top));
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .file-area {
+    padding-top: calc(56px + env(safe-area-inset-top));
+    padding-bottom: 100px;
+  }
+
   .mobile-folder-name {
     display: block;
     font-size: 1.1rem;
     margin-left: 1.25rem;
   }
-  .file-topbar {
-    height: 56px;
-    padding: 0 1.25rem;
-    padding-top: 10px;
-  }
+
   .nav-btn {
     width: 44px;
     height: 36px;
   }
+
   .nav-icon {
     width: 18px;
     height: 18px;
   }
+
   .bottom-bar { display: none; }
-  .file-area { padding-bottom: 90px; }
 }
 </style>
 

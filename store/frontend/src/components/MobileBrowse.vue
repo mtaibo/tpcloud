@@ -60,11 +60,19 @@ function go(fav) {
 
 .browse-header {
   flex-shrink: 0;
-  height: 44px;
+  height: calc(56px + env(safe-area-inset-top));
+  padding-top: calc(10px + env(safe-area-inset-top));
   display: flex;
   align-items: center;
-  padding: 0 1.25rem;
-  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.07);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .browse-title {
