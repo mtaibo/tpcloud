@@ -834,4 +834,16 @@ function onDrop(e) {
   opacity: 0;
   transform: scale(0.96) translateY(-4px);
 }
+
+@media (max-width: 767px) {
+  .ctx-menu {
+    min-width: 260px;
+    background: rgba(20, 20, 22, 0.97);
+    backdrop-filter: blur(60px) saturate(220%);
+    -webkit-backdrop-filter: blur(60px) saturate(220%);
+  }
+  .ctx-item { font-size: 15px; padding: 8px 12px; gap: 12px; }
+  .ctx-icon { width: 16px; height: 16px; }
+  .ctx-sep { margin: 4px 0; }
+}
 </style>

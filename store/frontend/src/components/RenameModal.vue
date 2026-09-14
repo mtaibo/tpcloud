@@ -231,4 +231,9 @@ function onKeydown(e) {
   opacity: 0.35;
   cursor: default;
 }
+
+@media (max-width: 767px) {
+  .backdrop { align-items: flex-start; padding-top: calc(env(safe-area-inset-top) + 80px); }
+  .modal { width: calc(100% - 32px); }
+}
 </style>
