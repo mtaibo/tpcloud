@@ -88,6 +88,7 @@ onMounted(async () => {
       :current-path="currentPath"
       :can-go-back="canGoBack"
       :can-go-forward="canGoForward"
+      :view-as-admin="viewAsAdmin"
       @navigate="navigate"
       @go-back="goBack"
       @go-forward="goForward"

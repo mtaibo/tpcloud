@@ -14,6 +14,7 @@ const props = defineProps({
   currentPath: String,
   canGoBack: Boolean,
   canGoForward: Boolean,
+  viewAsAdmin: Boolean,
 })
 
 const emit = defineEmits(['navigate', 'go-back', 'go-forward'])
@@ -434,6 +435,7 @@ function onDrop(e) {
         :user="user"
         :location="location"
         :path="currentPath"
+        :view-as-admin="viewAsAdmin"
         @navigate="(loc, p) => emit('navigate', loc, p)"
       />
       <span v-if="uploading" class="uploading-indicator">Uploading…</span>

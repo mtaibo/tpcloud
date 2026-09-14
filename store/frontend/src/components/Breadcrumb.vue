@@ -6,12 +6,13 @@ const props = defineProps({
   user: Object,
   location: String,
   path: String,
+  viewAsAdmin: Boolean,
 })
 
 const emit = defineEmits(['navigate'])
 
 const crumbs = computed(() => {
-  const isAdmin = props.user?.is_admin
+  const isAdmin = props.user?.is_admin && props.viewAsAdmin
   const loc = props.location
   const parts = (props.path || '').split('/').filter(Boolean)
   const items = []
