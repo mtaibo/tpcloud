@@ -41,6 +41,15 @@ const activeIsZip = computed(() =>
   activeEntry.value?.name?.toLowerCase().endsWith('.zip') ?? false
 )
 
+const mobileFolderName = computed(() => {
+  if (!props.currentPath) return 'Files'
+  const parts = props.currentPath.split('/').filter(Boolean)
+  const last = parts[parts.length - 1]
+  if (props.currentPath === `users/${props.user.email}`) return 'Personal'
+  if (last === 'shared') return 'Shared'
+  return last.charAt(0).toUpperCase() + last.slice(1)
+})
+
 const menuStyle = computed(() => ({
   left: menuPos.value.x + 'px',
   top: menuPos.value.y + 'px',
@@ -376,6 +385,7 @@ function onDrop(e) {
           <ChevronRight class="nav-icon" />
         </button>
       </div>
+      <span class="mobile-folder-name">{{ mobileFolderName }}</span>
     </div>
 
     <!-- File area -->
@@ -691,6 +701,23 @@ function onDrop(e) {
 .uploading-indicator {
   font-size: 0.75rem;
   color: #636366;
+}
+
+.mobile-folder-name {
+  display: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fff;
+  margin-left: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .mobile-folder-name { display: block; }
+  .bottom-bar { display: none; }
+  .file-area { padding-bottom: 90px; }
 }
 </style>
 

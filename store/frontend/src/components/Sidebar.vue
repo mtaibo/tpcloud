@@ -477,6 +477,10 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   text-align: left;
 }
 
+@media (max-width: 767px) {
+  .sidebar { display: none; }
+}
+
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.15s, transform 0.15s;
 }

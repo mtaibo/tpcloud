@@ -2,6 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import Sidebar from './components/Sidebar.vue'
 import FileBrowser from './components/FileBrowser.vue'
+import MobileBottomNav from './components/MobileBottomNav.vue'
+import MobileBrowse from './components/MobileBrowse.vue'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -48,6 +50,26 @@ function goForward() {
   if (canGoForward.value) _applyState(navIndex.value + 1)
 }
 
+const mobileTab = ref('browse')
+
+const activeTab = computed(() => {
+  if (mobileTab.value === 'browse') return 'browse'
+  if (location.value === 'external' && (currentPath.value === 'shared' || currentPath.value.startsWith('shared/'))) return 'shared'
+  if (location.value === 'external' && user.value && currentPath.value.startsWith(`users/${user.value.email}`)) return 'personal'
+  return mobileTab.value
+})
+
+function onMobileTabChange(tab) {
+  mobileTab.value = tab
+  if (tab === 'shared') navigate('external', 'shared')
+  if (tab === 'personal') navigate('external', `users/${user.value.email}`)
+}
+
+function onMobileNavigate(loc, path) {
+  navigate(loc, path)
+  mobileTab.value = loc === 'external' && path.startsWith('shared') ? 'shared' : 'personal'
+}
+
 function toggleAdminView() {
   viewAsAdmin.value = !viewAsAdmin.value
   if (!viewAsAdmin.value) {
@@ -82,7 +104,9 @@ onMounted(async () => {
 <template>
   <div v-if="appReady && user" class="app">
     <Sidebar :user="user" :location="location" :current-path="currentPath" :view-as-admin="viewAsAdmin" @navigate="navigate" @toggle-admin-view="toggleAdminView" />
+    <MobileBrowse v-if="activeTab === 'browse'" class="mobile-only" :user="user" @navigate="onMobileNavigate" />
     <FileBrowser
+      :class="activeTab === 'browse' ? 'mobile-hidden' : ''"
       :user="user"
       :location="location"
       :current-path="currentPath"
@@ -93,6 +117,7 @@ onMounted(async () => {
       @go-back="goBack"
       @go-forward="goForward"
     />
+    <MobileBottomNav :active-tab="activeTab" @tab-change="onMobileTabChange" />
   </div>
 
   <div v-else class="loading-screen">
@@ -110,6 +135,12 @@ input, textarea, [contenteditable] { user-select: text; -webkit-user-select: tex
 
 <style scoped>
 .app { display: flex; height: 100dvh; background: #000; overflow: hidden; }
+
+.mobile-only { display: none; }
+@media (max-width: 767px) {
+  .mobile-only { display: flex; flex: 1; flex-direction: column; }
+  .mobile-hidden { display: none; }
+}
 
 .loading-screen {
   height: 100dvh;
