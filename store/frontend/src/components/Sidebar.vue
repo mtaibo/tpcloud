@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X } from 'lucide-vue-next'
+import { HardDrive, Folder, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X, Shield, ShieldCheck } from 'lucide-vue-next'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -8,9 +8,10 @@ const props = defineProps({
   user: Object,
   location: String,
   currentPath: String,
+  viewAsAdmin: Boolean,
 })
 
-const emit = defineEmits(['navigate'])
+const emit = defineEmits(['navigate', 'toggle-admin-view'])
 
 const serverOpen = ref(true)
 const cloudOpen = ref(true)
@@ -130,7 +131,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
       </template>
 
       <!-- SERVER (admin only) -->
-      <template v-if="user.is_admin">
+      <template v-if="user.is_admin && viewAsAdmin">
         <div class="separator-row separator-clickable" @click="serverOpen = !serverOpen">
           <p class="section-label">Server</p>
           <ChevronRight class="chevron" :class="{ open: serverOpen }" />
@@ -163,6 +164,11 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
               <Cloud class="menu-icon" />
               TPCloud
             </a>
+            <button v-if="user.is_admin" @click="emit('toggle-admin-view')" class="user-menu-item admin-item" :class="{ 'admin-item--active': viewAsAdmin }">
+              <ShieldCheck v-if="viewAsAdmin" class="menu-icon" />
+              <Shield v-else class="menu-icon" />
+              {{ viewAsAdmin ? 'Exit Admin View' : 'Admin View' }}
+            </button>
             <button @click="logout" class="user-menu-item logout-item">
               <LogOut class="menu-icon" />
               Log out
@@ -421,6 +427,10 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 .logout-item:hover {
   color: #f87171;
 }
+
+.admin-item { color: rgba(255, 255, 255, 0.5); }
+.admin-item--active { color: #007AFF; }
+.admin-item:hover { color: #007AFF; }
 
 .menu-icon {
   width: 16px;

@@ -9,6 +9,7 @@ const user = ref(null)
 const appReady = ref(false)
 const location = ref('external')
 const currentPath = ref('')
+const viewAsAdmin = ref(false)
 
 const navHistory = ref([])
 const navIndex = ref(-1)
@@ -47,6 +48,15 @@ function goForward() {
   if (canGoForward.value) _applyState(navIndex.value + 1)
 }
 
+function toggleAdminView() {
+  viewAsAdmin.value = !viewAsAdmin.value
+  if (!viewAsAdmin.value) {
+    const isAdminOnly = location.value === 'server' ||
+      (location.value === 'external' && currentPath.value === '')
+    if (isAdminOnly) navigate('external', `users/${user.value.email}`)
+  }
+}
+
 onMounted(async () => {
   try {
     const res = await fetch('/auth/passkey/me')
@@ -71,7 +81,7 @@ onMounted(async () => {
 
 <template>
   <div v-if="appReady && user" class="app">
-    <Sidebar :user="user" :location="location" :current-path="currentPath" @navigate="navigate" />
+    <Sidebar :user="user" :location="location" :current-path="currentPath" :view-as-admin="viewAsAdmin" @navigate="navigate" @toggle-admin-view="toggleAdminView" />
     <FileBrowser
       :user="user"
       :location="location"
