@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import {
   Folder,
   File,
@@ -17,7 +17,6 @@ const props = defineProps({
 
 const emit = defineEmits(['open', 'view', 'contextmenu'])
 
-const isPressed = ref(false)
 let longPressTimer = null
 let longPressActivated = false
 
@@ -26,26 +25,21 @@ function onTouchStart(e) {
   const touch = e.touches[0]
   longPressTimer = setTimeout(() => {
     longPressActivated = true
-    isPressed.value = true
-    setTimeout(() => {
-      emit('contextmenu', props.entry, {
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        preventDefault: () => {},
-        stopPropagation: () => {},
-      })
-    }, 140)
-  }, 480)
+    emit('contextmenu', props.entry, {
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      preventDefault: () => {},
+      stopPropagation: () => {},
+    })
+  }, 300)
 }
 
 function onTouchEnd() {
   clearTimeout(longPressTimer)
-  isPressed.value = false
 }
 
 function onTouchMove() {
   clearTimeout(longPressTimer)
-  isPressed.value = false
 }
 
 function onRowClick() {
@@ -100,7 +94,6 @@ function formatDate(ts) {
 <template>
   <tr
     class="file-row"
-    :class="{ 'is-pressed': isPressed }"
     @click="onRowClick"
     @dblclick="onRowDblClick"
     @contextmenu.stop="emit('contextmenu', entry, $event)"
@@ -110,7 +103,6 @@ function formatDate(ts) {
     @touchcancel="onTouchEnd"
   >
     <td class="cell-name">
-      <div class="press-highlight" />
       <div class="name-btn">
         <component :is="fileIcon" class="file-icon" :style="{ color: iconColor }" />
         <span class="file-name">{{ entry.name }}</span>
@@ -138,11 +130,6 @@ function formatDate(ts) {
 
 .cell-name {
   padding: 0.65rem 1.25rem;
-  position: relative;
-}
-
-.press-highlight {
-  display: none;
 }
 
 .cell-meta {
@@ -172,25 +159,5 @@ function formatDate(ts) {
 
 @media (max-width: 767px) {
   .cell-meta { display: none; }
-
-  .file-row.is-pressed {
-    transform: scale(0.97);
-    transition: transform 0.12s ease;
-  }
-
-  .file-row.is-pressed .press-highlight {
-    display: block;
-    position: absolute;
-    inset: 3px 6px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  .file-row.is-pressed .name-btn {
-    position: relative;
-    z-index: 1;
-  }
 }
 </style>

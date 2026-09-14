@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
@@ -27,6 +27,7 @@ const isDragOver = ref(false)
 const fileInput = ref(null)
 
 const contextMenu = ref(null)
+const moreBtn = ref(null)
 const menuVisible = ref(false)
 const menuPos = ref({ x: 0, y: 0 })
 const activeEntry = ref(null)
@@ -313,6 +314,50 @@ async function onDeleteConfirmed() {
   await deleteItem(entry)
 }
 
+function showMoreMenu() {
+  activeEntry.value = null
+  menuPos.value = { x: -9999, y: -9999 }
+  menuVisible.value = true
+  nextTick(() => {
+    if (!contextMenu.value || !moreBtn.value) return
+    const btn = moreBtn.value.getBoundingClientRect()
+    const menu = contextMenu.value.getBoundingClientRect()
+    const x = Math.max(8, btn.right - menu.width)
+    const y = Math.min(btn.bottom + 8, window.innerHeight - menu.height - 8)
+    menuPos.value = { x, y }
+  })
+}
+
+function derivLabel(loc, path) {
+  if (!path) return loc === 'server' ? 'Server Root' : 'Disk Root'
+  const parts = path.split('/').filter(Boolean)
+  const last = parts[parts.length - 1]
+  if (path === `users/${props.user.email}`) return 'Personal'
+  if (last === 'shared') return 'Shared'
+  return last.charAt(0).toUpperCase() + last.slice(1)
+}
+
+function saveFavourite(loc, path) {
+  try {
+    const stored = localStorage.getItem('tpcloud-favourites')
+    const favs = stored ? JSON.parse(stored) : []
+    if (favs.some(f => f.location === loc && f.path === path)) { hideMenu(); return }
+    favs.push({ id: `${loc}:${path}`, label: derivLabel(loc, path), location: loc, path })
+    localStorage.setItem('tpcloud-favourites', JSON.stringify(favs))
+  } catch {}
+  hideMenu()
+}
+
+function addCurrentToFavourites() {
+  saveFavourite(props.location, props.currentPath)
+}
+
+function addEntryToFavourites() {
+  const entry = activeEntry.value
+  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  saveFavourite(props.location, path)
+}
+
 function triggerUpload() {
   hideMenu()
   fileInput.value.click()
@@ -386,6 +431,9 @@ function onDrop(e) {
         </button>
       </div>
       <span class="mobile-folder-name">{{ mobileFolderName }}</span>
+      <button ref="moreBtn" class="more-btn" @click.stop="showMoreMenu">
+        <MoreHorizontal class="more-icon" />
+      </button>
     </div>
 
     <!-- File area -->
@@ -470,6 +518,10 @@ function onDrop(e) {
               <Pencil class="ctx-icon" />
               <span>Rename</span>
             </button>
+            <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="addEntryToFavourites">
+              <Star class="ctx-icon" />
+              <span>Add to Favourites</span>
+            </button>
             <div class="ctx-sep" />
             <button class="ctx-item" @click="startMove">
               <FolderInput class="ctx-icon" />
@@ -521,6 +573,11 @@ function onDrop(e) {
             <button class="ctx-item" @click="createFile">
               <FilePlus class="ctx-icon" />
               <span>New File</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item" @click="addCurrentToFavourites">
+              <Star class="ctx-icon" />
+              <span>Add to Favourites</span>
             </button>
           </template>
         </div>
@@ -714,6 +771,10 @@ function onDrop(e) {
   white-space: nowrap;
 }
 
+.more-btn {
+  display: none;
+}
+
 @media (max-width: 767px) {
   .file-topbar {
     position: fixed;
@@ -736,6 +797,8 @@ function onDrop(e) {
 
   .mobile-folder-name {
     display: block;
+    flex: 1;
+    min-width: 0;
     font-size: 1.25rem;
     margin-left: 1.5rem;
   }
@@ -750,6 +813,31 @@ function onDrop(e) {
   }
 
   .nav-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .more-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    flex-shrink: 0;
+    margin-left: 0.75rem;
+    background: rgba(255, 255, 255, 0.07);
+    border: 0.5px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .more-btn:active {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .more-icon {
     width: 22px;
     height: 22px;
   }
