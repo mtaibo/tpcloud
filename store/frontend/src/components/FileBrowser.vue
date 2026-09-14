@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Trash2, ChevronLeft } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
@@ -27,6 +27,10 @@ const activeEntry = ref(null)
 
 const pickerEntry = ref(null)
 const pickerMode = ref('move')
+
+const activeIsZip = computed(() =>
+  activeEntry.value?.name?.toLowerCase().endsWith('.zip') ?? false
+)
 
 const canGoBack = computed(() => !!props.currentPath)
 
@@ -235,6 +239,51 @@ function downloadActiveItem() {
   downloadItem(entry)
 }
 
+function downloadFolderAsZip() {
+  const entry = activeEntry.value
+  hideMenu()
+  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const params = new URLSearchParams({ path, location: props.location })
+  const a = document.createElement('a')
+  a.href = `/api/files/download-zip?${params}`
+  a.download = `${entry.name}.zip`
+  a.click()
+}
+
+async function compressItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const res = await fetch('/api/files/compress', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, location: props.location }),
+  })
+  if (res.ok) {
+    loadDirectory()
+  } else {
+    const data = await res.json().catch(() => ({}))
+    alert(data.detail || 'Error compressing')
+  }
+}
+
+async function decompressItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const res = await fetch('/api/files/decompress', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, location: props.location }),
+  })
+  if (res.ok) {
+    loadDirectory()
+  } else {
+    const data = await res.json().catch(() => ({}))
+    alert(data.detail || 'Error decompressing')
+  }
+}
+
 async function deleteActiveItem() {
   const entry = activeEntry.value
   hideMenu()
@@ -399,6 +448,19 @@ function onDrop(e) {
               <Download class="ctx-icon" />
               <span>Download</span>
             </button>
+            <button v-else class="ctx-item" @click="downloadFolderAsZip">
+              <Download class="ctx-icon" />
+              <span>Download as ZIP</span>
+            </button>
+            <button v-if="!activeIsZip" class="ctx-item" @click="compressItem">
+              <Archive class="ctx-icon" />
+              <span>Compress</span>
+            </button>
+            <button v-if="activeIsZip" class="ctx-item" @click="decompressItem">
+              <ArchiveRestore class="ctx-icon" />
+              <span>Decompress</span>
+            </button>
+            <div class="ctx-sep" />
             <button class="ctx-item ctx-item--danger" @click="deleteActiveItem">
               <Trash2 class="ctx-icon" />
               <span>Delete</span>

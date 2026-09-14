@@ -1,11 +1,13 @@
+import io
 import os
 import shutil
+import zipfile
 from pathlib import Path
 from typing import List
 
 import aiofiles
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.auth import get_current_user
@@ -369,3 +371,99 @@ async def move_item(request: Request, body: MoveBody):
         raise HTTPException(403, "Permission denied")
 
     return {"moved": str(dest.relative_to(base))}
+
+
+@router.get("/download-zip")
+async def download_folder_zip(
+    request: Request,
+    path: str = Query(...),
+    location: str = Query(default="external"),
+):
+    user = await get_current_user(request)
+    _check_access(location, path, user["email"], user["is_admin"])
+    base = _base(location)
+    dir_path = _resolve(base, path)
+
+    if not dir_path.exists() or not dir_path.is_dir():
+        raise HTTPException(400, "Path is not a directory")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(dir_path.rglob("*")):
+            if f.is_file():
+                zf.write(f, Path(dir_path.name) / f.relative_to(dir_path))
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{dir_path.name}.zip"'},
+    )
+
+
+class CompressBody(BaseModel):
+    path: str
+    location: str = "external"
+
+
+@router.post("/compress")
+async def compress_item(request: Request, body: CompressBody):
+    user = await get_current_user(request)
+    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    base = _base(body.location)
+    item = _resolve(base, body.path)
+
+    if not item.exists():
+        raise HTTPException(404, "Not found")
+
+    zip_path = item.parent / f"{item.name}.zip"
+    if zip_path.exists():
+        raise HTTPException(400, "Zip file already exists")
+
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            if item.is_dir():
+                for f in sorted(item.rglob("*")):
+                    if f.is_file():
+                        zf.write(f, Path(item.name) / f.relative_to(item))
+            else:
+                zf.write(item, item.name)
+    except PermissionError:
+        raise HTTPException(403, "Permission denied")
+
+    return {"compressed": str(zip_path.relative_to(base))}
+
+
+class DecompressBody(BaseModel):
+    path: str
+    location: str = "external"
+
+
+@router.post("/decompress")
+async def decompress_item(request: Request, body: DecompressBody):
+    user = await get_current_user(request)
+    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    base = _base(body.location)
+    file_path = _resolve(base, body.path)
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+
+    if file_path.suffix.lower() != ".zip":
+        raise HTTPException(400, "Not a zip file")
+
+    dest_dir = file_path.parent.resolve()
+
+    try:
+        with zipfile.ZipFile(file_path, "r") as zf:
+            for member in zf.namelist():
+                member_path = (dest_dir / member).resolve()
+                if not str(member_path).startswith(str(dest_dir) + os.sep) and str(member_path) != str(dest_dir):
+                    raise HTTPException(400, "Zip contains unsafe paths")
+            zf.extractall(dest_dir)
+    except zipfile.BadZipFile:
+        raise HTTPException(400, "Invalid or corrupted zip file")
+    except PermissionError:
+        raise HTTPException(403, "Permission denied")
+
+    return {"decompressed": body.path}
