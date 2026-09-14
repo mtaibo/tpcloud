@@ -202,3 +202,26 @@ async def create_directory(request: Request, body: MkdirBody):
         raise HTTPException(403, "Permission denied")
 
     return {"created": body.path}
+
+
+class TouchBody(BaseModel):
+    path: str
+    location: str = "external"
+
+
+@router.post("/touch")
+async def create_file(request: Request, body: TouchBody):
+    user = await get_current_user(request)
+    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    base = _base(body.location)
+    file_path = _resolve(base, body.path)
+
+    if file_path.exists():
+        raise HTTPException(400, "Already exists")
+
+    try:
+        file_path.touch()
+    except PermissionError:
+        raise HTTPException(403, "Permission denied")
+
+    return {"created": body.path}

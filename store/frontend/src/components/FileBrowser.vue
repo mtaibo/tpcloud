@@ -1,6 +1,6 @@
 <script setup>
-import { ref, watch } from 'vue'
-import { FolderPlus, Upload } from 'lucide-vue-next'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { FolderPlus, Upload, FilePlus } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 
@@ -18,6 +18,52 @@ const error = ref(null)
 const uploading = ref(false)
 const isDragOver = ref(false)
 const fileInput = ref(null)
+
+const contextMenu = ref(null)
+const menuVisible = ref(false)
+const menuPos = ref({ x: 0, y: 0 })
+
+const menuStyle = computed(() => ({
+  left: menuPos.value.x + 'px',
+  top: menuPos.value.y + 'px',
+}))
+
+function showMenu(e) {
+  e.preventDefault()
+  menuPos.value = { x: e.clientX, y: e.clientY }
+  menuVisible.value = true
+  nextTick(() => {
+    if (!contextMenu.value) return
+    const rect = contextMenu.value.getBoundingClientRect()
+    const x = Math.min(e.clientX, window.innerWidth - rect.width - 8)
+    const y = Math.min(e.clientY, window.innerHeight - rect.height - 8)
+    menuPos.value = { x, y }
+  })
+}
+
+function hideMenu() {
+  menuVisible.value = false
+}
+
+function onDocClick(e) {
+  if (menuVisible.value && contextMenu.value && !contextMenu.value.contains(e.target)) {
+    hideMenu()
+  }
+}
+
+function onDocKeydown(e) {
+  if (e.key === 'Escape') hideMenu()
+}
+
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  document.addEventListener('keydown', onDocKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  document.removeEventListener('keydown', onDocKeydown)
+})
 
 async function loadDirectory() {
   loading.value = true
@@ -72,6 +118,7 @@ function downloadItem(entry) {
 }
 
 async function createFolder() {
+  hideMenu()
   const name = prompt('New folder name:')
   if (!name || !name.trim()) return
   const path = props.currentPath ? `${props.currentPath}/${name.trim()}` : name.trim()
@@ -86,6 +133,29 @@ async function createFolder() {
     const data = await res.json().catch(() => ({}))
     alert(data.detail || 'Error creating folder')
   }
+}
+
+async function createFile() {
+  hideMenu()
+  const name = prompt('New file name:')
+  if (!name || !name.trim()) return
+  const path = props.currentPath ? `${props.currentPath}/${name.trim()}` : name.trim()
+  const res = await fetch('/api/files/touch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, location: props.location }),
+  })
+  if (res.ok) {
+    loadDirectory()
+  } else {
+    const data = await res.json().catch(() => ({}))
+    alert(data.detail || 'Error creating file')
+  }
+}
+
+function triggerUpload() {
+  hideMenu()
+  fileInput.value.click()
 }
 
 async function uploadFiles(files) {
@@ -132,26 +202,12 @@ function onDrop(e) {
 
 <template>
   <div class="browser">
-    <!-- Toolbar -->
-    <div class="toolbar">
-      <div class="toolbar-actions">
-        <button class="btn-tool" @click="createFolder">
-          <FolderPlus class="btn-icon" />
-          <span>New Folder</span>
-        </button>
-
-        <button class="btn-primary" @click="fileInput.click()" :disabled="uploading">
-          <Upload class="btn-icon" />
-          <span>{{ uploading ? 'Uploading…' : 'Upload' }}</span>
-        </button>
-
-        <input ref="fileInput" type="file" multiple style="display:none" @change="onFileInputChange" />
-      </div>
-    </div>
+    <input ref="fileInput" type="file" multiple style="display:none" @change="onFileInputChange" />
 
     <!-- File area -->
     <div
       class="file-area"
+      @contextmenu="showMenu"
       @dragover="onDragOver"
       @dragleave="onDragLeave"
       @drop="onDrop"
@@ -174,7 +230,7 @@ function onDrop(e) {
       <!-- Empty -->
       <div v-else-if="!entries.length" class="state-center">
         <span class="state-text">Empty folder</span>
-        <span class="state-hint">Drag files here or click Upload</span>
+        <span class="state-hint">Right-click to upload or create files</span>
       </div>
 
       <!-- File table -->
@@ -208,7 +264,34 @@ function onDrop(e) {
         :path="currentPath"
         @navigate="(loc, p) => emit('navigate', loc, p)"
       />
+      <span v-if="uploading" class="uploading-indicator">Uploading…</span>
     </div>
+
+    <!-- Context menu -->
+    <Teleport to="body">
+      <Transition name="ctx">
+        <div
+          v-if="menuVisible"
+          ref="contextMenu"
+          class="ctx-menu"
+          :style="menuStyle"
+        >
+          <button class="ctx-item" @click="triggerUpload">
+            <Upload class="ctx-icon" />
+            <span>Upload Files…</span>
+          </button>
+          <div class="ctx-sep" />
+          <button class="ctx-item" @click="createFolder">
+            <FolderPlus class="ctx-icon" />
+            <span>New Folder</span>
+          </button>
+          <button class="ctx-item" @click="createFile">
+            <FilePlus class="ctx-icon" />
+            <span>New File</span>
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -219,72 +302,6 @@ function onDrop(e) {
   flex-direction: column;
   overflow: hidden;
 }
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0.6rem 1.25rem;
-  flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  border-bottom: 0.5px solid rgba(255, 255, 255, 0.1);
-}
-
-.toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-shrink: 0;
-  margin-left: 1rem;
-}
-
-.btn-tool {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: 10px;
-  font-size: 0.8rem;
-  color: #e4e4e7;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
-  border: 0.5px solid rgba(255, 255, 255, 0.18);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 8px rgba(0, 0, 0, 0.2);
-  cursor: pointer;
-  transition: background 0.18s, box-shadow 0.18s;
-  white-space: nowrap;
-}
-
-.btn-tool:hover {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.09) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 4px 12px rgba(0, 0, 0, 0.28);
-}
-
-.btn-primary {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: 10px;
-  font-size: 0.8rem;
-  color: #fff;
-  background: linear-gradient(145deg, rgba(0, 122, 255, 0.95) 0%, rgba(0, 95, 210, 1) 100%);
-  border: 0.5px solid rgba(0, 122, 255, 0.5);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 2px 10px rgba(0, 122, 255, 0.35);
-  cursor: pointer;
-  transition: background 0.18s, box-shadow 0.18s;
-  white-space: nowrap;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: linear-gradient(145deg, rgba(0, 100, 204, 1) 0%, rgba(0, 75, 180, 1) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 4px 14px rgba(0, 122, 255, 0.45);
-}
-
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
 
 .file-area {
   flex: 1;
@@ -346,8 +363,90 @@ function onDrop(e) {
 
 .bottom-bar {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 0.65rem 1.25rem;
   border-top: 0.5px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
+}
+
+.uploading-indicator {
+  font-size: 0.75rem;
+  color: #636366;
+}
+</style>
+
+<style>
+.ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 210px;
+  padding: 4px 0;
+  background: rgba(28, 28, 30, 0.9);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  box-shadow:
+    0 8px 40px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 8px);
+  margin: 0 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: #e4e4e7;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.08s, color 0.08s;
+  font-family: inherit;
+  letter-spacing: -0.01em;
+}
+
+.ctx-item:hover {
+  background: #007AFF;
+  color: #fff;
+}
+
+.ctx-item:hover .ctx-icon {
+  opacity: 1;
+}
+
+.ctx-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.ctx-sep {
+  height: 0.5px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 3px 0;
+}
+
+.ctx-enter-active {
+  transition: opacity 0.1s ease, transform 0.1s ease;
+}
+.ctx-leave-active {
+  transition: opacity 0.08s ease, transform 0.08s ease;
+}
+.ctx-enter-from {
+  opacity: 0;
+  transform: scale(0.96) translateY(-4px);
+}
+.ctx-leave-to {
+  opacity: 0;
+  transform: scale(0.96) translateY(-4px);
 }
 </style>
