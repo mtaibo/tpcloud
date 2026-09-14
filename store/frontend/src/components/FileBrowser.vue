@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Trash2 } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Trash2 } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
@@ -25,7 +25,8 @@ const menuVisible = ref(false)
 const menuPos = ref({ x: 0, y: 0 })
 const activeEntry = ref(null)
 
-const moveEntry = ref(null)
+const pickerEntry = ref(null)
+const pickerMode = ref('move')
 
 const menuStyle = computed(() => ({
   left: menuPos.value.x + 'px',
@@ -69,7 +70,7 @@ function onDocClick(e) {
 function onDocKeydown(e) {
   if (e.key === 'Escape') {
     hideMenu()
-    moveEntry.value = null
+    pickerEntry.value = null
   }
 }
 
@@ -191,8 +192,32 @@ async function renameItem() {
 }
 
 function startMove() {
-  moveEntry.value = activeEntry.value
+  pickerEntry.value = activeEntry.value
+  pickerMode.value = 'move'
   hideMenu()
+}
+
+function startCopy() {
+  pickerEntry.value = activeEntry.value
+  pickerMode.value = 'copy'
+  hideMenu()
+}
+
+async function duplicateItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const res = await fetch('/api/files/duplicate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, location: props.location }),
+  })
+  if (res.ok) {
+    loadDirectory()
+  } else {
+    const data = await res.json().catch(() => ({}))
+    alert(data.detail || 'Error duplicating')
+  }
 }
 
 async function deleteActiveItem() {
@@ -331,9 +356,18 @@ function onDrop(e) {
               <Pencil class="ctx-icon" />
               <span>Rename</span>
             </button>
+            <div class="ctx-sep" />
             <button class="ctx-item" @click="startMove">
               <FolderInput class="ctx-icon" />
               <span>Move to…</span>
+            </button>
+            <button class="ctx-item" @click="startCopy">
+              <Copy class="ctx-icon" />
+              <span>Copy to…</span>
+            </button>
+            <button class="ctx-item" @click="duplicateItem">
+              <CopyPlus class="ctx-icon" />
+              <span>Duplicate</span>
             </button>
             <div class="ctx-sep" />
             <button class="ctx-item ctx-item--danger" @click="deleteActiveItem">
@@ -362,14 +396,15 @@ function onDrop(e) {
       </Transition>
     </Teleport>
 
-    <!-- Move modal -->
+    <!-- Move / Copy modal -->
     <MoveModal
-      v-if="moveEntry"
-      :entry="moveEntry"
+      v-if="pickerEntry"
+      :entry="pickerEntry"
       :location="location"
       :current-path="currentPath"
-      @close="moveEntry = null"
-      @moved="moveEntry = null; loadDirectory()"
+      :mode="pickerMode"
+      @close="pickerEntry = null"
+      @moved="pickerEntry = null; loadDirectory()"
     />
   </div>
 </template>

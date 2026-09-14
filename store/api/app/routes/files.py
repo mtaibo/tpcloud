@@ -259,6 +259,83 @@ async def rename_item(request: Request, body: RenameBody):
     return {"renamed": body.path}
 
 
+def _copy_name(parent: Path, name: str) -> Path:
+    if '.' in name and not name.startswith('.'):
+        stem, ext = name.rsplit('.', 1)
+        ext = f'.{ext}'
+    else:
+        stem, ext = name, ''
+    candidate = parent / f'{stem} copy{ext}'
+    n = 2
+    while candidate.exists():
+        candidate = parent / f'{stem} copy {n}{ext}'
+        n += 1
+    return candidate
+
+
+class CopyBody(BaseModel):
+    path: str
+    dest_dir: str
+    location: str = "external"
+
+
+@router.post("/copy")
+async def copy_item(request: Request, body: CopyBody):
+    user = await get_current_user(request)
+    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    _check_access(body.location, body.dest_dir, user["email"], user["is_admin"])
+    base = _base(body.location)
+    item = _resolve(base, body.path)
+    dest_dir = _resolve(base, body.dest_dir)
+
+    if not item.exists():
+        raise HTTPException(404, "Source not found")
+    if not dest_dir.is_dir():
+        raise HTTPException(400, "Destination is not a directory")
+
+    dest = dest_dir / item.name
+    if dest.exists():
+        raise HTTPException(400, "Item already exists at destination")
+
+    try:
+        if item.is_dir():
+            shutil.copytree(str(item), str(dest))
+        else:
+            shutil.copy2(str(item), str(dest))
+    except PermissionError:
+        raise HTTPException(403, "Permission denied")
+
+    return {"copied": str(dest.relative_to(base))}
+
+
+class DuplicateBody(BaseModel):
+    path: str
+    location: str = "external"
+
+
+@router.post("/duplicate")
+async def duplicate_item(request: Request, body: DuplicateBody):
+    user = await get_current_user(request)
+    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    base = _base(body.location)
+    item = _resolve(base, body.path)
+
+    if not item.exists():
+        raise HTTPException(404, "Not found")
+
+    dest = _copy_name(item.parent, item.name)
+
+    try:
+        if item.is_dir():
+            shutil.copytree(str(item), str(dest))
+        else:
+            shutil.copy2(str(item), str(dest))
+    except PermissionError:
+        raise HTTPException(403, "Permission denied")
+
+    return {"duplicated": str(dest.relative_to(base))}
+
+
 class MoveBody(BaseModel):
     path: str
     dest_dir: str

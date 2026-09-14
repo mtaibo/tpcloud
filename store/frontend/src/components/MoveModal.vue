@@ -6,6 +6,7 @@ const props = defineProps({
   entry: Object,
   location: String,
   currentPath: String,
+  mode: { type: String, default: 'move' },
 })
 
 const emit = defineEmits(['close', 'moved'])
@@ -56,11 +57,15 @@ const isSameDir = computed(() => browsePath.value === props.currentPath)
 
 const canGoUp = computed(() => !!browsePath.value)
 
-async function doMove() {
+const actionLabel = computed(() => props.mode === 'copy' ? 'Copy Here' : 'Move Here')
+const modalTitle = computed(() => props.mode === 'copy' ? 'Copy' : 'Move')
+
+async function doAction() {
   const sourcePath = props.currentPath
     ? `${props.currentPath}/${props.entry.name}`
     : props.entry.name
-  const res = await fetch('/api/files/move', {
+  const endpoint = props.mode === 'copy' ? '/api/files/copy' : '/api/files/move'
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -73,7 +78,7 @@ async function doMove() {
     emit('moved')
   } else {
     const data = await res.json().catch(() => ({}))
-    alert(data.detail || 'Error moving item')
+    alert(data.detail || `Error ${props.mode === 'copy' ? 'copying' : 'moving'} item`)
   }
 }
 </script>
@@ -84,7 +89,7 @@ async function doMove() {
       <div class="modal">
 
         <div class="modal-header">
-          <span class="modal-title">Move</span>
+          <span class="modal-title">{{ modalTitle }}</span>
           <span class="modal-subtitle">{{ entry.name }}</span>
         </div>
 
@@ -112,8 +117,8 @@ async function doMove() {
 
         <div class="modal-footer">
           <button class="btn-cancel" @click="emit('close')">Cancel</button>
-          <button class="btn-move" :disabled="isSameDir" @click="doMove">
-            Move Here
+          <button class="btn-move" :disabled="isSameDir" @click="doAction">
+            {{ actionLabel }}
           </button>
         </div>
 
