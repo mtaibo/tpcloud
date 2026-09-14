@@ -1,12 +1,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Folder, Star, ChevronRight } from 'lucide-vue-next'
+import { Folder, Star, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const props = defineProps({
   user: Object,
+  canGoBack: Boolean,
+  canGoForward: Boolean,
 })
 
-const emit = defineEmits(['navigate'])
+const emit = defineEmits(['navigate', 'go-back', 'go-forward'])
 
 const favourites = ref([])
 const favouritesOpen = ref(true)
@@ -26,6 +28,15 @@ function go(fav) {
 <template>
   <div class="browse-panel">
     <div class="browse-header">
+      <div class="nav-pill">
+        <button class="nav-btn" :disabled="!canGoBack" @click="emit('go-back')">
+          <ChevronLeft class="nav-icon" />
+        </button>
+        <div class="nav-divider" />
+        <button class="nav-btn" :disabled="!canGoForward" @click="emit('go-forward')">
+          <ChevronRight class="nav-icon" />
+        </button>
+      </div>
       <span class="browse-large-title">Browse</span>
     </div>
 
@@ -67,12 +78,13 @@ function go(fav) {
 
 .browse-header {
   flex-shrink: 0;
-  padding-top: calc(env(safe-area-inset-top) + 18px);
+  padding-top: calc(env(safe-area-inset-top) + 14px);
   padding-bottom: 14px;
   padding-left: 1.25rem;
   padding-right: 1.25rem;
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: 10px;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -80,6 +92,46 @@ function go(fav) {
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+.nav-pill {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.07);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+.nav-btn {
+  width: 52px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.85);
+  transition: background 0.12s, color 0.12s;
+}
+
+.nav-btn:disabled { color: rgba(255, 255, 255, 0.2); cursor: default; }
+.nav-btn:not(:disabled):active { background: rgba(255, 255, 255, 0.04); }
+
+.nav-divider {
+  width: 0.5px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
+}
+
+.nav-icon {
+  width: 22px;
+  height: 22px;
+  stroke-width: 2.5;
 }
 
 .browse-large-title {
