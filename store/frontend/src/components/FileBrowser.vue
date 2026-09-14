@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
@@ -12,9 +12,11 @@ const props = defineProps({
   user: Object,
   location: String,
   currentPath: String,
+  canGoBack: Boolean,
+  canGoForward: Boolean,
 })
 
-const emit = defineEmits(['navigate'])
+const emit = defineEmits(['navigate', 'go-back', 'go-forward'])
 
 const entries = ref([])
 const loading = ref(false)
@@ -37,15 +39,6 @@ const createMode = ref(null)
 const activeIsZip = computed(() =>
   activeEntry.value?.name?.toLowerCase().endsWith('.zip') ?? false
 )
-
-const canGoBack = computed(() => !!props.currentPath)
-
-function goBack() {
-  if (!props.currentPath) return
-  const parts = props.currentPath.split('/').filter(Boolean)
-  parts.pop()
-  emit('navigate', props.location, parts.join('/'))
-}
 
 const menuStyle = computed(() => ({
   left: menuPos.value.x + 'px',
@@ -349,17 +342,28 @@ function onDrop(e) {
   <div class="browser">
     <input ref="fileInput" type="file" multiple style="display:none" @change="onFileInputChange" />
 
-    <!-- Back button -->
+    <!-- Navigation buttons -->
     <div class="file-topbar">
-      <button
-        class="back-btn"
-        :class="{ visible: canGoBack }"
-        :disabled="!canGoBack"
-        @click="goBack"
-        title="Go back"
-      >
-        <ChevronLeft class="back-icon" />
-      </button>
+      <div class="nav-btns">
+        <button
+          class="nav-btn"
+          :class="{ visible: canGoBack }"
+          :disabled="!canGoBack"
+          @click="emit('go-back')"
+          title="Back"
+        >
+          <ChevronLeft class="nav-icon" />
+        </button>
+        <button
+          class="nav-btn"
+          :class="{ visible: canGoForward }"
+          :disabled="!canGoForward"
+          @click="emit('go-forward')"
+          title="Forward"
+        >
+          <ChevronRight class="nav-icon" />
+        </button>
+      </div>
     </div>
 
     <!-- File area -->
@@ -548,7 +552,13 @@ function onDrop(e) {
   padding: 0 1.25rem;
 }
 
-.back-btn {
+.nav-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nav-btn {
   width: 30px;
   height: 30px;
   border-radius: 50%;
@@ -575,12 +585,12 @@ function onDrop(e) {
   transition: opacity 0.2s, background 0.18s, box-shadow 0.18s, color 0.18s, transform 0.18s;
 }
 
-.back-btn.visible {
+.nav-btn.visible {
   opacity: 1;
   pointer-events: auto;
 }
 
-.back-btn:hover {
+.nav-btn:hover {
   background: linear-gradient(180deg,
     rgba(255, 255, 255, 0.22) 0%,
     rgba(255, 255, 255, 0.1) 100%
@@ -595,15 +605,14 @@ function onDrop(e) {
   transform: translateY(-0.5px);
 }
 
-.back-btn:active {
+.nav-btn:active {
   transform: translateY(0) scale(0.96);
 }
 
-.back-icon {
+.nav-icon {
   width: 14px;
   height: 14px;
   stroke-width: 2.5;
-  margin-right: -1px;
 }
 
 .file-area {
