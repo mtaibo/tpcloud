@@ -16,6 +16,7 @@ class ShareLink(SQLModel, table=True):
     hidden: bool = Field(default=False)
     password_hash: Optional[str] = Field(default=None)
     editable: bool = Field(default=False)
+    public: bool = Field(default=False)
 
 
 class ShareSession(SQLModel, table=True):

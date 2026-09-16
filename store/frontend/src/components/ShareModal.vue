@@ -22,6 +22,7 @@ const slugValue = ref('')
 const usePassword = ref(false)
 const passwordValue = ref('')
 const editable = ref(false)
+const isPublic = ref(false)
 
 const entryPath = computed(() =>
   props.currentPath ? `${props.currentPath}/${props.entry.name}` : props.entry.name
@@ -56,6 +57,7 @@ async function createShare() {
       slug: slugMode.value === 'custom' ? slugValue.value : undefined,
       password: usePassword.value && passwordValue.value ? passwordValue.value : undefined,
       editable: editable.value,
+      public: isPublic.value,
     }
     const res = await fetch('/api/shares', {
       method: 'POST',
@@ -117,7 +119,8 @@ async function copyUrl() {
         </div>
         <p class="share-meta">
           {{ existingShare.editable ? 'Editable' : 'Read-only' }}
-          · {{ existingShare.has_password ? 'Password protected' : 'Public' }}
+          · {{ existingShare.has_password ? 'Password protected' : 'No password' }}
+          {{ existingShare.public ? '· Listed on public page' : '' }}
         </p>
       </template>
 
@@ -163,6 +166,11 @@ async function copyUrl() {
         <label class="toggle-row">
           <input v-model="editable" type="checkbox" class="toggle-cb" />
           <span class="field-label" style="margin:0">Allow editing</span>
+        </label>
+
+        <label class="toggle-row">
+          <input v-model="isPublic" type="checkbox" class="toggle-cb" />
+          <span class="field-label" style="margin:0">Show on public page</span>
         </label>
 
         <p v-if="error" class="err-msg">{{ error }}</p>

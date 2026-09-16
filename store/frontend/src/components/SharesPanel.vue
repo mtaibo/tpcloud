@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Share2, Copy, Check, Trash2, ChevronRight, Lock, Pencil, Eye, EyeOff, Save } from 'lucide-vue-next'
+import { Share2, Copy, Check, Trash2, ChevronRight, Lock, Pencil, Save } from 'lucide-vue-next'
 
 const emit = defineEmits(['navigate'])
 
@@ -29,9 +29,12 @@ async function copyUrl(share) {
   setTimeout(() => { copiedToken.value = null }, 2000)
 }
 
+const editPublic = ref(false)
+
 function startEdit(share) {
   editingToken.value = share.token
   editEditable.value = share.editable
+  editPublic.value = share.public
   editPassword.value = ''
   editClearPassword.value = false
 }
@@ -45,6 +48,7 @@ async function saveEdit(share) {
   try {
     const body = {
       editable: editEditable.value,
+      public: editPublic.value,
       clear_password: editClearPassword.value,
       password: !editClearPassword.value && editPassword.value ? editPassword.value : undefined,
     }
@@ -103,6 +107,7 @@ onMounted(load)
               <span class="badge" :class="share.editable ? 'badge-edit' : 'badge-ro'">
                 {{ share.editable ? 'Editable' : 'Read-only' }}
               </span>
+              <span v-if="share.public" class="badge badge-public">Listed</span>
             </div>
             <span class="share-path">{{ share.path }}</span>
             <div class="url-row">
@@ -132,6 +137,10 @@ onMounted(load)
           <label class="edit-row">
             <input v-model="editEditable" type="checkbox" class="edit-cb" />
             <span class="edit-label">Allow editing</span>
+          </label>
+          <label class="edit-row">
+            <input v-model="editPublic" type="checkbox" class="edit-cb" />
+            <span class="edit-label">Show on public page</span>
           </label>
 
           <div class="edit-row">
@@ -253,6 +262,7 @@ onMounted(load)
 .badge-icon { width: 10px; height: 10px; }
 .badge-edit { color: #30d158; background: rgba(48,209,88,0.1); }
 .badge-ro { color: #636366; }
+.badge-public { color: #ff9f0a; background: rgba(255,159,10,0.1); }
 
 .share-path {
   font-size: 0.75rem;

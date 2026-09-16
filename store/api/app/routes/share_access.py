@@ -61,6 +61,19 @@ def _share_resolve(share: ShareLink, subpath: str) -> Path:
 
 # ── Metadata & auth ──────────────────────────────────────────────────────────
 
+@router.get("")
+def list_public_shares(db: Session = Depends(get_session)):
+    shares = db.exec(select(ShareLink).where(ShareLink.public == True)).all()
+    return [
+        {
+            "token": s.token,
+            "label": s.path.split("/")[-1] or s.token,
+            "has_password": s.password_hash is not None,
+        }
+        for s in shares
+    ]
+
+
 @router.get("/{token}")
 def get_share_info(token: str, db: Session = Depends(get_session)):
     share = _get_share(token, db)

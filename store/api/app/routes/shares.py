@@ -30,6 +30,7 @@ def _serialize(share: ShareLink) -> dict:
         "hidden": share.hidden,
         "has_password": share.password_hash is not None,
         "editable": share.editable,
+        "public": share.public,
         "created_at": share.created_at.isoformat(),
     }
 
@@ -41,12 +42,14 @@ class CreateShareBody(BaseModel):
     slug: Optional[str] = None
     password: Optional[str] = None
     editable: bool = False
+    public: bool = False
 
 
 class UpdateShareBody(BaseModel):
     password: Optional[str] = None
     clear_password: bool = False
     editable: Optional[bool] = None
+    public: Optional[bool] = None
 
 
 @router.get("")
@@ -95,6 +98,7 @@ async def create_share(
         hidden=body.hidden or not body.slug,
         password_hash=password_hash,
         editable=body.editable,
+        public=body.public,
     )
     db.add(share)
     db.commit()
@@ -121,6 +125,8 @@ async def update_share(
 
     if body.editable is not None:
         share.editable = body.editable
+    if body.public is not None:
+        share.public = body.public
 
     db.add(share)
     db.commit()

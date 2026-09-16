@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import PasswordWall from './components/PasswordWall.vue'
 import ShareBrowser from './components/ShareBrowser.vue'
+import ShareLanding from './components/ShareLanding.vue'
 
 const token = window.location.pathname.replace(/^\/+/, '').split('/')[0]
 
@@ -12,7 +13,6 @@ const loading = ref(true)
 
 onMounted(async () => {
   if (!token) {
-    error.value = 'Invalid link'
     loading.value = false
     return
   }
@@ -45,7 +45,8 @@ function onAuthenticated(st) {
 </script>
 
 <template>
-  <div v-if="loading" class="center-msg">Loading…</div>
+  <ShareLanding v-if="!loading && !token" />
+  <div v-else-if="loading" class="center-msg">Loading…</div>
   <div v-else-if="error" class="center-msg err">{{ error }}</div>
   <template v-else-if="shareInfo">
     <PasswordWall v-if="needsPassword" :token="token" @authenticated="onAuthenticated" />
