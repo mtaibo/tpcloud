@@ -760,9 +760,9 @@ function onDrop(e) {
 
 .mobile-folder-name {
   display: block;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.75);
   margin-left: 0.75rem;
   overflow: hidden;
   text-overflow: ellipsis;
