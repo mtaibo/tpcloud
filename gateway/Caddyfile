@@ -57,7 +57,7 @@ http://store.migueltaibo.com {
 http://share.migueltaibo.com {
     header Cache-Control "no-store, no-cache, must-revalidate"
 
-    handle /api/share/* {
+    handle /api/share* {
         reverse_proxy store-api:8000
     }
     handle {
