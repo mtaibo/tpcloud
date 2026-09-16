@@ -1,24 +1,19 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { Folder, Star, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { useFavourites } from '../useFavourites.js'
 
 const props = defineProps({
   user: Object,
   canGoBack: Boolean,
   canGoForward: Boolean,
 })
-
 const emit = defineEmits(['navigate', 'go-back', 'go-forward'])
 
-const favourites = ref([])
 const favouritesOpen = ref(true)
+const { favourites, load } = useFavourites()
 
-onMounted(() => {
-  try {
-    const stored = localStorage.getItem('tpcloud-favourites')
-    if (stored) favourites.value = JSON.parse(stored)
-  } catch {}
-})
+onMounted(load)
 
 function go(fav) {
   emit('navigate', fav.location, fav.path)
@@ -50,12 +45,7 @@ function go(fav) {
         <p v-if="favourites.length === 0" class="empty-hint">
           No favourites yet.<br>Add them from desktop.
         </p>
-        <button
-          v-for="fav in favourites"
-          :key="fav.id"
-          class="fav-row"
-          @click="go(fav)"
-        >
+        <button v-for="fav in favourites" :key="fav.id" class="fav-row" @click="go(fav)">
           <span class="fav-icon-wrap">
             <Folder class="fav-folder-icon" />
             <Star class="fav-badge" />
@@ -114,24 +104,15 @@ function go(fav) {
   background: none;
   border: none;
   color: rgba(255, 255, 255, 0.85);
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.12s;
 }
 
 .nav-btn:disabled { color: rgba(255, 255, 255, 0.2); cursor: default; }
 .nav-btn:not(:disabled):active { background: rgba(255, 255, 255, 0.04); }
 
-.nav-divider {
-  width: 0.5px;
-  height: 14px;
-  background: rgba(255, 255, 255, 0.15);
-  flex-shrink: 0;
-}
+.nav-divider { width: 0.5px; height: 14px; background: rgba(255, 255, 255, 0.15); flex-shrink: 0; }
 
-.nav-icon {
-  width: 22px;
-  height: 22px;
-  stroke-width: 2.5;
-}
+.nav-icon { width: 22px; height: 22px; stroke-width: 2.5; }
 
 .browse-large-title {
   font-size: 2rem;
@@ -165,15 +146,12 @@ function go(fav) {
   transition: transform 0.2s;
 }
 
-.section-chevron.open {
-  transform: rotate(90deg);
-}
+.section-chevron.open { transform: rotate(90deg); }
 
 .browse-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0.5rem 0;
-  padding-bottom: 100px;
+  padding: 0.5rem 0 100px;
 }
 
 .empty-hint {
@@ -196,22 +174,11 @@ function go(fav) {
   border-bottom: 0.5px solid rgba(255, 255, 255, 0.05);
 }
 
-.fav-row:hover {
-  background: rgba(255, 255, 255, 0.04);
-}
+.fav-row:hover { background: rgba(255, 255, 255, 0.04); }
 
-.fav-icon-wrap {
-  position: relative;
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-}
+.fav-icon-wrap { position: relative; width: 22px; height: 22px; flex-shrink: 0; }
 
-.fav-folder-icon {
-  width: 22px;
-  height: 22px;
-  color: #007AFF;
-}
+.fav-folder-icon { width: 22px; height: 22px; color: #007AFF; }
 
 .fav-badge {
   position: absolute;
@@ -224,9 +191,5 @@ function go(fav) {
   stroke-width: 2;
 }
 
-.fav-label {
-  font-size: 0.9375rem;
-  font-weight: 500;
-  color: #d1d1d6;
-}
+.fav-label { font-size: 0.9375rem; font-weight: 500; color: #d1d1d6; }
 </style>

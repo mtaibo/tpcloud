@@ -7,6 +7,7 @@ import MoveModal from './MoveModal.vue'
 import RenameModal from './RenameModal.vue'
 import DeleteModal from './DeleteModal.vue'
 import CreateModal from './CreateModal.vue'
+import { useFavourites } from '../useFavourites.js'
 
 const props = defineProps({
   user: Object,
@@ -37,6 +38,8 @@ const pickerMode = ref('move')
 const renameEntry = ref(null)
 const deleteEntry = ref(null)
 const createMode = ref(null)
+
+const { add: addFav } = useFavourites()
 
 const activeIsZip = computed(() =>
   activeEntry.value?.name?.toLowerCase().endsWith('.zip') ?? false
@@ -328,34 +331,16 @@ function showMoreMenu() {
   })
 }
 
-function derivLabel(loc, path) {
-  if (!path) return loc === 'server' ? 'Server Root' : 'Disk Root'
-  const parts = path.split('/').filter(Boolean)
-  const last = parts[parts.length - 1]
-  if (path === `users/${props.user.email}`) return 'Personal'
-  if (last === 'shared') return 'Shared'
-  return last.charAt(0).toUpperCase() + last.slice(1)
-}
-
-function saveFavourite(loc, path) {
-  try {
-    const stored = localStorage.getItem('tpcloud-favourites')
-    const favs = stored ? JSON.parse(stored) : []
-    if (favs.some(f => f.location === loc && f.path === path)) { hideMenu(); return }
-    favs.push({ id: `${loc}:${path}`, label: derivLabel(loc, path), location: loc, path })
-    localStorage.setItem('tpcloud-favourites', JSON.stringify(favs))
-  } catch {}
-  hideMenu()
-}
-
 function addCurrentToFavourites() {
-  saveFavourite(props.location, props.currentPath)
+  addFav(props.location, props.currentPath, props.user.email)
+  hideMenu()
 }
 
 function addEntryToFavourites() {
   const entry = activeEntry.value
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
-  saveFavourite(props.location, path)
+  addFav(props.location, path, props.user.email)
+  hideMenu()
 }
 
 function triggerUpload() {

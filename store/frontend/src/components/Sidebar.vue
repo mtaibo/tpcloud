@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { HardDrive, Folder, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X, Shield, ShieldCheck } from 'lucide-vue-next'
+import { useFavourites } from '../useFavourites.js'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -10,7 +11,6 @@ const props = defineProps({
   currentPath: String,
   viewAsAdmin: Boolean,
 })
-
 const emit = defineEmits(['navigate', 'toggle-admin-view'])
 
 const serverOpen = ref(true)
@@ -18,40 +18,15 @@ const cloudOpen = ref(true)
 const favouritesOpen = ref(true)
 const menuOpen = ref(false)
 const cardRef = ref(null)
-const favourites = ref([])
 
-function loadFavourites() {
-  try {
-    const stored = localStorage.getItem('tpcloud-favourites')
-    if (stored) favourites.value = JSON.parse(stored)
-  } catch {}
-}
-
-function saveFavourites() {
-  localStorage.setItem('tpcloud-favourites', JSON.stringify(favourites.value))
-}
-
-function derivLabel(loc, path) {
-  if (!path) return loc === 'server' ? 'Server Root' : 'Disk Root'
-  const parts = path.split('/').filter(Boolean)
-  const last = parts[parts.length - 1]
-  if (path === `users/${props.user.email}`) return 'Personal'
-  if (last === 'shared') return 'Shared'
-  return last.charAt(0).toUpperCase() + last.slice(1)
-}
+const { favourites, load, add, remove } = useFavourites()
 
 function addFavourite() {
-  const loc = props.location
-  const path = props.currentPath
-  const exists = favourites.value.some(f => f.location === loc && f.path === path)
-  if (exists) return
-  favourites.value.push({ id: `${loc}:${path}`, label: derivLabel(loc, path), location: loc, path })
-  saveFavourites()
+  add(props.location, props.currentPath, props.user.email)
 }
 
 function removeFavourite(id) {
-  favourites.value = favourites.value.filter(f => f.id !== id)
-  saveFavourites()
+  remove(id)
 }
 
 function isActive(loc, path) {
@@ -61,7 +36,6 @@ function isActive(loc, path) {
 function go(loc, path) {
   emit('navigate', loc, path)
 }
-
 
 function onClickOutside(e) {
   if (cardRef.value && !cardRef.value.contains(e.target)) menuOpen.value = false
@@ -74,7 +48,7 @@ async function logout() {
 
 onMounted(() => {
   document.addEventListener('click', onClickOutside)
-  loadFavourites()
+  load()
 })
 onUnmounted(() => document.removeEventListener('click', onClickOutside))
 </script>
@@ -164,19 +138,19 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
               <Cloud class="menu-icon" />
               TPCloud
             </a>
-            <button v-if="user.is_admin" @click="emit('toggle-admin-view')" class="user-menu-item admin-item" :class="{ 'admin-item--active': viewAsAdmin }">
+            <button v-if="user.is_admin" class="user-menu-item admin-item" :class="{ 'admin-item--active': viewAsAdmin }" @click="emit('toggle-admin-view')">
               <ShieldCheck v-if="viewAsAdmin" class="menu-icon" />
               <Shield v-else class="menu-icon" />
               {{ viewAsAdmin ? 'Exit Admin View' : 'Admin View' }}
             </button>
-            <button @click="logout" class="user-menu-item logout-item">
+            <button class="user-menu-item logout-item" @click="logout">
               <LogOut class="menu-icon" />
               Log out
             </button>
           </div>
         </Transition>
 
-        <button @click="menuOpen = !menuOpen" class="user-btn">
+        <button class="user-btn" @click="menuOpen = !menuOpen">
           <div class="user-avatar">
             <User class="avatar-icon" />
           </div>
@@ -207,7 +181,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   flex-shrink: 0;
 }
 
-
 .sidebar-nav {
   flex: 1;
   padding: 0.75rem;
@@ -224,17 +197,9 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   padding: 1rem 0.5rem 0.25rem;
 }
 
-.separator-first {
-  padding-top: 0.25rem;
-}
-
-.separator-clickable {
-  cursor: default;
-}
-
-.separator-clickable:hover .chevron {
-  opacity: 1;
-}
+.separator-first { padding-top: 0.25rem; }
+.separator-clickable { cursor: default; }
+.separator-clickable:hover .chevron { opacity: 1; }
 
 .section-label {
   font-size: 0.7rem;
@@ -259,10 +224,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   transition: transform 0.2s, opacity 0.2s;
 }
 
-.chevron.open {
-  transform: rotate(90deg);
-  opacity: 1;
-}
+.chevron.open { transform: rotate(90deg); opacity: 1; }
 
 .add-btn {
   display: flex;
@@ -277,9 +239,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   transition: opacity 0.15s;
 }
 
-.separator-clickable:hover .add-btn {
-  opacity: 1;
-}
+.separator-clickable:hover .add-btn { opacity: 1; }
 
 .add-icon {
   width: 12px;
@@ -288,9 +248,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   transition: color 0.15s;
 }
 
-.add-btn:hover .add-icon {
-  color: #fff;
-}
+.add-btn:hover .add-icon { color: #fff; }
 
 .empty-hint {
   padding: 0.2rem 1rem 0.25rem;
@@ -305,9 +263,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   align-items: center;
 }
 
-.fav-row .nav-item {
-  flex: 1;
-}
+.fav-row .nav-item { flex: 1; }
 
 .remove-btn {
   position: absolute;
@@ -324,9 +280,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   transition: opacity 0.15s;
 }
 
-.fav-row:hover .remove-btn {
-  opacity: 1;
-}
+.fav-row:hover .remove-btn { opacity: 1; }
 
 .remove-icon {
   width: 12px;
@@ -335,9 +289,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   transition: color 0.15s;
 }
 
-.remove-btn:hover .remove-icon {
-  color: #f87171;
-}
+.remove-btn:hover .remove-icon { color: #f87171; }
 
 .nav-item {
   display: flex;
@@ -356,24 +308,11 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   transition: background 0.2s;
 }
 
-.nav-item.active {
-  background: #1c1c1e;
-  font-weight: 700;
-}
+.nav-item.active { background: #1c1c1e; font-weight: 700; }
 
-.nav-icon {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  color: #007AFF;
-}
+.nav-icon { width: 20px; height: 20px; flex-shrink: 0; color: #007AFF; }
 
-.fav-icon-wrap {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-}
+.fav-icon-wrap { position: relative; width: 20px; height: 20px; flex-shrink: 0; }
 
 .fav-badge {
   position: absolute;
@@ -386,14 +325,9 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   stroke-width: 2;
 }
 
-.sidebar-footer {
-  padding: 0.5rem 1rem 1.5rem;
-  flex-shrink: 0;
-}
+.sidebar-footer { padding: 0.5rem 1rem 1.5rem; flex-shrink: 0; }
 
-.user-card {
-  position: relative;
-}
+.user-card { position: relative; }
 
 .user-menu {
   position: absolute;
@@ -424,19 +358,12 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   text-decoration: none;
 }
 
-.logout-item:hover {
-  color: #f87171;
-}
-
+.logout-item:hover { color: #f87171; }
 .admin-item { color: rgba(255, 255, 255, 0.5); }
 .admin-item--active { color: #007AFF; }
 .admin-item:hover { color: #007AFF; }
 
-.menu-icon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-}
+.menu-icon { width: 16px; height: 16px; flex-shrink: 0; }
 
 .user-btn {
   display: flex;
@@ -461,11 +388,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   flex-shrink: 0;
 }
 
-.avatar-icon {
-  width: 15px;
-  height: 15px;
-  color: #007AFF;
-}
+.avatar-icon { width: 15px; height: 15px; color: #007AFF; }
 
 .user-display-name {
   margin-left: 1rem;
@@ -477,15 +400,8 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   text-align: left;
 }
 
-@media (max-width: 767px) {
-  .sidebar { display: none; }
-}
+@media (max-width: 767px) { .sidebar { display: none; } }
 
-.fade-enter-active, .fade-leave-active {
-  transition: opacity 0.15s, transform 0.15s;
-}
-.fade-enter-from, .fade-leave-to {
-  opacity: 0;
-  transform: translateY(4px);
-}
+.fade-enter-active, .fade-leave-active { transition: opacity 0.15s, transform 0.15s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(4px); }
 </style>

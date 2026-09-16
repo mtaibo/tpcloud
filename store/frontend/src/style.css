@@ -16,3 +16,121 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* ── Shared modal structure ── */
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+
+.modal-body {
+  padding: 16px 20px;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+
+.modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.modal-subtitle {
+  font-size: 12px;
+  color: #636366;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  margin-top: 2px;
+}
+
+.entry-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.header-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.modal-input::placeholder { color: #3a3a3c; }
+
+.modal-input:focus {
+  border-color: #007AFF;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.25);
+}
+
+/* ── Shared modal buttons ── */
+.btn-cancel {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #adadad;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  transition: background 0.12s, color 0.12s;
+  font-family: inherit;
+}
+
+.btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.btn-primary {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: #007AFF;
+  border: none;
+  transition: background 0.12s, opacity 0.12s;
+  font-family: inherit;
+}
+
+.btn-primary:hover:not(:disabled) { background: #0066d6; }
+.btn-primary:disabled { opacity: 0.35; cursor: default; }
+
+.btn-danger {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: #ff3b30;
+  border: none;
+  transition: background 0.12s;
+  font-family: inherit;
+}
+
+.btn-danger:hover { background: #e02d23; }
