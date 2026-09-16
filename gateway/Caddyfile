@@ -54,6 +54,17 @@ http://store.migueltaibo.com {
     }
 }
 
+http://share.migueltaibo.com {
+    header Cache-Control "no-store, no-cache, must-revalidate"
+
+    handle /api/share/* {
+        reverse_proxy store-api:8000
+    }
+    handle {
+        reverse_proxy share-frontend:80
+    }
+}
+
 http://tphome.migueltaibo.com {
     header Cache-Control "no-store, no-cache, must-revalidate"
 

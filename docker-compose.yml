@@ -61,6 +61,7 @@ services:
     volumes:
       - ${EXTERNAL_DISK_PATH:-/mnt/external}:/mnt/external
       - /:/mnt/server
+      - ./data:/app/data
     depends_on:
       - auth
     networks:
@@ -72,6 +73,13 @@ services:
     container_name: tpstore-frontend
     depends_on:
       - store-api
+    networks:
+      - gateway
+    restart: unless-stopped
+
+  share-frontend:
+    build: ./share/frontend
+    container_name: tpshare-frontend
     networks:
       - gateway
     restart: unless-stopped

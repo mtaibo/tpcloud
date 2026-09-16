@@ -1,12 +1,13 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star, Share2 } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
 import RenameModal from './RenameModal.vue'
 import DeleteModal from './DeleteModal.vue'
 import CreateModal from './CreateModal.vue'
+import ShareModal from './ShareModal.vue'
 import { useFavourites } from '../useFavourites.js'
 
 const props = defineProps({
@@ -38,6 +39,7 @@ const pickerMode = ref('move')
 const renameEntry = ref(null)
 const deleteEntry = ref(null)
 const createMode = ref(null)
+const shareEntry = ref(null)
 
 const { add: addFav } = useFavourites()
 
@@ -100,6 +102,7 @@ function onDocKeydown(e) {
     renameEntry.value = null
     deleteEntry.value = null
     createMode.value = null
+    shareEntry.value = null
   }
 }
 
@@ -331,6 +334,11 @@ function showMoreMenu() {
   })
 }
 
+function shareActiveItem() {
+  shareEntry.value = activeEntry.value
+  hideMenu()
+}
+
 function addCurrentToFavourites() {
   addFav(props.location, props.currentPath, props.user.email)
   hideMenu()
@@ -507,6 +515,10 @@ function onDrop(e) {
               <Star class="ctx-icon" />
               <span>Add to Favourites</span>
             </button>
+            <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="shareActiveItem">
+              <Share2 class="ctx-icon" />
+              <span>Share…</span>
+            </button>
             <div class="ctx-sep" />
             <button class="ctx-item" @click="startMove">
               <FolderInput class="ctx-icon" />
@@ -602,6 +614,15 @@ function onDrop(e) {
       :mode="pickerMode"
       @close="pickerEntry = null"
       @moved="pickerEntry = null; loadDirectory()"
+    />
+
+    <!-- Share modal -->
+    <ShareModal
+      v-if="shareEntry"
+      :entry="shareEntry"
+      :location="location"
+      :current-path="currentPath"
+      @close="shareEntry = null"
     />
   </div>
 </template>

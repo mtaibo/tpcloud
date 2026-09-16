@@ -5,8 +5,11 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.database import init_db
 from app.routes.files import router as files_router
 from app.routes.admin import router as admin_router
+from app.routes.shares import router as shares_router
+from app.routes.share_access import router as share_access_router
 
 
 @asynccontextmanager
@@ -17,6 +20,7 @@ async def lifespan(app: FastAPI):
         (external_base / "users").mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
+    init_db()
     yield
 
 
@@ -32,3 +36,5 @@ app.add_middleware(
 
 app.include_router(files_router)
 app.include_router(admin_router)
+app.include_router(shares_router)
+app.include_router(share_access_router)
