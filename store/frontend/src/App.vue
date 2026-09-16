@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import Sidebar from './components/Sidebar.vue'
 import FileBrowser from './components/FileBrowser.vue'
+import SharesPanel from './components/SharesPanel.vue'
 import MobileBottomNav from './components/MobileBottomNav.vue'
 import MobileBrowse from './components/MobileBrowse.vue'
 
@@ -26,7 +27,12 @@ function _applyState(index) {
   navIndex.value = index
 }
 
+function openShares() {
+  showShares.value = true
+}
+
 function navigate(loc, path) {
+  showShares.value = false
   const current = navHistory.value[navIndex.value]
   if (current && current.location === loc && current.path === path) return
 
@@ -49,6 +55,8 @@ function goBack() {
 function goForward() {
   if (canGoForward.value) _applyState(navIndex.value + 1)
 }
+
+const showShares = ref(false)
 
 const mobileTab = ref('personal')
 
@@ -103,9 +111,11 @@ onMounted(async () => {
 
 <template>
   <div v-if="appReady && user" class="app">
-    <Sidebar :user="user" :location="location" :current-path="currentPath" :view-as-admin="viewAsAdmin" @navigate="navigate" @toggle-admin-view="toggleAdminView" />
+    <Sidebar :user="user" :location="location" :current-path="currentPath" :view-as-admin="viewAsAdmin" :shares-active="showShares" @navigate="navigate" @toggle-admin-view="toggleAdminView" @open-shares="openShares" />
     <MobileBrowse v-if="activeTab === 'browse'" class="mobile-only" :user="user" :can-go-back="canGoBack" :can-go-forward="canGoForward" @navigate="onMobileNavigate" @go-back="goBack" @go-forward="goForward" />
+    <SharesPanel v-if="showShares" :class="activeTab === 'browse' ? 'mobile-hidden' : ''" @navigate="navigate" />
     <FileBrowser
+      v-else
       :class="activeTab === 'browse' ? 'mobile-hidden' : ''"
       :user="user"
       :location="location"

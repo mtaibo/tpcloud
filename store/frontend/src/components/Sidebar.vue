@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X, Shield, ShieldCheck } from 'lucide-vue-next'
+import { HardDrive, Folder, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X, Shield, ShieldCheck, Share2 } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
@@ -10,8 +10,9 @@ const props = defineProps({
   location: String,
   currentPath: String,
   viewAsAdmin: Boolean,
+  sharesActive: Boolean,
 })
-const emit = defineEmits(['navigate', 'toggle-admin-view'])
+const emit = defineEmits(['navigate', 'toggle-admin-view', 'open-shares'])
 
 const serverOpen = ref(true)
 const cloudOpen = ref(true)
@@ -86,6 +87,15 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           </button>
         </div>
       </template>
+
+      <!-- SHARED LINKS -->
+      <div class="separator-row">
+        <p class="section-label">Shared</p>
+      </div>
+      <button :class="['nav-item', { active: sharesActive }]" @click="emit('open-shares')">
+        <Share2 class="nav-icon" />
+        <span>Shared Links</span>
+      </button>
 
       <!-- CLOUD -->
       <div class="separator-row separator-clickable" @click="cloudOpen = !cloudOpen">
