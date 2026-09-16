@@ -649,8 +649,8 @@ function onDrop(e) {
 }
 
 .nav-btn {
-  width: 36px;
-  height: 32px;
+  width: 40px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -759,7 +759,7 @@ function onDrop(e) {
 }
 
 .mobile-folder-name {
-  display: none;
+  display: block;
   font-size: 0.9rem;
   font-weight: 600;
   color: #fff;
@@ -767,14 +767,16 @@ function onDrop(e) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .more-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
   margin-left: auto;
   background: rgba(255, 255, 255, 0.07);
