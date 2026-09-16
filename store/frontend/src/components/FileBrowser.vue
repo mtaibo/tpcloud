@@ -649,8 +649,8 @@ function onDrop(e) {
 }
 
 .nav-btn {
-  width: 52px;
-  height: 46px;
+  width: 36px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -773,8 +773,8 @@ function onDrop(e) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
   margin-left: auto;
   background: rgba(255, 255, 255, 0.07);
