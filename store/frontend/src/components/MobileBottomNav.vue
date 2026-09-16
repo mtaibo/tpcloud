@@ -212,7 +212,6 @@ onUnmounted(() => {
   border-radius: 26px;
   border: none;
   background: none;
-  cursor: pointer;
   position: relative;
   z-index: 2;
   transition: all 0.2s;

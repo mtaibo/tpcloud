@@ -149,7 +149,6 @@ const iconColor = computed(() =>
   color: #adadad;
   background: rgba(255, 255, 255, 0.06);
   border: 0.5px solid rgba(255, 255, 255, 0.1);
-  cursor: pointer;
   transition: background 0.12s, color 0.12s;
   font-family: inherit;
 }
@@ -167,7 +166,6 @@ const iconColor = computed(() =>
   color: #fff;
   background: #ff3b30;
   border: none;
-  cursor: pointer;
   transition: background 0.12s;
   font-family: inherit;
 }

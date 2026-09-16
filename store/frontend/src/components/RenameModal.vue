@@ -200,7 +200,6 @@ function onKeydown(e) {
   color: #adadad;
   background: rgba(255, 255, 255, 0.06);
   border: 0.5px solid rgba(255, 255, 255, 0.1);
-  cursor: pointer;
   transition: background 0.12s, color 0.12s;
   font-family: inherit;
 }
@@ -218,7 +217,6 @@ function onKeydown(e) {
   color: #fff;
   background: #007AFF;
   border: none;
-  cursor: pointer;
   transition: background 0.12s, opacity 0.12s;
   font-family: inherit;
 }

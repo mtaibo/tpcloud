@@ -650,14 +650,13 @@ function onDrop(e) {
 }
 
 .nav-btn {
-  width: 36px;
-  height: 30px;
+  width: 52px;
+  height: 46px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: none;
   border: none;
-  cursor: pointer;
   color: rgba(255, 255, 255, 0.85);
   transition: background 0.12s, color 0.12s;
 }
@@ -683,8 +682,8 @@ function onDrop(e) {
 }
 
 .nav-icon {
-  width: 14px;
-  height: 14px;
+  width: 22px;
+  height: 22px;
   stroke-width: 2.5;
 }
 
@@ -772,7 +771,31 @@ function onDrop(e) {
 }
 
 .more-btn {
-  display: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  margin-left: 0.75rem;
+  background: rgba(255, 255, 255, 0.07);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+.more-btn:hover {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.more-btn:active {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.more-icon {
+  width: 22px;
+  height: 22px;
 }
 
 @media (max-width: 767px) {
@@ -805,41 +828,6 @@ function onDrop(e) {
 
   .nav-pill {
     flex-shrink: 0;
-  }
-
-  .nav-btn {
-    width: 52px;
-    height: 46px;
-  }
-
-  .nav-icon {
-    width: 22px;
-    height: 22px;
-  }
-
-  .more-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 46px;
-    height: 46px;
-    flex-shrink: 0;
-    margin-left: 0.75rem;
-    background: rgba(255, 255, 255, 0.07);
-    border: 0.5px solid rgba(255, 255, 255, 0.12);
-    border-radius: 999px;
-    cursor: pointer;
-    color: rgba(255, 255, 255, 0.85);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
-  }
-
-  .more-btn:active {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .more-icon {
-    width: 22px;
-    height: 22px;
   }
 
   .bottom-bar { display: none; }
@@ -876,7 +864,6 @@ function onDrop(e) {
   background: none;
   border: none;
   border-radius: 6px;
-  cursor: pointer;
   text-align: left;
   transition: background 0.08s, color 0.08s;
   font-family: inherit;

@@ -198,7 +198,6 @@ async function doAction() {
   background: rgba(255, 255, 255, 0.06);
   border: 0.5px solid rgba(255, 255, 255, 0.1);
   color: #adadad;
-  cursor: pointer;
   flex-shrink: 0;
   transition: background 0.12s, color 0.12s;
 }
@@ -249,7 +248,6 @@ async function doAction() {
   padding: 7px 16px;
   background: none;
   border: none;
-  cursor: pointer;
   transition: background 0.08s;
 }
 
@@ -298,7 +296,6 @@ async function doAction() {
   color: #adadad;
   background: rgba(255, 255, 255, 0.06);
   border: 0.5px solid rgba(255, 255, 255, 0.1);
-  cursor: pointer;
   transition: background 0.12s, color 0.12s;
   font-family: inherit;
 }
@@ -316,7 +313,6 @@ async function doAction() {
   color: #fff;
   background: #007AFF;
   border: none;
-  cursor: pointer;
   transition: background 0.12s, opacity 0.12s;
   font-family: inherit;
 }

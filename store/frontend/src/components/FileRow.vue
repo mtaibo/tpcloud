@@ -129,13 +129,13 @@ function formatDate(ts) {
 }
 
 .cell-name {
-  padding: 0.65rem 1.25rem;
+  padding: 0.9rem 1.25rem;
 }
 
 .cell-meta {
-  padding: 0.65rem 1.25rem;
+  padding: 0.9rem 1.25rem;
   text-align: right;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: #525252;
   white-space: nowrap;
 }
@@ -143,12 +143,12 @@ function formatDate(ts) {
 .name-btn {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  font-size: 0.875rem;
+  gap: 0.7rem;
+  font-size: 1rem;
   width: 100%;
 }
 
-.file-icon { width: 16px; height: 16px; flex-shrink: 0; }
+.file-icon { width: 20px; height: 20px; flex-shrink: 0; }
 
 .file-name {
   color: #d1d1d6;

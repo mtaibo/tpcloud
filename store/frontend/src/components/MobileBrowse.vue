@@ -113,7 +113,6 @@ function go(fav) {
   justify-content: center;
   background: none;
   border: none;
-  cursor: pointer;
   color: rgba(255, 255, 255, 0.85);
   transition: background 0.12s, color 0.12s;
 }
@@ -192,7 +191,6 @@ function go(fav) {
   padding: 0.75rem 1.25rem;
   background: none;
   border: none;
-  cursor: pointer;
   text-align: left;
   transition: background 0.12s;
   border-bottom: 0.5px solid rgba(255, 255, 255, 0.05);

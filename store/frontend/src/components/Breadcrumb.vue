@@ -121,7 +121,6 @@ function goTo(crumb) {
   background: none;
   border: none;
   color: #737373;
-  cursor: pointer;
   transition: color 0.15s;
   max-width: 8rem;
   overflow: hidden;
