@@ -631,10 +631,9 @@ function onDrop(e) {
 
 .file-topbar {
   flex-shrink: 0;
-  height: 44px;
   display: flex;
   align-items: center;
-  padding: 0 1.25rem;
+  padding: 10px 1.25rem;
 }
 
 .nav-pill {
@@ -682,8 +681,8 @@ function onDrop(e) {
 }
 
 .nav-icon {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   stroke-width: 2.5;
 }
 
@@ -777,7 +776,7 @@ function onDrop(e) {
   width: 46px;
   height: 46px;
   flex-shrink: 0;
-  margin-left: 0.75rem;
+  margin-left: auto;
   background: rgba(255, 255, 255, 0.07);
   border: 0.5px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
@@ -794,8 +793,8 @@ function onDrop(e) {
 }
 
 .more-icon {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
 }
 
 @media (max-width: 767px) {
