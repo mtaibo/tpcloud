@@ -8,7 +8,9 @@ import RenameModal from './RenameModal.vue'
 import DeleteModal from './DeleteModal.vue'
 import CreateModal from './CreateModal.vue'
 import ShareModal from './ShareModal.vue'
+import ImageViewer from './ImageViewer.vue'
 import { useFavourites } from '../useFavourites.js'
+import { IMAGE_EXTS } from '../fileTypes.js'
 
 const props = defineProps({
   user: Object,
@@ -40,6 +42,16 @@ const renameEntry = ref(null)
 const deleteEntry = ref(null)
 const createMode = ref(null)
 const shareEntry = ref(null)
+const imageViewEntry = ref(null)
+
+const imageViewSrc = computed(() => {
+  if (!imageViewEntry.value) return ''
+  const path = props.currentPath
+    ? `${props.currentPath}/${imageViewEntry.value.name}`
+    : imageViewEntry.value.name
+  const params = new URLSearchParams({ path, location: props.location })
+  return `/api/files/view?${params}`
+})
 
 const { add: addFav } = useFavourites()
 
@@ -103,6 +115,7 @@ function onDocKeydown(e) {
     deleteEntry.value = null
     createMode.value = null
     shareEntry.value = null
+    imageViewEntry.value = null
   }
 }
 
@@ -158,10 +171,20 @@ async function deleteItem(entry) {
   }
 }
 
-function viewItem(entry) {
+async function viewItem(entry) {
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
-  const params = new URLSearchParams({ path, location: props.location })
-  window.open(`/api/files/view?${params}`, '_blank')
+  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
+  if (IMAGE_EXTS.has(ext)) {
+    imageViewEntry.value = entry
+    return
+  }
+  const res = await fetch('/api/files/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, location: props.location }),
+  })
+  const data = await res.json()
+  window.open(`/api/files/open/${data.token}`, '_blank')
 }
 
 function downloadItem(entry) {
@@ -623,6 +646,14 @@ function onDrop(e) {
       :location="location"
       :current-path="currentPath"
       @close="shareEntry = null"
+    />
+
+    <!-- Image viewer -->
+    <ImageViewer
+      v-if="imageViewEntry"
+      :src="imageViewSrc"
+      :name="imageViewEntry.name"
+      @close="imageViewEntry = null"
     />
   </div>
 </template>

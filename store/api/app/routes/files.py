@@ -1,17 +1,22 @@
 import io
 import mimetypes
 import os
+import secrets
 import shutil
 import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List
 
 import aiofiles
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+from sqlmodel import Session, select
 
 from app.auth import get_current_user
+from app.database import get_session
+from app.models import FileViewToken
 from app.utils import get_base as _base, resolve_path as _resolve, check_access as _check_access
 
 router = APIRouter(prefix="/api/files", tags=["files"])
@@ -96,6 +101,65 @@ async def upload_files(
         uploaded.append(filename)
 
     return {"uploaded": uploaded}
+
+
+class TokenBody(BaseModel):
+    path: str
+    location: str = "external"
+
+
+@router.post("/token")
+async def create_file_token(
+    request: Request,
+    body: TokenBody,
+    db: Session = Depends(get_session),
+):
+    user = await get_current_user(request)
+    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    while True:
+        token = secrets.token_urlsafe(8)
+        if not db.exec(select(FileViewToken).where(FileViewToken.token == token)).first():
+            break
+    db.add(FileViewToken(
+        token=token,
+        path=body.path,
+        location=body.location,
+        owner_email=user["email"],
+    ))
+    db.commit()
+    return {"token": token}
+
+
+@router.get("/open/{token}")
+async def open_file_by_token(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_session),
+):
+    user = await get_current_user(request)
+    file_token = db.exec(select(FileViewToken).where(FileViewToken.token == token)).first()
+    if not file_token:
+        raise HTTPException(404, "Token not found")
+    if file_token.first_accessed_at:
+        expiry = file_token.first_accessed_at.replace(tzinfo=timezone.utc) + timedelta(hours=24)
+        if datetime.now(timezone.utc) > expiry:
+            raise HTTPException(410, "Token expired")
+    if not file_token.first_accessed_at:
+        file_token.first_accessed_at = datetime.now(timezone.utc)
+        db.add(file_token)
+        db.commit()
+    _check_access(file_token.location, file_token.path, user["email"], user["is_admin"])
+    base = _base(file_token.location)
+    file_path = _resolve(base, file_token.path)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+    media_type, _ = mimetypes.guess_type(str(file_path))
+    media_type = media_type or "application/octet-stream"
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
+    )
 
 
 @router.get("/view")

@@ -4,6 +4,18 @@ from typing import Optional
 from sqlmodel import SQLModel, Field
 
 
+class FileViewToken(SQLModel, table=True):
+    __tablename__ = "file_view_tokens"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token: str = Field(unique=True, index=True)
+    path: str
+    location: str
+    owner_email: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    first_accessed_at: Optional[datetime] = Field(default=None)
+
+
 class ShareLink(SQLModel, table=True):
     __tablename__ = "share_links"
 
