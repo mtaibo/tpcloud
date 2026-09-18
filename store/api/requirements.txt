@@ -6,3 +6,4 @@ aiofiles
 sqlmodel
 bcrypt
 Pillow
+pillow-heif

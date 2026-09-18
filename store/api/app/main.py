@@ -14,6 +14,12 @@ from app.routes.share_access import router as share_access_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        from pillow_heif import register_heif_opener
+        register_heif_opener()
+    except Exception:
+        pass
+
     external_base = Path(os.getenv("EXTERNAL_DISK_PATH", "/mnt/external"))
     try:
         (external_base / "shared").mkdir(parents=True, exist_ok=True)
