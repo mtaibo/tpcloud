@@ -3,6 +3,7 @@ import mimetypes
 import os
 import secrets
 import shutil
+import time
 import zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -24,12 +25,25 @@ router = APIRouter(prefix="/api/share", tags=["share-access"])
 
 SESSION_TTL_HOURS = 24
 
+_share_cache: dict[str, tuple[ShareLink, float]] = {}
+_SHARE_CACHE_TTL = 60.0
+
 
 def _get_share(token: str, db: Session) -> ShareLink:
+    now = time.monotonic()
+    cached = _share_cache.get(token)
+    if cached and cached[1] > now:
+        return cached[0]
     share = db.exec(select(ShareLink).where(ShareLink.token == token)).first()
     if not share:
         raise HTTPException(404, "Share not found")
+    db.expunge(share)
+    _share_cache[token] = (share, now + _SHARE_CACHE_TTL)
     return share
+
+
+def _invalidate_share_cache(token: str):
+    _share_cache.pop(token, None)
 
 
 def _verify_session(share: ShareLink, request: Request, db: Session):

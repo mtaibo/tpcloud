@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 from app.auth import get_current_user
 from app.database import get_session
 from app.models import ShareLink
+from app.routes.share_access import _invalidate_share_cache
 from app.utils import check_access
 
 router = APIRouter(prefix="/api/shares", tags=["shares"])
@@ -131,6 +132,7 @@ async def update_share(
     db.add(share)
     db.commit()
     db.refresh(share)
+    _invalidate_share_cache(token)
     return _serialize(share)
 
 
@@ -146,4 +148,5 @@ async def delete_share(
         raise HTTPException(404, "Share not found")
     db.delete(share)
     db.commit()
+    _invalidate_share_cache(token)
     return {"deleted": token}

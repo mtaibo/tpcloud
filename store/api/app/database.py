@@ -13,8 +13,10 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 def init_db():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     SQLModel.metadata.create_all(engine)
-    # Add columns introduced after initial schema
     with engine.connect() as conn:
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+        conn.execute(text("PRAGMA synchronous=NORMAL"))
+        conn.commit()
         cols = {row[1] for row in conn.execute(text("PRAGMA table_info(share_links)")).fetchall()}
         if "public" not in cols:
             conn.execute(text("ALTER TABLE share_links ADD COLUMN public INTEGER NOT NULL DEFAULT 0"))
