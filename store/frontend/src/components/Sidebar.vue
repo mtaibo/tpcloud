@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X, Shield, ShieldCheck } from 'lucide-vue-next'
+import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X, Shield, ShieldCheck, Share2 } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
@@ -91,7 +91,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
       </div>
 
       <button :class="['nav-item', { active: isActive('external', 'shared') }]" @click="go('external', 'shared')">
-        <Folder class="nav-icon" />
+        <Share2 class="nav-icon" />
         <span>Share</span>
       </button>
       <button :class="['nav-item', { active: isActive('external', `users/${user.email}`) }]" @click="go('external', `users/${user.email}`)">

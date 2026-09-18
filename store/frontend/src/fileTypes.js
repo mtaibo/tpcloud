@@ -21,6 +21,6 @@ export function getFileIcon(entry) {
 }
 
 export function getIconColor(entry) {
-  if (entry.type === 'share-link') return '#30d158'
+  if (entry.type === 'share-link') return '#007AFF'
   return entry.type === 'directory' ? '#007AFF' : '#636366'
 }

@@ -11,6 +11,7 @@ from typing import List, Optional
 import aiofiles
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -34,7 +35,10 @@ def _get_share(token: str, db: Session) -> ShareLink:
 def _verify_session(share: ShareLink, request: Request, db: Session):
     if not share.password_hash:
         return
-    session_token = request.headers.get("X-Share-Session")
+    session_token = (
+        request.headers.get("X-Share-Session")
+        or request.query_params.get("session")
+    )
     if not session_token:
         raise HTTPException(401, "Password required")
     sess = db.exec(
@@ -42,7 +46,10 @@ def _verify_session(share: ShareLink, request: Request, db: Session):
         .where(ShareSession.session_token == session_token)
         .where(ShareSession.share_token == share.token)
     ).first()
-    if not sess or sess.expires_at < datetime.now(timezone.utc):
+    if not sess:
+        raise HTTPException(401, "Session expired or invalid")
+    expires = sess.expires_at if sess.expires_at.tzinfo is not None else sess.expires_at.replace(tzinfo=timezone.utc)
+    if expires < datetime.now(timezone.utc):
         raise HTTPException(401, "Session expired or invalid")
 
 
@@ -163,6 +170,50 @@ def view_file(
         media_type=media_type,
         headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
     )
+
+
+@router.get("/{token}/files/thumbnail")
+async def share_thumbnail(
+    token: str,
+    request: Request,
+    path: str = Query(...),
+    size: int = Query(default=160),
+    db: Session = Depends(get_session),
+):
+    from app.routes.files import _THUMB_DIR, _thumb_cache_path, _build_thumbnail
+
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    file_path = _share_resolve(share, path)
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+
+    media_type, _ = mimetypes.guess_type(str(file_path))
+    if not media_type or not media_type.startswith("image/"):
+        return FileResponse(
+            path=str(file_path),
+            media_type=media_type or "application/octet-stream",
+            headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
+        )
+
+    try:
+        size = max(40, min(size, 400))
+        _THUMB_DIR.mkdir(parents=True, exist_ok=True)
+        cache_path = _thumb_cache_path(file_path, size)
+        if not cache_path.exists():
+            await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
+        return FileResponse(
+            path=str(cache_path),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "max-age=604800", "Content-Disposition": "inline"},
+        )
+    except Exception:
+        return FileResponse(
+            path=str(file_path),
+            media_type=media_type,
+            headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
+        )
 
 
 @router.get("/{token}/files/download")

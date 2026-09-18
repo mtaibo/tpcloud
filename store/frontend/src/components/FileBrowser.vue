@@ -11,6 +11,7 @@ import ShareModal from './ShareModal.vue'
 import SharePropertiesModal from './SharePropertiesModal.vue'
 import ImageViewer from './ImageViewer.vue'
 import GalleryThumb from './GalleryThumb.vue'
+import InlineShareBrowser from './InlineShareBrowser.vue'
 import { useFavourites } from '../useFavourites.js'
 import { IMAGE_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
 
@@ -46,6 +47,7 @@ const createMode = ref(null)
 const shareEntry = ref(null)
 const sharePropsEntry = ref(null)
 const imageViewEntry = ref(null)
+const inlineShareEntry = ref(null)
 const galleryMode = ref(localStorage.getItem('gallery-mode') === '1')
 
 function toggleGallery() {
@@ -140,6 +142,7 @@ function onDocKeydown(e) {
     shareEntry.value = null
     sharePropsEntry.value = null
     imageViewEntry.value = null
+    inlineShareEntry.value = null
   }
 }
 
@@ -217,7 +220,7 @@ async function deleteItem(entry) {
 
 async function viewItem(entry) {
   if (entry.type === 'share-link') {
-    window.open(entry.url, '_blank')
+    inlineShareEntry.value = entry
     return
   }
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
@@ -795,6 +798,13 @@ function onDrop(e) {
       @close="sharePropsEntry = null"
       @updated="sharePropsEntry = null; loadDirectory()"
       @deleted="sharePropsEntry = null; loadDirectory()"
+    />
+
+    <!-- Inline share browser -->
+    <InlineShareBrowser
+      v-if="inlineShareEntry"
+      :entry="inlineShareEntry"
+      @close="inlineShareEntry = null"
     />
   </div>
 </template>

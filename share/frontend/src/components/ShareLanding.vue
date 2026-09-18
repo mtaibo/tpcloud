@@ -22,7 +22,7 @@ function open(token) {
 <template>
   <div class="landing">
     <header class="landing-header">
-      <h1 class="site-title">Shared</h1>
+      <h1 class="site-title">TPShare</h1>
     </header>
 
     <main class="landing-main">
