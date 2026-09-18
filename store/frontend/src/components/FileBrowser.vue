@@ -60,7 +60,7 @@ function entryIsImage(entry) {
 function galleryThumbSrc(entry) {
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
   const params = new URLSearchParams({ path, location: props.location })
-  return `/api/files/view?${params}`
+  return `/api/files/thumbnail?${params}`
 }
 
 function galleryEntryIcon(entry) { return getFileIcon(entry) }
@@ -153,6 +153,7 @@ onUnmounted(() => {
 })
 
 async function loadDirectory() {
+  entries.value = []
   loading.value = true
   error.value = null
   try {

@@ -191,8 +191,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 .section-label {
   font-size: 0.7rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   color: #636366;
   user-select: none;
 }

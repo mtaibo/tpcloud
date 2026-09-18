@@ -162,6 +162,58 @@ async def open_file_by_token(
     )
 
 
+@router.get("/thumbnail")
+async def thumbnail_file(
+    request: Request,
+    path: str = Query(...),
+    location: str = Query(default="external"),
+    size: int = Query(default=220),
+):
+    user = await get_current_user(request)
+    _check_access(location, path, user["email"], user["is_admin"])
+    base = _base(location)
+    file_path = _resolve(base, path)
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+
+    media_type, _ = mimetypes.guess_type(str(file_path))
+    if not media_type or not media_type.startswith("image/"):
+        return FileResponse(
+            path=str(file_path),
+            media_type=media_type or "application/octet-stream",
+            headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
+        )
+
+    try:
+        from PIL import Image
+        import io as _io
+
+        size = max(50, min(size, 800))
+        with Image.open(file_path) as img:
+            img = img.convert("RGB")
+            w, h = img.size
+            min_dim = min(w, h)
+            left = (w - min_dim) // 2
+            top = (h - min_dim) // 2
+            img = img.crop((left, top, left + min_dim, top + min_dim))
+            img = img.resize((size, size), Image.LANCZOS)
+            buf = _io.BytesIO()
+            img.save(buf, format="JPEG", quality=82, optimize=True)
+            buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "max-age=86400", "Content-Disposition": "inline"},
+        )
+    except Exception:
+        return FileResponse(
+            path=str(file_path),
+            media_type=media_type,
+            headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
+        )
+
+
 @router.get("/view")
 async def view_file(
     request: Request,
