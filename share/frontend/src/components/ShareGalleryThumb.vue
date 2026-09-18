@@ -36,7 +36,6 @@ onUnmounted(() => {
 })
 
 function onError() {
-  // Retry once after 3 seconds in case the thumbnail was being built
   retryTimer = setTimeout(() => {
     if (activeSrc.value) {
       const url = new URL(activeSrc.value, location.href)

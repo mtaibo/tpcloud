@@ -20,9 +20,17 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models import ShareLink, ShareSession
-from app.utils import get_base, resolve_path
+from app.utils import get_base, resolve_path, list_directory_entries as _list_entries
 
 router = APIRouter(prefix="/api/share", tags=["share-access"])
+
+
+def _inline_response(path: Path, media_type: str) -> FileResponse:
+    return FileResponse(
+        path=str(path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{path.name}"'},
+    )
 
 SESSION_TTL_HOURS = 24
 
@@ -144,25 +152,7 @@ def list_files(
     if not dir_path.exists() or not dir_path.is_dir():
         raise HTTPException(404, "Directory not found")
 
-    entries = []
-    try:
-        items = sorted(dir_path.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
-    except PermissionError:
-        raise HTTPException(403, "Permission denied")
-
-    for item in items:
-        try:
-            stat = item.stat()
-            entries.append({
-                "name": item.name,
-                "type": "file" if item.is_file() else "directory",
-                "size": stat.st_size if item.is_file() else None,
-                "modified": stat.st_mtime,
-            })
-        except (PermissionError, OSError):
-            continue
-
-    return {"path": path, "entries": entries}
+    return {"path": path, "entries": _list_entries(dir_path)}
 
 
 @router.get("/{token}/files/view")
@@ -181,11 +171,7 @@ def view_file(
 
     media_type, _ = mimetypes.guess_type(str(file_path))
     media_type = media_type or "application/octet-stream"
-    return FileResponse(
-        path=str(file_path),
-        media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
-    )
+    return _inline_response(file_path, media_type)
 
 
 @router.get("/{token}/files/thumbnail")
@@ -207,11 +193,7 @@ async def share_thumbnail(
 
     media_type, _ = mimetypes.guess_type(str(file_path))
     if not media_type or not media_type.startswith("image/"):
-        return FileResponse(
-            path=str(file_path),
-            media_type=media_type or "application/octet-stream",
-            headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
-        )
+        return _inline_response(file_path, media_type or "application/octet-stream")
 
     try:
         size = max(40, min(size, 400))
@@ -230,11 +212,7 @@ async def share_thumbnail(
             headers={"Cache-Control": "max-age=604800", "Content-Disposition": "inline"},
         )
     except Exception:
-        return FileResponse(
-            path=str(file_path),
-            media_type=media_type,
-            headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
-        )
+        return _inline_response(file_path, media_type)
 
 
 @router.get("/{token}/files/download")
@@ -365,7 +343,10 @@ def rename_item(
     dest = item.parent / new_name
     if dest.exists():
         raise HTTPException(400, "Already exists")
-    item.rename(dest)
+    try:
+        item.rename(dest)
+    except OSError as e:
+        raise HTTPException(500, str(e))
     return {"renamed": body.path}
 
 

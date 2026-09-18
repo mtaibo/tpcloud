@@ -20,7 +20,7 @@ from sqlmodel import Session, select
 from app.auth import get_current_user
 from app.database import get_session, DATA_DIR
 from app.models import FileViewToken
-from app.utils import get_base as _base, resolve_path as _resolve, check_access as _check_access
+from app.utils import get_base as _base, resolve_path as _resolve, check_access as _check_access, list_directory_entries as _list_entries
 
 _THUMB_DIR = DATA_DIR / "thumbs"
 _thumb_sem = asyncio.Semaphore(4)
@@ -67,6 +67,14 @@ async def _build_thumb_bg(file_path: Path, cache_path: Path, size: int) -> None:
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 
+def _inline_response(path: Path, media_type: str) -> FileResponse:
+    return FileResponse(
+        path=str(path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{path.name}"'},
+    )
+
+
 @router.get("/list")
 async def list_directory(
     request: Request,
@@ -94,27 +102,7 @@ async def list_directory(
     if not dir_path.is_dir():
         raise HTTPException(400, "Path is not a directory")
 
-    entries = []
-    try:
-        items = sorted(dir_path.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
-    except PermissionError:
-        raise HTTPException(403, "Permission denied")
-
-    for item in items:
-        try:
-            stat = item.stat()
-            entries.append(
-                {
-                    "name": item.name,
-                    "type": "file" if item.is_file() else "directory",
-                    "size": stat.st_size if item.is_file() else None,
-                    "modified": stat.st_mtime,
-                }
-            )
-        except (PermissionError, OSError):
-            continue
-
-    return {"path": path, "entries": entries}
+    return {"path": path, "entries": _list_entries(dir_path)}
 
 
 @router.post("/upload")
@@ -200,11 +188,7 @@ async def open_file_by_token(
         raise HTTPException(404, "File not found")
     media_type, _ = mimetypes.guess_type(str(file_path))
     media_type = media_type or "application/octet-stream"
-    return FileResponse(
-        path=str(file_path),
-        media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
-    )
+    return _inline_response(file_path, media_type)
 
 
 @router.get("/thumbnail")
@@ -224,11 +208,7 @@ async def thumbnail_file(
 
     media_type, _ = mimetypes.guess_type(str(file_path))
     if not media_type or not media_type.startswith("image/"):
-        return FileResponse(
-            path=str(file_path),
-            media_type=media_type or "application/octet-stream",
-            headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
-        )
+        return _inline_response(file_path, media_type or "application/octet-stream")
 
     try:
         size = max(40, min(size, 400))
@@ -247,11 +227,7 @@ async def thumbnail_file(
             headers={"Cache-Control": "max-age=604800", "Content-Disposition": "inline"},
         )
     except Exception:
-        return FileResponse(
-            path=str(file_path),
-            media_type=media_type,
-            headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
-        )
+        return _inline_response(file_path, media_type)
 
 
 @router.get("/view")
@@ -270,12 +246,7 @@ async def view_file(
 
     media_type, _ = mimetypes.guess_type(str(file_path))
     media_type = media_type or "application/octet-stream"
-
-    return FileResponse(
-        path=str(file_path),
-        media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
-    )
+    return _inline_response(file_path, media_type)
 
 
 @router.get("/download")
@@ -293,7 +264,7 @@ async def download_file(
         raise HTTPException(404, "File not found")
 
     return FileResponse(
-        path=file_path,
+        path=str(file_path),
         filename=file_path.name,
         media_type="application/octet-stream",
     )

@@ -38,3 +38,23 @@ def check_access(location: str, path: str, email: str, is_admin: bool):
     if first == "users" and len(parts) >= 2 and parts[1] == email:
         return
     raise HTTPException(403, "Access denied")
+
+
+def list_directory_entries(dir_path: Path) -> list[dict]:
+    try:
+        items = sorted(dir_path.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
+    except PermissionError:
+        raise HTTPException(403, "Permission denied")
+    entries = []
+    for item in items:
+        try:
+            stat = item.stat()
+            entries.append({
+                "name": item.name,
+                "type": "file" if item.is_file() else "directory",
+                "size": stat.st_size if item.is_file() else None,
+                "modified": stat.st_mtime,
+            })
+        except (PermissionError, OSError):
+            continue
+    return entries

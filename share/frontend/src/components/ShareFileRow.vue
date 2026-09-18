@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { Download } from 'lucide-vue-next'
 import { getFileIcon, getIconColor } from '../fileTypes.js'
+import { formatSize } from '../utils/formatSize.js'
 
 const props = defineProps({
   entry: Object,
@@ -10,14 +11,6 @@ const emit = defineEmits(['open', 'download'])
 
 const fileIcon = computed(() => getFileIcon(props.entry))
 const iconColor = computed(() => getIconColor(props.entry))
-
-function formatSize(bytes) {
-  if (bytes === null || bytes === undefined) return '—'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
-}
 
 function onRowClick() {
   if (props.entry.type === 'directory') emit('open', props.entry)

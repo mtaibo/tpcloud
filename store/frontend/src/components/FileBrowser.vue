@@ -49,6 +49,10 @@ const imageViewEntry = ref(null)
 const galleryMode = ref(localStorage.getItem('gallery-mode') === '1')
 const shareMode = ref(null) // { token, label, path, history, historyIndex } | null
 
+function joinPath(base, name) {
+  return base ? `${base}/${name}` : name
+}
+
 function toggleGallery() {
   galleryMode.value = !galleryMode.value
   localStorage.setItem('gallery-mode', galleryMode.value ? '1' : '0')
@@ -61,10 +65,10 @@ function entryIsImage(entry) {
 
 function galleryThumbSrc(entry) {
   if (shareMode.value) {
-    const path = shareMode.value.path ? `${shareMode.value.path}/${entry.name}` : entry.name
+    const path = joinPath(shareMode.value.path, entry.name)
     return `/api/share/${shareMode.value.token}/files/thumbnail?path=${encodeURIComponent(path)}`
   }
-  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const path = joinPath(props.currentPath, entry.name)
   const params = new URLSearchParams({ path, location: props.location })
   return `/api/files/thumbnail?${params}`
 }
@@ -75,14 +79,10 @@ function galleryEntryColor(entry) { return getIconColor(entry) }
 const imageViewSrc = computed(() => {
   if (!imageViewEntry.value) return ''
   if (shareMode.value) {
-    const path = shareMode.value.path
-      ? `${shareMode.value.path}/${imageViewEntry.value.name}`
-      : imageViewEntry.value.name
+    const path = joinPath(shareMode.value.path, imageViewEntry.value.name)
     return `/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(path)}`
   }
-  const path = props.currentPath
-    ? `${props.currentPath}/${imageViewEntry.value.name}`
-    : imageViewEntry.value.name
+  const path = joinPath(props.currentPath, imageViewEntry.value.name)
   const params = new URLSearchParams({ path, location: props.location })
   return `/api/files/view?${params}`
 })
@@ -259,7 +259,7 @@ watch([() => props.location, () => props.currentPath], () => {
 function openItem(entry) {
   if (shareMode.value) {
     if (entry.type === 'directory') {
-      const newPath = shareMode.value.path ? `${shareMode.value.path}/${entry.name}` : entry.name
+      const newPath = joinPath(shareMode.value.path, entry.name)
       shareMode.value.history = shareMode.value.history.slice(0, shareMode.value.historyIndex + 1)
       shareMode.value.history.push(newPath)
       shareMode.value.historyIndex++
@@ -273,14 +273,11 @@ function openItem(entry) {
     return
   }
   if (entry.type !== 'directory') return
-  const newPath = props.currentPath
-    ? `${props.currentPath}/${entry.name}`
-    : entry.name
-  emit('navigate', props.location, newPath)
+  emit('navigate', props.location, joinPath(props.currentPath, entry.name))
 }
 
 async function deleteItem(entry) {
-  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const path = joinPath(props.currentPath, entry.name)
   const params = new URLSearchParams({ path, location: props.location })
   const res = await fetch(`/api/files?${params}`, { method: 'DELETE' })
   if (res.ok) {
@@ -304,7 +301,7 @@ async function viewItem(entry) {
     return
   }
   if (shareMode.value) {
-    const entryPath = shareMode.value.path ? `${shareMode.value.path}/${entry.name}` : entry.name
+    const entryPath = joinPath(shareMode.value.path, entry.name)
     const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
     if (IMAGE_EXTS.has(ext)) {
       imageViewEntry.value = entry
@@ -313,7 +310,7 @@ async function viewItem(entry) {
     window.open(`/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(entryPath)}`, '_blank')
     return
   }
-  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const path = joinPath(props.currentPath, entry.name)
   const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
   if (IMAGE_EXTS.has(ext)) {
     imageViewEntry.value = entry
@@ -330,14 +327,14 @@ async function viewItem(entry) {
 
 function downloadItem(entry) {
   if (shareMode.value) {
-    const entryPath = shareMode.value.path ? `${shareMode.value.path}/${entry.name}` : entry.name
+    const entryPath = joinPath(shareMode.value.path, entry.name)
     const a = document.createElement('a')
     a.href = `/api/share/${shareMode.value.token}/files/download?path=${encodeURIComponent(entryPath)}`
     a.download = entry.name
     a.click()
     return
   }
-  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const path = joinPath(props.currentPath, entry.name)
   const params = new URLSearchParams({ path, location: props.location })
   const a = document.createElement('a')
   a.href = `/api/files/download?${params}`
@@ -358,7 +355,7 @@ function createFile() {
 async function onCreated(name) {
   const mode = createMode.value
   createMode.value = null
-  const path = props.currentPath ? `${props.currentPath}/${name}` : name
+  const path = joinPath(props.currentPath, name)
   const endpoint = mode === 'folder' ? '/api/files/mkdir' : '/api/files/touch'
   const res = await fetch(endpoint, {
     method: 'POST',
@@ -381,7 +378,7 @@ function renameItem() {
 async function onRenamed(newName) {
   const entry = renameEntry.value
   renameEntry.value = null
-  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const path = joinPath(props.currentPath, entry.name)
   const res = await fetch('/api/files/rename', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -410,7 +407,7 @@ function startCopy() {
 async function duplicateItem() {
   const entry = activeEntry.value
   hideMenu()
-  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const path = joinPath(props.currentPath, entry.name)
   const res = await fetch('/api/files/duplicate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -439,7 +436,7 @@ function downloadActiveItem() {
 function downloadFolderAsZip() {
   const entry = activeEntry.value
   hideMenu()
-  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const path = joinPath(props.currentPath, entry.name)
   const params = new URLSearchParams({ path, location: props.location })
   const a = document.createElement('a')
   a.href = `/api/files/download-zip?${params}`
@@ -450,7 +447,7 @@ function downloadFolderAsZip() {
 async function compressItem() {
   const entry = activeEntry.value
   hideMenu()
-  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const path = joinPath(props.currentPath, entry.name)
   const res = await fetch('/api/files/compress', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -467,7 +464,7 @@ async function compressItem() {
 async function decompressItem() {
   const entry = activeEntry.value
   hideMenu()
-  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const path = joinPath(props.currentPath, entry.name)
   const res = await fetch('/api/files/decompress', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -545,7 +542,7 @@ function addCurrentToFavourites() {
 
 function addEntryToFavourites() {
   const entry = activeEntry.value
-  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const path = joinPath(props.currentPath, entry.name)
   addFav(props.location, path, props.user.email)
   hideMenu()
 }
@@ -594,7 +591,7 @@ function exitShareMode() {
 function downloadActiveShareFolderAsZip() {
   const entry = activeEntry.value
   hideMenu()
-  const entryPath = shareMode.value.path ? `${shareMode.value.path}/${entry.name}` : entry.name
+  const entryPath = joinPath(shareMode.value.path, entry.name)
   const a = document.createElement('a')
   a.href = `/api/share/${shareMode.value.token}/files/download-zip?path=${encodeURIComponent(entryPath)}`
   a.download = `${entry.name}.zip`
