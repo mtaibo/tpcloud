@@ -76,6 +76,7 @@ def list_public_shares(db: Session = Depends(get_session)):
             "token": s.token,
             "label": s.path.split("/")[-1] or s.token,
             "has_password": s.password_hash is not None,
+            "url": f"https://share.migueltaibo.com/{s.token}",
         }
         for s in shares
     ]
@@ -180,7 +181,7 @@ async def share_thumbnail(
     size: int = Query(default=160),
     db: Session = Depends(get_session),
 ):
-    from app.routes.files import _THUMB_DIR, _thumb_cache_path, _build_thumbnail
+    from app.routes.files import _THUMB_DIR, _thumb_cache_path, _build_thumbnail, _thumb_sem
 
     share = _get_share(token, db)
     _verify_session(share, request, db)
@@ -202,7 +203,9 @@ async def share_thumbnail(
         _THUMB_DIR.mkdir(parents=True, exist_ok=True)
         cache_path = _thumb_cache_path(file_path, size)
         if not cache_path.exists():
-            await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
+            async with _thumb_sem:
+                if not cache_path.exists():
+                    await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
         return FileResponse(
             path=str(cache_path),
             media_type="image/jpeg",

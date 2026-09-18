@@ -27,7 +27,7 @@ function onTouchMove() { clearTimeout(longPressTimer) }
 
 function onRowClick() {
   if (longPressActivated) return
-  if (props.entry.type === 'directory') emit('open', props.entry)
+  if (props.entry.type === 'directory' || props.entry.type === 'share-link') emit('open', props.entry)
 }
 
 function onRowDblClick() {

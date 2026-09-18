@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import io
 import mimetypes
@@ -22,6 +23,7 @@ from app.models import FileViewToken
 from app.utils import get_base as _base, resolve_path as _resolve, check_access as _check_access
 
 _THUMB_DIR = DATA_DIR / "thumbs"
+_thumb_sem = asyncio.Semaphore(4)
 
 
 def _thumb_cache_path(file_path: Path, size: int) -> Path:
@@ -216,7 +218,9 @@ async def thumbnail_file(
         _THUMB_DIR.mkdir(parents=True, exist_ok=True)
         cache_path = _thumb_cache_path(file_path, size)
         if not cache_path.exists():
-            await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
+            async with _thumb_sem:
+                if not cache_path.exists():
+                    await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
         return FileResponse(
             path=str(cache_path),
             media_type="image/jpeg",

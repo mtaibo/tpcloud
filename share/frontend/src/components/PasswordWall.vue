@@ -24,7 +24,7 @@ async function submit() {
       return
     }
     const { session_token } = await res.json()
-    sessionStorage.setItem(`share-session-${props.token}`, session_token)
+    localStorage.setItem(`share-session-${props.token}`, session_token)
     emit('authenticated', session_token)
   } catch {
     error.value = 'Connection error'

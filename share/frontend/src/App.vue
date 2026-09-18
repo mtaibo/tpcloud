@@ -16,7 +16,7 @@ onMounted(async () => {
     loading.value = false
     return
   }
-  sessionToken.value = sessionStorage.getItem(`share-session-${token}`)
+  sessionToken.value = localStorage.getItem(`share-session-${token}`)
   try {
     const res = await fetch(`/api/share/${token}`)
     if (res.status === 404) {

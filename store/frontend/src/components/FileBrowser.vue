@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star, Share2, LayoutGrid, List } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star, Share2, LayoutGrid, List, Folder } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
@@ -47,6 +47,7 @@ const shareEntry = ref(null)
 const sharePropsEntry = ref(null)
 const imageViewEntry = ref(null)
 const galleryMode = ref(localStorage.getItem('gallery-mode') === '1')
+const shareMode = ref(null) // { token, label, path, history, historyIndex } | null
 
 function toggleGallery() {
   galleryMode.value = !galleryMode.value
@@ -59,6 +60,10 @@ function entryIsImage(entry) {
 }
 
 function galleryThumbSrc(entry) {
+  if (shareMode.value) {
+    const path = shareMode.value.path ? `${shareMode.value.path}/${entry.name}` : entry.name
+    return `/api/share/${shareMode.value.token}/files/thumbnail?path=${encodeURIComponent(path)}`
+  }
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
   const params = new URLSearchParams({ path, location: props.location })
   return `/api/files/thumbnail?${params}`
@@ -69,6 +74,12 @@ function galleryEntryColor(entry) { return getIconColor(entry) }
 
 const imageViewSrc = computed(() => {
   if (!imageViewEntry.value) return ''
+  if (shareMode.value) {
+    const path = shareMode.value.path
+      ? `${shareMode.value.path}/${imageViewEntry.value.name}`
+      : imageViewEntry.value.name
+    return `/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(path)}`
+  }
   const path = props.currentPath
     ? `${props.currentPath}/${imageViewEntry.value.name}`
     : imageViewEntry.value.name
@@ -83,6 +94,10 @@ const activeIsZip = computed(() =>
 )
 
 const mobileFolderName = computed(() => {
+  if (shareMode.value) {
+    const parts = shareMode.value.path.split('/').filter(Boolean)
+    return parts[parts.length - 1] || shareMode.value.label
+  }
   if (!props.currentPath) return 'Files'
   const parts = props.currentPath.split('/').filter(Boolean)
   const last = parts[parts.length - 1]
@@ -154,6 +169,10 @@ onUnmounted(() => {
 })
 
 async function loadDirectory() {
+  if (shareMode.value) {
+    await loadShareDirectory()
+    return
+  }
   entries.value = []
   loading.value = true
   error.value = null
@@ -168,9 +187,11 @@ async function loadDirectory() {
     let real = data.entries
 
     if (props.location === 'external' && props.currentPath === 'shared') {
+      let ownTokens = new Set()
       const sres = await fetch('/api/shares')
       if (sres.ok) {
         const sdata = await sres.json()
+        ownTokens = new Set(sdata.map(s => s.token))
         const virtual = sdata.map(s => ({
           type: 'share-link',
           name: s.path.split('/').filter(Boolean).at(-1) || s.token,
@@ -181,6 +202,22 @@ async function loadDirectory() {
           modified: null,
         }))
         real = [...virtual, ...real]
+      }
+      const pres = await fetch('/api/share')
+      if (pres.ok) {
+        const pdata = await pres.json()
+        const pubVirtual = pdata
+          .filter(s => !ownTokens.has(s.token))
+          .map(s => ({
+            type: 'share-link',
+            name: s.label,
+            token: s.token,
+            url: s.url,
+            share: { ...s, isOwn: false },
+            size: null,
+            modified: null,
+          }))
+        real = [...real, ...pubVirtual]
       }
     }
 
@@ -193,9 +230,48 @@ async function loadDirectory() {
   }
 }
 
-watch([() => props.location, () => props.currentPath], loadDirectory, { immediate: true })
+async function loadShareDirectory() {
+  loading.value = true
+  error.value = null
+  entries.value = []
+  try {
+    const params = new URLSearchParams({ path: shareMode.value.path })
+    const res = await fetch(`/api/share/${shareMode.value.token}/files/list?${params}`)
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.detail || `Error ${res.status}`)
+    }
+    const data = await res.json()
+    entries.value = data.entries
+  } catch (e) {
+    error.value = e.message
+    entries.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+watch([() => props.location, () => props.currentPath], () => {
+  if (shareMode.value) shareMode.value = null
+  loadDirectory()
+}, { immediate: true })
 
 function openItem(entry) {
+  if (shareMode.value) {
+    if (entry.type === 'directory') {
+      const newPath = shareMode.value.path ? `${shareMode.value.path}/${entry.name}` : entry.name
+      shareMode.value.history = shareMode.value.history.slice(0, shareMode.value.historyIndex + 1)
+      shareMode.value.history.push(newPath)
+      shareMode.value.historyIndex++
+      shareMode.value.path = newPath
+      loadShareDirectory()
+    }
+    return
+  }
+  if (entry.type === 'share-link') {
+    viewItem(entry)
+    return
+  }
   if (entry.type !== 'directory') return
   const newPath = props.currentPath
     ? `${props.currentPath}/${entry.name}`
@@ -217,7 +293,24 @@ async function deleteItem(entry) {
 
 async function viewItem(entry) {
   if (entry.type === 'share-link') {
-    emit('navigate', entry.share.location || 'external', entry.share.path)
+    shareMode.value = {
+      token: entry.token,
+      label: entry.share?.label || entry.name,
+      path: '',
+      history: [''],
+      historyIndex: 0,
+    }
+    await loadShareDirectory()
+    return
+  }
+  if (shareMode.value) {
+    const entryPath = shareMode.value.path ? `${shareMode.value.path}/${entry.name}` : entry.name
+    const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
+    if (IMAGE_EXTS.has(ext)) {
+      imageViewEntry.value = entry
+      return
+    }
+    window.open(`/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(entryPath)}`, '_blank')
     return
   }
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
@@ -236,6 +329,14 @@ async function viewItem(entry) {
 }
 
 function downloadItem(entry) {
+  if (shareMode.value) {
+    const entryPath = shareMode.value.path ? `${shareMode.value.path}/${entry.name}` : entry.name
+    const a = document.createElement('a')
+    a.href = `/api/share/${shareMode.value.token}/files/download?path=${encodeURIComponent(entryPath)}`
+    a.download = entry.name
+    a.click()
+    return
+  }
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
   const params = new URLSearchParams({ path, location: props.location })
   const a = document.createElement('a')
@@ -449,6 +550,57 @@ function addEntryToFavourites() {
   hideMenu()
 }
 
+function handleGoBack() {
+  if (shareMode.value) {
+    if (shareMode.value.historyIndex > 0) {
+      shareMode.value.historyIndex--
+      shareMode.value.path = shareMode.value.history[shareMode.value.historyIndex]
+      loadShareDirectory()
+    } else {
+      shareMode.value = null
+      loadDirectory()
+    }
+    return
+  }
+  emit('go-back')
+}
+
+function handleGoForward() {
+  if (shareMode.value) {
+    if (shareMode.value.historyIndex < shareMode.value.history.length - 1) {
+      shareMode.value.historyIndex++
+      shareMode.value.path = shareMode.value.history[shareMode.value.historyIndex]
+      loadShareDirectory()
+    }
+    return
+  }
+  emit('go-forward')
+}
+
+function navigateShareTo(path) {
+  if (!shareMode.value) return
+  shareMode.value.history = shareMode.value.history.slice(0, shareMode.value.historyIndex + 1)
+  shareMode.value.history.push(path)
+  shareMode.value.historyIndex++
+  shareMode.value.path = path
+  loadShareDirectory()
+}
+
+function exitShareMode() {
+  shareMode.value = null
+  loadDirectory()
+}
+
+function downloadActiveShareFolderAsZip() {
+  const entry = activeEntry.value
+  hideMenu()
+  const entryPath = shareMode.value.path ? `${shareMode.value.path}/${entry.name}` : entry.name
+  const a = document.createElement('a')
+  a.href = `/api/share/${shareMode.value.token}/files/download-zip?path=${encodeURIComponent(entryPath)}`
+  a.download = `${entry.name}.zip`
+  a.click()
+}
+
 function triggerUpload() {
   hideMenu()
   fileInput.value.click()
@@ -505,8 +657,8 @@ function onDrop(e) {
       <div class="nav-pill">
         <button
           class="nav-btn"
-          :disabled="!canGoBack"
-          @click="emit('go-back')"
+          :disabled="!shareMode && !canGoBack"
+          @click="handleGoBack"
           title="Back"
         >
           <ChevronLeft class="nav-icon" />
@@ -514,8 +666,8 @@ function onDrop(e) {
         <div class="nav-divider" />
         <button
           class="nav-btn"
-          :disabled="!canGoForward"
-          @click="emit('go-forward')"
+          :disabled="shareMode ? shareMode.historyIndex >= shareMode.history.length - 1 : !canGoForward"
+          @click="handleGoForward"
           title="Forward"
         >
           <ChevronRight class="nav-icon" />
@@ -566,8 +718,8 @@ function onDrop(e) {
           v-for="entry in entries"
           :key="entry.name"
           class="gallery-card"
-          @click="entry.type === 'directory' ? openItem(entry) : null"
-          @dblclick="(entry.type === 'file' || entry.type === 'share-link') ? viewItem(entry) : null"
+          @click="(entry.type === 'directory' || entry.type === 'share-link') ? openItem(entry) : null"
+          @dblclick="entry.type === 'file' ? viewItem(entry) : null"
           @contextmenu.stop="showMenuForEntry(entry, $event)"
         >
           <div class="gallery-thumb">
@@ -611,7 +763,30 @@ function onDrop(e) {
 
     <!-- Bottom bar -->
     <div class="bottom-bar">
+      <div v-if="shareMode" class="share-crumbs">
+        <button class="s-crumb s-crumb--root" @click="exitShareMode">
+          <Folder class="s-crumb-icon" />
+          <span>Share</span>
+        </button>
+        <span class="s-sep">›</span>
+        <button class="s-crumb" @click="navigateShareTo('')">
+          <Folder class="s-crumb-icon" />
+          <span>{{ shareMode.label }}</span>
+        </button>
+        <template v-for="(part, idx) in shareMode.path.split('/').filter(Boolean)" :key="idx">
+          <span class="s-sep">›</span>
+          <button
+            class="s-crumb"
+            :class="{ 's-crumb--active': idx === shareMode.path.split('/').filter(Boolean).length - 1 }"
+            @click="navigateShareTo(shareMode.path.split('/').filter(Boolean).slice(0, idx + 1).join('/'))"
+          >
+            <Folder class="s-crumb-icon" />
+            <span>{{ part }}</span>
+          </button>
+        </template>
+      </div>
       <Breadcrumb
+        v-else
         :user="user"
         :location="location"
         :path="currentPath"
@@ -649,6 +824,18 @@ function onDrop(e) {
             <button class="ctx-item ctx-item--danger" @click="deleteShareEntry">
               <Trash2 class="ctx-icon" />
               <span>Delete</span>
+            </button>
+          </template>
+
+          <!-- Share browse mode entry menu -->
+          <template v-else-if="shareMode && activeEntry">
+            <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="openActiveItem">
+              <ExternalLink class="ctx-icon" />
+              <span>Open</span>
+            </button>
+            <button class="ctx-item" @click="activeEntry.type === 'directory' ? downloadActiveShareFolderAsZip() : downloadActiveItem()">
+              <Download class="ctx-icon" />
+              <span>{{ activeEntry.type === 'directory' ? 'Download as ZIP' : 'Download' }}</span>
             </button>
           </template>
 
@@ -704,6 +891,14 @@ function onDrop(e) {
             <button class="ctx-item ctx-item--danger" @click="deleteActiveItem">
               <Trash2 class="ctx-icon" />
               <span>Delete</span>
+            </button>
+          </template>
+
+          <!-- Share mode background menu -->
+          <template v-else-if="shareMode">
+            <button class="ctx-item" @click="exitShareMode">
+              <Folder class="ctx-icon" />
+              <span>Back to Share folder</span>
             </button>
           </template>
 
@@ -936,6 +1131,37 @@ function onDrop(e) {
   font-size: 0.75rem;
   color: #636366;
 }
+
+.share-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.s-crumb {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  color: #737373;
+  transition: color 0.15s;
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  padding: 0;
+}
+
+.s-crumb--root { flex-shrink: 0; }
+.s-crumb:hover { color: #fff; }
+.s-crumb--active { color: #525252; }
+.s-crumb-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.s-sep { color: #404040; flex-shrink: 0; padding: 0 0.1rem; font-size: 0.85rem; }
 
 .mobile-folder-name {
   display: block;

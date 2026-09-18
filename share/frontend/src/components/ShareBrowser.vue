@@ -183,6 +183,10 @@ function showMoreMenu() {
   })
 }
 
+function openInTab(entry) {
+  window.open(viewSrc(entry), '_blank')
+}
+
 function openActiveItem() {
   window.open(viewSrc(activeEntry.value), '_blank')
   hideMenu()
@@ -271,7 +275,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
           :key="entry.name"
           class="gallery-card"
           @click="entry.type === 'directory' ? onOpen(entry) : null"
-          @dblclick="entry.type === 'file' ? window.open(viewSrc(entry), '_blank') : null"
+          @dblclick="entry.type === 'file' ? openInTab(entry) : null"
           @contextmenu.stop="showMenuForEntry(entry, $event)"
         >
           <div class="gallery-thumb">
@@ -306,7 +310,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
             :entry="entry"
             @open="onOpen"
             @download="downloadEntry"
-            @contextmenu.native.stop="showMenuForEntry(entry, $event)"
+            @contextmenu.stop="showMenuForEntry(entry, $event)"
           />
         </tbody>
       </table>
@@ -368,6 +372,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   display: flex;
   flex-direction: column;
   height: 100dvh;
+  max-width: 900px;
+  margin: 0 auto;
 }
 
 /* ── Topbar ── */
