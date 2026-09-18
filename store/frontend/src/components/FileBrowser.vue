@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star, Share2 } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star, Share2, LayoutGrid, List } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
@@ -10,7 +10,7 @@ import CreateModal from './CreateModal.vue'
 import ShareModal from './ShareModal.vue'
 import ImageViewer from './ImageViewer.vue'
 import { useFavourites } from '../useFavourites.js'
-import { IMAGE_EXTS } from '../fileTypes.js'
+import { IMAGE_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
 
 const props = defineProps({
   user: Object,
@@ -43,6 +43,26 @@ const deleteEntry = ref(null)
 const createMode = ref(null)
 const shareEntry = ref(null)
 const imageViewEntry = ref(null)
+const galleryMode = ref(localStorage.getItem('gallery-mode') === '1')
+
+function toggleGallery() {
+  galleryMode.value = !galleryMode.value
+  localStorage.setItem('gallery-mode', galleryMode.value ? '1' : '0')
+}
+
+function entryIsImage(entry) {
+  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
+  return IMAGE_EXTS.has(ext)
+}
+
+function galleryThumbSrc(entry) {
+  const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
+  const params = new URLSearchParams({ path, location: props.location })
+  return `/api/files/view?${params}`
+}
+
+function galleryEntryIcon(entry) { return getFileIcon(entry) }
+function galleryEntryColor(entry) { return getIconColor(entry) }
 
 const imageViewSrc = computed(() => {
   if (!imageViewEntry.value) return ''
@@ -447,6 +467,10 @@ function onDrop(e) {
         </button>
       </div>
       <span class="mobile-folder-name">{{ mobileFolderName }}</span>
+      <button class="more-btn" :class="{ 'more-btn--active': galleryMode }" @click="toggleGallery" :title="galleryMode ? 'List view' : 'Gallery view'">
+        <LayoutGrid v-if="!galleryMode" class="more-icon" />
+        <List v-else class="more-icon" />
+      </button>
       <button ref="moreBtn" class="more-btn" @click.stop="showMoreMenu">
         <MoreHorizontal class="more-icon" />
       </button>
@@ -479,6 +503,35 @@ function onDrop(e) {
       <div v-else-if="!entries.length" class="state-center">
         <span class="state-text">Empty folder</span>
         <span class="state-hint">Right-click to upload or create files</span>
+      </div>
+
+      <!-- Gallery grid -->
+      <div v-else-if="galleryMode" class="gallery-grid">
+        <div
+          v-for="entry in entries"
+          :key="entry.name"
+          class="gallery-card"
+          @click="entry.type === 'directory' ? openItem(entry) : null"
+          @dblclick="entry.type === 'file' ? viewItem(entry) : null"
+          @contextmenu.stop="showMenuForEntry(entry, $event)"
+        >
+          <div class="gallery-thumb">
+            <img
+              v-if="entry.type === 'file' && entryIsImage(entry)"
+              :src="galleryThumbSrc(entry)"
+              :alt="entry.name"
+              loading="lazy"
+              class="gallery-img"
+            />
+            <component
+              v-else
+              :is="galleryEntryIcon(entry)"
+              class="gallery-icon"
+              :style="{ color: galleryEntryColor(entry) }"
+            />
+          </div>
+          <span class="gallery-name">{{ entry.name }}</span>
+        </div>
       </div>
 
       <!-- File table -->
@@ -831,9 +884,74 @@ function onDrop(e) {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.more-btn--active {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
 .more-icon {
   width: 16px;
   height: 16px;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  padding: 16px 1.25rem;
+}
+
+.gallery-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px;
+  border-radius: 10px;
+  cursor: default;
+  transition: background 0.1s;
+  user-select: none;
+}
+
+.gallery-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gallery-thumb {
+  width: 110px;
+  height: 110px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.gallery-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gallery-icon {
+  width: 44px;
+  height: 44px;
+}
+
+.gallery-name {
+  font-size: 0.75rem;
+  color: #d1d1d6;
+  text-align: center;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+  max-width: 100%;
 }
 
 @media (max-width: 767px) {
@@ -870,6 +988,17 @@ function onDrop(e) {
 
   .bottom-bar { display: none; }
   .th-size, .th-date { display: none; }
+
+  .gallery-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 8px;
+    padding: 12px 1rem;
+  }
+
+  .gallery-thumb {
+    width: 88px;
+    height: 88px;
+  }
 }
 </style>
 
