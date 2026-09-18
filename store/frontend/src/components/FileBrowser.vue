@@ -10,6 +10,7 @@ import CreateModal from './CreateModal.vue'
 import ShareModal from './ShareModal.vue'
 import SharePropertiesModal from './SharePropertiesModal.vue'
 import ImageViewer from './ImageViewer.vue'
+import GalleryThumb from './GalleryThumb.vue'
 import { useFavourites } from '../useFavourites.js'
 import { IMAGE_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
 
@@ -570,12 +571,10 @@ function onDrop(e) {
           @contextmenu.stop="showMenuForEntry(entry, $event)"
         >
           <div class="gallery-thumb">
-            <img
+            <GalleryThumb
               v-if="entry.type === 'file' && entryIsImage(entry)"
               :src="galleryThumbSrc(entry)"
               :alt="entry.name"
-              loading="lazy"
-              class="gallery-img"
             />
             <component
               v-else

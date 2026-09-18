@@ -1,3 +1,4 @@
+import hashlib
 import io
 import mimetypes
 import os
@@ -10,14 +11,39 @@ from typing import List
 
 import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.auth import get_current_user
-from app.database import get_session
+from app.database import get_session, DATA_DIR
 from app.models import FileViewToken
 from app.utils import get_base as _base, resolve_path as _resolve, check_access as _check_access
+
+_THUMB_DIR = DATA_DIR / "thumbs"
+
+
+def _thumb_cache_path(file_path: Path, size: int) -> Path:
+    mtime = int(file_path.stat().st_mtime)
+    key = f"{file_path}|{mtime}|{size}"
+    h = hashlib.sha256(key.encode()).hexdigest()[:24]
+    return _THUMB_DIR / f"{h}.jpg"
+
+
+def _build_thumbnail(file_path: Path, cache_path: Path, size: int) -> None:
+    from PIL import Image
+    with Image.open(file_path) as img:
+        img = img.convert("RGB")
+        w, h = img.size
+        min_dim = min(w, h)
+        left = (w - min_dim) // 2
+        top = (h - min_dim) // 2
+        img = img.crop((left, top, left + min_dim, top + min_dim))
+        img = img.resize((size, size), Image.LANCZOS)
+        tmp = cache_path.with_suffix(".tmp")
+        img.save(str(tmp), format="JPEG", quality=75, optimize=True)
+        tmp.replace(cache_path)
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -167,7 +193,7 @@ async def thumbnail_file(
     request: Request,
     path: str = Query(...),
     location: str = Query(default="external"),
-    size: int = Query(default=220),
+    size: int = Query(default=160),
 ):
     user = await get_current_user(request)
     _check_access(location, path, user["email"], user["is_admin"])
@@ -186,25 +212,15 @@ async def thumbnail_file(
         )
 
     try:
-        from PIL import Image
-        import io as _io
-
-        size = max(50, min(size, 800))
-        with Image.open(file_path) as img:
-            img = img.convert("RGB")
-            w, h = img.size
-            min_dim = min(w, h)
-            left = (w - min_dim) // 2
-            top = (h - min_dim) // 2
-            img = img.crop((left, top, left + min_dim, top + min_dim))
-            img = img.resize((size, size), Image.LANCZOS)
-            buf = _io.BytesIO()
-            img.save(buf, format="JPEG", quality=82, optimize=True)
-            buf.seek(0)
-        return StreamingResponse(
-            buf,
+        size = max(40, min(size, 400))
+        _THUMB_DIR.mkdir(parents=True, exist_ok=True)
+        cache_path = _thumb_cache_path(file_path, size)
+        if not cache_path.exists():
+            await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
+        return FileResponse(
+            path=str(cache_path),
             media_type="image/jpeg",
-            headers={"Cache-Control": "max-age=86400", "Content-Disposition": "inline"},
+            headers={"Cache-Control": "max-age=604800", "Content-Disposition": "inline"},
         )
     except Exception:
         return FileResponse(
