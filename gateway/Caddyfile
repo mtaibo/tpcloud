@@ -39,28 +39,35 @@ http://accounts.migueltaibo.com {
 }
 
 http://store.migueltaibo.com {
-    header Cache-Control "no-store, no-cache, must-revalidate"
-
     handle /auth/* {
         reverse_proxy auth:8000
     }
+    handle /api/files/thumbnail* {
+        import protected
+        reverse_proxy store-api:8000
+    }
     handle /api/* {
         import protected
+        header Cache-Control "no-store, no-cache, must-revalidate"
         reverse_proxy store-api:8000
     }
     handle {
         import protected
+        header Cache-Control "no-store, no-cache, must-revalidate"
         reverse_proxy store-frontend:80
     }
 }
 
 http://share.migueltaibo.com {
-    header Cache-Control "no-store, no-cache, must-revalidate"
-
+    handle /api/share/*/files/thumbnail* {
+        reverse_proxy store-api:8000
+    }
     handle /api/share* {
+        header Cache-Control "no-store, no-cache, must-revalidate"
         reverse_proxy store-api:8000
     }
     handle {
+        header Cache-Control "no-store, no-cache, must-revalidate"
         reverse_proxy share-frontend:80
     }
 }
