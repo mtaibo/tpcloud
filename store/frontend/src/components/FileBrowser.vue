@@ -8,6 +8,7 @@ import RenameModal from './RenameModal.vue'
 import DeleteModal from './DeleteModal.vue'
 import CreateModal from './CreateModal.vue'
 import ShareModal from './ShareModal.vue'
+import SharePropertiesModal from './SharePropertiesModal.vue'
 import ImageViewer from './ImageViewer.vue'
 import { useFavourites } from '../useFavourites.js'
 import { IMAGE_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
@@ -21,7 +22,7 @@ const props = defineProps({
   viewAsAdmin: Boolean,
 })
 
-const emit = defineEmits(['navigate', 'go-back', 'go-forward'])
+const emit = defineEmits(['navigate', 'go-back', 'go-forward', 'open-shares'])
 
 const entries = ref([])
 const loading = ref(false)
@@ -42,6 +43,7 @@ const renameEntry = ref(null)
 const deleteEntry = ref(null)
 const createMode = ref(null)
 const shareEntry = ref(null)
+const sharePropsEntry = ref(null)
 const imageViewEntry = ref(null)
 const galleryMode = ref(localStorage.getItem('gallery-mode') === '1')
 
@@ -135,6 +137,7 @@ function onDocKeydown(e) {
     deleteEntry.value = null
     createMode.value = null
     shareEntry.value = null
+    sharePropsEntry.value = null
     imageViewEntry.value = null
   }
 }
@@ -160,7 +163,26 @@ async function loadDirectory() {
       throw new Error(data.detail || `Error ${res.status}`)
     }
     const data = await res.json()
-    entries.value = data.entries
+    let real = data.entries
+
+    if (props.location === 'external' && props.currentPath === 'shared') {
+      const sres = await fetch('/api/shares')
+      if (sres.ok) {
+        const sdata = await sres.json()
+        const virtual = sdata.map(s => ({
+          type: 'share-link',
+          name: s.path.split('/').filter(Boolean).at(-1) || s.token,
+          token: s.token,
+          url: s.url,
+          share: s,
+          size: null,
+          modified: null,
+        }))
+        real = [...virtual, ...real]
+      }
+    }
+
+    entries.value = real
   } catch (e) {
     error.value = e.message
     entries.value = []
@@ -192,6 +214,10 @@ async function deleteItem(entry) {
 }
 
 async function viewItem(entry) {
+  if (entry.type === 'share-link') {
+    window.open(entry.url, '_blank')
+    return
+  }
   const path = props.currentPath ? `${props.currentPath}/${entry.name}` : entry.name
   const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
   if (IMAGE_EXTS.has(ext)) {
@@ -382,6 +408,33 @@ function shareActiveItem() {
   hideMenu()
 }
 
+function openShareInBrowser() {
+  window.open(activeEntry.value.url, '_blank')
+  hideMenu()
+}
+
+function copyShareLink() {
+  navigator.clipboard.writeText(activeEntry.value.url)
+  hideMenu()
+}
+
+function editShareProps() {
+  sharePropsEntry.value = activeEntry.value
+  hideMenu()
+}
+
+async function deleteShareEntry() {
+  const entry = activeEntry.value
+  hideMenu()
+  await fetch(`/api/shares/${entry.token}`, { method: 'DELETE' })
+  loadDirectory()
+}
+
+function openManageLinks() {
+  hideMenu()
+  emit('open-shares')
+}
+
 function addCurrentToFavourites() {
   addFav(props.location, props.currentPath, props.user.email)
   hideMenu()
@@ -512,7 +565,7 @@ function onDrop(e) {
           :key="entry.name"
           class="gallery-card"
           @click="entry.type === 'directory' ? openItem(entry) : null"
-          @dblclick="entry.type === 'file' ? viewItem(entry) : null"
+          @dblclick="(entry.type === 'file' || entry.type === 'share-link') ? viewItem(entry) : null"
           @contextmenu.stop="showMenuForEntry(entry, $event)"
         >
           <div class="gallery-thumb">
@@ -577,8 +630,30 @@ function onDrop(e) {
           class="ctx-menu"
           :style="menuStyle"
         >
-          <!-- Entry menu (right-click on a file/folder) -->
-          <template v-if="activeEntry">
+          <!-- Share-link entry menu -->
+          <template v-if="activeEntry?.type === 'share-link'">
+            <button class="ctx-item" @click="openShareInBrowser">
+              <ExternalLink class="ctx-icon" />
+              <span>Open in Browser</span>
+            </button>
+            <button class="ctx-item" @click="copyShareLink">
+              <Copy class="ctx-icon" />
+              <span>Copy Link</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item" @click="editShareProps">
+              <Pencil class="ctx-icon" />
+              <span>Properties…</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item ctx-item--danger" @click="deleteShareEntry">
+              <Trash2 class="ctx-icon" />
+              <span>Delete</span>
+            </button>
+          </template>
+
+          <!-- Regular entry menu (right-click on a file/folder) -->
+          <template v-else-if="activeEntry">
             <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="openActiveItem">
               <ExternalLink class="ctx-icon" />
               <span>Open</span>
@@ -589,7 +664,7 @@ function onDrop(e) {
             </button>
             <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="addEntryToFavourites">
               <Star class="ctx-icon" />
-              <span>Add to Favourites</span>
+              <span>Add to Favorites</span>
             </button>
             <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="shareActiveItem">
               <Share2 class="ctx-icon" />
@@ -632,7 +707,7 @@ function onDrop(e) {
             </button>
           </template>
 
-          <!-- Background menu (right-click on empty area) -->
+          <!-- Background menu (right-click on empty area / ··· button) -->
           <template v-else>
             <button class="ctx-item" @click="triggerUpload">
               <Upload class="ctx-icon" />
@@ -650,7 +725,11 @@ function onDrop(e) {
             <div class="ctx-sep" />
             <button class="ctx-item" @click="addCurrentToFavourites">
               <Star class="ctx-icon" />
-              <span>Add to Favourites</span>
+              <span>Add to Favorites</span>
+            </button>
+            <button class="ctx-item" @click="openManageLinks">
+              <Share2 class="ctx-icon" />
+              <span>Manage links</span>
             </button>
           </template>
         </div>
@@ -707,6 +786,15 @@ function onDrop(e) {
       :src="imageViewSrc"
       :name="imageViewEntry.name"
       @close="imageViewEntry = null"
+    />
+
+    <!-- Share properties modal -->
+    <SharePropertiesModal
+      v-if="sharePropsEntry"
+      :share="sharePropsEntry.share"
+      @close="sharePropsEntry = null"
+      @updated="sharePropsEntry = null; loadDirectory()"
+      @deleted="sharePropsEntry = null; loadDirectory()"
     />
   </div>
 </template>

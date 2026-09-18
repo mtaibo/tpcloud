@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X, Shield, ShieldCheck, Share2 } from 'lucide-vue-next'
+import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Star, Plus, X, Shield, ShieldCheck } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
@@ -10,12 +10,9 @@ const props = defineProps({
   location: String,
   currentPath: String,
   viewAsAdmin: Boolean,
-  sharesActive: Boolean,
 })
-const emit = defineEmits(['navigate', 'toggle-admin-view', 'open-shares'])
+const emit = defineEmits(['navigate', 'toggle-admin-view'])
 
-const serverOpen = ref(true)
-const cloudOpen = ref(true)
 const favouritesOpen = ref(true)
 const menuOpen = ref(false)
 const cardRef = ref(null)
@@ -61,9 +58,9 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
     <nav class="sidebar-nav">
 
-      <!-- FAVOURITES -->
+      <!-- FAVORITES -->
       <div class="separator-row separator-first separator-clickable" @click="favouritesOpen = !favouritesOpen">
-        <p class="section-label">Favourites</p>
+        <p class="section-label">Favorites</p>
         <div class="section-actions">
           <button class="add-btn" @click.stop="addFavourite" title="Add current folder">
             <Plus class="add-icon" />
@@ -88,49 +85,29 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         </div>
       </template>
 
-      <!-- SHARED LINKS -->
+      <!-- LOCATIONS -->
       <div class="separator-row">
-        <p class="section-label">Shared</p>
+        <p class="section-label">Locations</p>
       </div>
-      <button :class="['nav-item', { active: sharesActive }]" @click="emit('open-shares')">
-        <Share2 class="nav-icon" />
-        <span>Shared Links</span>
+
+      <button :class="['nav-item', { active: isActive('external', 'shared') }]" @click="go('external', 'shared')">
+        <Folder class="nav-icon" />
+        <span>Share</span>
+      </button>
+      <button :class="['nav-item', { active: isActive('external', `users/${user.email}`) }]" @click="go('external', `users/${user.email}`)">
+        <Home class="nav-icon" />
+        <span>Home</span>
       </button>
 
-      <!-- CLOUD -->
-      <div class="separator-row separator-clickable" @click="cloudOpen = !cloudOpen">
-        <p class="section-label">Cloud</p>
-        <ChevronRight class="chevron" :class="{ open: cloudOpen }" />
-      </div>
-
-      <template v-if="cloudOpen">
-        <button :class="['nav-item', { active: isActive('external', 'shared') }]" @click="go('external', 'shared')">
-          <Folder class="nav-icon" />
-          <span>Shared</span>
-        </button>
-        <button :class="['nav-item', { active: isActive('external', `users/${user.email}`) }]" @click="go('external', `users/${user.email}`)">
-          <Home class="nav-icon" />
-          <span>Home</span>
-        </button>
-      </template>
-
-      <!-- SERVER (admin only) -->
       <template v-if="user.is_admin && viewAsAdmin">
-        <div class="separator-row separator-clickable" @click="serverOpen = !serverOpen">
-          <p class="section-label">Server</p>
-          <ChevronRight class="chevron" :class="{ open: serverOpen }" />
-        </div>
-
-        <template v-if="serverOpen">
-          <button :class="['nav-item', { active: isActive('server', '') }]" @click="go('server', '')">
-            <Server class="nav-icon" />
-            <span>System</span>
-          </button>
-          <button :class="['nav-item', { active: isActive('external', '') }]" @click="go('external', '')">
-            <HardDrive class="nav-icon" />
-            <span>Disk</span>
-          </button>
-        </template>
+        <button :class="['nav-item', { active: isActive('external', '') }]" @click="go('external', '')">
+          <HardDrive class="nav-icon" />
+          <span>Disk</span>
+        </button>
+        <button :class="['nav-item', { active: isActive('server', '') }]" @click="go('server', '')">
+          <Server class="nav-icon" />
+          <span>System</span>
+        </button>
       </template>
 
     </nav>

@@ -111,7 +111,7 @@ onMounted(async () => {
 
 <template>
   <div v-if="appReady && user" class="app">
-    <Sidebar :user="user" :location="location" :current-path="currentPath" :view-as-admin="viewAsAdmin" :shares-active="showShares" @navigate="navigate" @toggle-admin-view="toggleAdminView" @open-shares="openShares" />
+    <Sidebar :user="user" :location="location" :current-path="currentPath" :view-as-admin="viewAsAdmin" @navigate="navigate" @toggle-admin-view="toggleAdminView" />
     <MobileBrowse v-if="activeTab === 'browse'" class="mobile-only" :user="user" :can-go-back="canGoBack" :can-go-forward="canGoForward" @navigate="onMobileNavigate" @go-back="goBack" @go-forward="goForward" />
     <SharesPanel v-if="showShares" :class="activeTab === 'browse' ? 'mobile-hidden' : ''" @navigate="navigate" />
     <FileBrowser
@@ -126,6 +126,7 @@ onMounted(async () => {
       @navigate="navigate"
       @go-back="goBack"
       @go-forward="goForward"
+      @open-shares="openShares"
     />
     <MobileBottomNav :active-tab="activeTab" @tab-change="onMobileTabChange" />
   </div>

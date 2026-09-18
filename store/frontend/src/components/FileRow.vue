@@ -31,7 +31,7 @@ function onRowClick() {
 }
 
 function onRowDblClick() {
-  if (props.entry.type === 'file') emit('view', props.entry)
+  if (props.entry.type === 'file' || props.entry.type === 'share-link') emit('view', props.entry)
 }
 
 const fileIcon = computed(() => getFileIcon(props.entry))
