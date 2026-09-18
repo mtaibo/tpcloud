@@ -7,6 +7,7 @@ const wrapRef = ref(null)
 const imgRef = ref(null)
 const activeSrc = ref('')
 const loaded = ref(false)
+let retryTimer = null
 
 let observer = null
 
@@ -27,11 +28,22 @@ onMounted(() => {
 onUnmounted(() => {
   observer?.disconnect()
   observer = null
+  clearTimeout(retryTimer)
   if (imgRef.value) {
     imgRef.value.src = ''
   }
   activeSrc.value = ''
 })
+
+function onError() {
+  retryTimer = setTimeout(() => {
+    if (activeSrc.value) {
+      const url = new URL(activeSrc.value, location.href)
+      url.searchParams.set('_r', Date.now())
+      activeSrc.value = url.pathname + url.search
+    }
+  }, 3000)
+}
 </script>
 
 <template>
@@ -45,6 +57,7 @@ onUnmounted(() => {
       :class="{ loaded }"
       draggable="false"
       @load="loaded = true"
+      @error="onError"
     />
   </div>
 </template>

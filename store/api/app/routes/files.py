@@ -24,6 +24,7 @@ from app.utils import get_base as _base, resolve_path as _resolve, check_access 
 
 _THUMB_DIR = DATA_DIR / "thumbs"
 _thumb_sem = asyncio.Semaphore(4)
+_building: set[str] = set()
 
 
 def _thumb_cache_path(file_path: Path, size: int) -> Path:
@@ -46,6 +47,22 @@ def _build_thumbnail(file_path: Path, cache_path: Path, size: int) -> None:
         tmp = cache_path.with_suffix(".tmp")
         img.save(str(tmp), format="JPEG", quality=75, optimize=True)
         tmp.replace(cache_path)
+
+
+async def _build_thumb_bg(file_path: Path, cache_path: Path, size: int) -> None:
+    key = str(cache_path)
+    if key in _building:
+        return
+    _building.add(key)
+    try:
+        if not cache_path.exists():
+            async with _thumb_sem:
+                if not cache_path.exists():
+                    await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
+    except Exception:
+        pass
+    finally:
+        _building.discard(key)
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -218,9 +235,12 @@ async def thumbnail_file(
         _THUMB_DIR.mkdir(parents=True, exist_ok=True)
         cache_path = _thumb_cache_path(file_path, size)
         if not cache_path.exists():
-            async with _thumb_sem:
-                if not cache_path.exists():
-                    await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
+            asyncio.create_task(_build_thumb_bg(file_path, cache_path, size))
+            return FileResponse(
+                path=str(file_path),
+                media_type=media_type,
+                headers={"Cache-Control": "no-store", "Content-Disposition": "inline"},
+            )
         return FileResponse(
             path=str(cache_path),
             media_type="image/jpeg",
