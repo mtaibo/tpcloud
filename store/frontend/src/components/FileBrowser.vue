@@ -83,7 +83,7 @@ const mobileFolderName = computed(() => {
   if (!props.currentPath) return 'Files'
   const parts = props.currentPath.split('/').filter(Boolean)
   const last = parts[parts.length - 1]
-  if (props.currentPath === `users/${props.user.email}`) return 'Personal'
+  if (props.currentPath === `users/${props.user.email}`) return 'Home'
   if (last === 'shared') return 'Shared'
   return last.charAt(0).toUpperCase() + last.slice(1)
 })

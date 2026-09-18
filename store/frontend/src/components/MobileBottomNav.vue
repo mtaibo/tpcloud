@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { Search, Users, Folder } from 'lucide-vue-next'
+import { Search, Users, Home } from 'lucide-vue-next'
 
 const props = defineProps({
   activeTab: String,
@@ -10,7 +10,7 @@ const emit = defineEmits(['tab-change'])
 const tabs = [
   { id: 'browse',   label: 'Browse',   icon: Search },
   { id: 'shared',   label: 'Shared',   icon: Users },
-  { id: 'personal', label: 'Personal', icon: Folder },
+  { id: 'personal', label: 'Home', icon: Home },
 ]
 
 const navRef      = ref(null)

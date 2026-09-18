@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { HardDrive, Server, Folder } from 'lucide-vue-next'
+import { HardDrive, Home, Server, Folder } from 'lucide-vue-next'
 
 const props = defineProps({
   user: Object,
@@ -31,8 +31,8 @@ const crumbs = computed(() => {
     while (i < parts.length) {
       if (loc === 'external' && parts[i] === 'users' && parts[i + 1] === props.user?.email) {
         items.push({
-          label: 'Personal',
-          icon: 'folder',
+          label: 'Home',
+          icon: 'home',
           navigateLoc: loc,
           navigatePath: parts.slice(0, i + 2).join('/'),
         })
@@ -51,8 +51,8 @@ const crumbs = computed(() => {
     // Non-admin: root is Personal or Shared, no Disk prefix
     if (parts[0] === 'users' && parts[1] === props.user?.email) {
       items.push({
-        label: 'Personal',
-        icon: 'folder',
+        label: 'Home',
+        icon: 'home',
         navigateLoc: 'external',
         navigatePath: `users/${props.user.email}`,
       })
@@ -97,6 +97,7 @@ function goTo(crumb) {
       <button class="seg" :class="{ 'root-seg': i === 0 }" @click="goTo(crumb)">
         <HardDrive v-if="crumb.icon === 'disk'" class="seg-icon" />
         <Server v-else-if="crumb.icon === 'system'" class="seg-icon" />
+        <Home v-else-if="crumb.icon === 'home'" class="seg-icon" />
         <Folder v-else class="seg-icon" />
         <span>{{ crumb.label }}</span>
       </button>

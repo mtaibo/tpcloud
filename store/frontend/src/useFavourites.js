@@ -20,7 +20,7 @@ export function useFavourites() {
     if (!path) return loc === 'server' ? 'Server Root' : 'Disk Root'
     const parts = path.split('/').filter(Boolean)
     const last = parts[parts.length - 1]
-    if (userEmail && path === `users/${userEmail}`) return 'Personal'
+    if (userEmail && path === `users/${userEmail}`) return 'Home'
     if (last === 'shared') return 'Shared'
     return last.charAt(0).toUpperCase() + last.slice(1)
   }
