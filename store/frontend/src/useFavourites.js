@@ -38,5 +38,13 @@ export function useFavourites() {
     save()
   }
 
-  return { favourites, load, add, remove, derivLabel }
+  function updateIconName(id, iconName) {
+    const fav = favourites.value.find(f => f.id === id)
+    if (!fav) return
+    if (iconName) fav.icon_name = iconName
+    else delete fav.icon_name
+    save()
+  }
+
+  return { favourites, load, add, remove, derivLabel, updateIconName }
 }

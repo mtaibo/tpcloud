@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Plus, X, Shield, ShieldCheck, Share2 } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
+import { getFileIcon } from '../fileTypes.js'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -74,7 +75,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         <div v-for="fav in favourites" :key="fav.id" class="fav-row">
           <button :class="['nav-item', { active: isActive(fav.location, fav.path) }]" @click="go(fav.location, fav.path)">
             <span class="fav-icon-wrap">
-              <Folder class="nav-icon" />
+              <component :is="getFileIcon({ type: 'directory', icon_name: fav.icon_name })" class="nav-icon" />
             </span>
             <span>{{ fav.label }}</span>
           </button>

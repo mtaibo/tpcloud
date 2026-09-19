@@ -95,7 +95,7 @@ const imageViewSrc = computed(() => {
   return `/api/files/view?${params}`
 })
 
-const { add: addFav } = useFavourites()
+const { add: addFav, updateIconName: updateFavIconName } = useFavourites()
 
 const activeIsZip = computed(() =>
   activeEntry.value?.name?.toLowerCase().endsWith('.zip') ?? false
@@ -514,6 +514,7 @@ async function onIconPickerDone(iconName) {
     if (res.ok) {
       const idx = entries.value.findIndex(e => e.name === entry.name)
       if (idx !== -1) entries.value[idx] = { ...entries.value[idx], icon_name: iconName }
+      updateFavIconName(`${props.location}:${path}`, iconName)
     }
   } else {
     const params = new URLSearchParams({ path, location: props.location })
@@ -525,6 +526,7 @@ async function onIconPickerDone(iconName) {
         delete updated.icon_name
         entries.value[idx] = updated
       }
+      updateFavIconName(`${props.location}:${path}`, null)
     }
   }
 }
