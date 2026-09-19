@@ -235,6 +235,12 @@ async function loadDirectory() {
     }
 
     entries.value = real
+    real.forEach(e => {
+      if (e.type === 'directory') {
+        const id = `${props.location}:${joinPath(props.currentPath, e.name)}`
+        updateFavIconName(id, e.icon_name || null)
+      }
+    })
   } catch (e) {
     error.value = e.message
     entries.value = []

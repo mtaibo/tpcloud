@@ -1,10 +1,9 @@
 import { ref } from 'vue'
 
 const STORAGE_KEY = 'tpcloud-favourites'
+const favourites = ref([])
 
 export function useFavourites() {
-  const favourites = ref([])
-
   function load() {
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
