@@ -21,7 +21,7 @@ const menuOpen = ref(false)
 const cardRef = ref(null)
 
 const { favourites, load, add, remove } = useFavourites()
-const { hasUploads, hasDownloads, uploads, downloads } = useTransfers()
+const { hasUploads, hasDownloads, uploads, downloads, uploadEta, downloadEta } = useTransfers()
 
 const panelOpen = ref(false)
 const transfersRef = ref(null)
@@ -128,13 +128,13 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         <Upload class="nav-icon transfer-icon" />
         <span>Uploads</span>
         <span class="transfer-count">{{ uploads.length }}</span>
-        <span class="active-dot" />
+        <span v-if="uploadEta" class="transfer-eta">{{ uploadEta }}</span>
       </button>
       <button v-if="hasDownloads" :class="['nav-item', 'transfer-btn', { 'transfer-btn--active': panelOpen }]" @click="togglePanel">
         <Download class="nav-icon transfer-icon" />
         <span>Downloads</span>
         <span class="transfer-count">{{ downloads.length }}</span>
-        <span class="active-dot" />
+        <span v-if="downloadEta" class="transfer-eta">{{ downloadEta }}</span>
       </button>
       <TransferPanel :show="panelOpen" />
     </div>
@@ -363,21 +363,13 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   background: #2c2c2e;
   border-radius: 4px;
   padding: 1px 5px;
-  margin-right: 0.25rem;
 }
 
-.active-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #0a84ff;
-  flex-shrink: 0;
-  animation: pulse-dot 1.8s ease-in-out infinite;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+.transfer-eta {
+  font-size: 0.7rem;
+  color: #636366;
+  white-space: nowrap;
+  margin-left: 0.25rem;
 }
 
 .sidebar-footer { padding: 0.5rem 1rem 1.5rem; flex-shrink: 0; }

@@ -157,6 +157,45 @@ async def upload_files(
     return {"uploaded": uploaded}
 
 
+@router.post("/upload-chunk")
+async def upload_chunk(
+    request: Request,
+    upload_id: str = Query(...),
+    chunk_index: int = Query(...),
+    total_chunks: int = Query(...),
+    filename: str = Query(...),
+    path: str = Query(default=""),
+    location: str = Query(default="external"),
+):
+    user = await get_current_user(request)
+    _check_access(location, path, user["email"], user["is_admin"])
+    base = _base(location)
+    dir_path = _resolve(base, path)
+
+    if not dir_path.exists() or not dir_path.is_dir():
+        raise HTTPException(404, "Directory not found")
+
+    safe_name = Path(filename).name
+    if not safe_name:
+        raise HTTPException(400, "Invalid filename")
+
+    dest = (dir_path / safe_name).resolve()
+    if not str(dest).startswith(str(dir_path.resolve())):
+        raise HTTPException(400, "Invalid path")
+
+    part_file = dir_path / f".{upload_id}.part"
+    mode = "wb" if chunk_index == 0 else "ab"
+    async with aiofiles.open(part_file, mode) as f:
+        async for data in request.stream():
+            await f.write(data)
+
+    if chunk_index == total_chunks - 1:
+        await run_in_threadpool(lambda: part_file.replace(dest))
+        return {"status": "complete", "filename": safe_name}
+
+    return {"status": "ok"}
+
+
 class TokenBody(BaseModel):
     path: str
     location: str = "external"

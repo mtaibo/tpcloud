@@ -65,5 +65,15 @@ export function useTransfers() {
   const hasUploads = computed(() => uploads.value.length > 0)
   const hasDownloads = computed(() => downloads.value.length > 0)
 
-  return { uploads, downloads, hasUploads, hasDownloads, add, update, setTotal, complete, fail }
+  function _groupEta(list) {
+    const active = list.filter(t => t.status === 'active' && t.speed > 0 && t.totalSize > 0)
+    if (!active.length) return null
+    const secs = active.reduce((s, t) => s + (t.totalSize - t.loaded) / t.speed, 0)
+    return formatEta(secs)
+  }
+
+  const uploadEta = computed(() => _groupEta(uploads.value))
+  const downloadEta = computed(() => _groupEta(downloads.value))
+
+  return { uploads, downloads, hasUploads, hasDownloads, uploadEta, downloadEta, add, update, setTotal, complete, fail }
 }

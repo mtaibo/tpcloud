@@ -646,38 +646,50 @@ function triggerUpload() {
   fileInput.value.click()
 }
 
+const CHUNK_SIZE = 32 * 1024 * 1024 // 32 MB
+
 async function uploadFiles(files) {
   if (!files || !files.length) return
-  const params = new URLSearchParams({ path: props.currentPath, location: props.location })
 
   for (const file of files) {
     const id = addTransfer('upload', file.name, file.size)
-    await new Promise(resolve => {
-      const xhr = new XMLHttpRequest()
-      xhr.open('POST', `/api/files/upload?${params}`)
+    const uploadId = crypto.randomUUID()
+    const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE))
+    let failed = false
 
-      xhr.upload.addEventListener('progress', e => {
-        if (e.lengthComputable) updateTransfer(id, e.loaded)
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE
+      const end = Math.min(start + CHUNK_SIZE, file.size)
+      const params = new URLSearchParams({
+        upload_id: uploadId,
+        chunk_index: i,
+        total_chunks: totalChunks,
+        filename: file.name,
+        path: props.currentPath,
+        location: props.location,
       })
-
-      xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          completeTransfer(id)
-        } else {
-          let msg = `Error ${xhr.status}`
-          try { msg = JSON.parse(xhr.responseText).detail || msg } catch {}
+      try {
+        const res = await fetch(`/api/files/upload-chunk?${params}`, {
+          method: 'POST',
+          body: file.slice(start, end),
+          headers: { 'Content-Type': 'application/octet-stream' },
+        })
+        if (!res.ok) {
+          let msg = `Error ${res.status}`
+          try { msg = (await res.json()).detail || msg } catch {}
           failTransfer(id, msg)
+          failed = true
+          break
         }
-        resolve()
-      })
+        updateTransfer(id, end)
+      } catch (e) {
+        failTransfer(id, e.message || 'Network error')
+        failed = true
+        break
+      }
+    }
 
-      xhr.addEventListener('error', () => { failTransfer(id, 'Network error'); resolve() })
-      xhr.addEventListener('abort', () => { failTransfer(id, 'Cancelled'); resolve() })
-
-      const formData = new FormData()
-      formData.append('files', file)
-      xhr.send(formData)
-    })
+    if (!failed) completeTransfer(id)
   }
 
   loadDirectory()
