@@ -48,6 +48,12 @@ const sharePropsEntry = ref(null)
 const imageViewEntry = ref(null)
 const galleryMode = ref(localStorage.getItem('gallery-mode') === '1')
 const shareMode = ref(null) // { token, label, path, history, historyIndex } | null
+const diskInfo = ref(null)
+
+function formatGB(bytes) {
+  const gb = bytes / (1024 * 1024 * 1024)
+  return gb.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' GB'
+}
 
 function joinPath(base, name) {
   return base ? `${base}/${name}` : name
@@ -158,9 +164,13 @@ function onDocKeydown(e) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onDocKeydown)
+  try {
+    const res = await fetch('/api/files/disk')
+    if (res.ok) diskInfo.value = await res.json()
+  } catch {}
 })
 
 onUnmounted(() => {
@@ -671,13 +681,15 @@ function onDrop(e) {
         </button>
       </div>
       <span class="mobile-folder-name">{{ mobileFolderName }}</span>
-      <button class="more-btn" :class="{ 'more-btn--active': galleryMode }" @click="toggleGallery" :title="galleryMode ? 'List view' : 'Gallery view'">
-        <LayoutGrid v-if="!galleryMode" class="more-icon" />
-        <List v-else class="more-icon" />
-      </button>
-      <button ref="moreBtn" class="more-btn" @click.stop="showMoreMenu">
-        <MoreHorizontal class="more-icon" />
-      </button>
+      <div class="topbar-actions">
+        <button class="more-btn" :class="{ 'more-btn--active': galleryMode }" @click="toggleGallery" :title="galleryMode ? 'List view' : 'Gallery view'">
+          <LayoutGrid v-if="!galleryMode" class="more-icon" />
+          <List v-else class="more-icon" />
+        </button>
+        <button ref="moreBtn" class="more-btn" @click.stop="showMoreMenu">
+          <MoreHorizontal class="more-icon" />
+        </button>
+      </div>
     </div>
 
     <!-- File area -->
@@ -760,37 +772,42 @@ function onDrop(e) {
 
     <!-- Bottom bar -->
     <div class="bottom-bar">
-      <div v-if="shareMode" class="share-crumbs">
-        <button class="s-crumb s-crumb--root" @click="exitShareMode">
-          <Folder class="s-crumb-icon" />
-          <span>Share</span>
-        </button>
-        <span class="s-sep">›</span>
-        <button class="s-crumb" @click="navigateShareTo('')">
-          <Folder class="s-crumb-icon" />
-          <span>{{ shareMode.label }}</span>
-        </button>
-        <template v-for="(part, idx) in shareMode.path.split('/').filter(Boolean)" :key="idx">
-          <span class="s-sep">›</span>
-          <button
-            class="s-crumb"
-            :class="{ 's-crumb--active': idx === shareMode.path.split('/').filter(Boolean).length - 1 }"
-            @click="navigateShareTo(shareMode.path.split('/').filter(Boolean).slice(0, idx + 1).join('/'))"
-          >
+      <div class="bottom-row">
+        <div v-if="shareMode" class="share-crumbs">
+          <button class="s-crumb s-crumb--root" @click="exitShareMode">
             <Folder class="s-crumb-icon" />
-            <span>{{ part }}</span>
+            <span>Share</span>
           </button>
-        </template>
+          <span class="s-sep">›</span>
+          <button class="s-crumb" @click="navigateShareTo('')">
+            <Folder class="s-crumb-icon" />
+            <span>{{ shareMode.label }}</span>
+          </button>
+          <template v-for="(part, idx) in shareMode.path.split('/').filter(Boolean)" :key="idx">
+            <span class="s-sep">›</span>
+            <button
+              class="s-crumb"
+              :class="{ 's-crumb--active': idx === shareMode.path.split('/').filter(Boolean).length - 1 }"
+              @click="navigateShareTo(shareMode.path.split('/').filter(Boolean).slice(0, idx + 1).join('/'))"
+            >
+              <Folder class="s-crumb-icon" />
+              <span>{{ part }}</span>
+            </button>
+          </template>
+        </div>
+        <Breadcrumb
+          v-else
+          :user="user"
+          :location="location"
+          :path="currentPath"
+          :view-as-admin="viewAsAdmin"
+          @navigate="(loc, p) => emit('navigate', loc, p)"
+        />
+        <span v-if="uploading" class="uploading-indicator">Uploading…</span>
       </div>
-      <Breadcrumb
-        v-else
-        :user="user"
-        :location="location"
-        :path="currentPath"
-        :view-as-admin="viewAsAdmin"
-        @navigate="(loc, p) => emit('navigate', loc, p)"
-      />
-      <span v-if="uploading" class="uploading-indicator">Uploading…</span>
+      <div v-if="diskInfo" class="storage-info">
+        {{ formatGB(diskInfo.used) }} occupied, {{ formatGB(diskInfo.free) }} available
+      </div>
     </div>
 
     <!-- Context menu -->
@@ -1057,6 +1074,12 @@ function onDrop(e) {
   stroke-width: 2.5;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
 .file-area {
   flex: 1;
   overflow-y: auto;
@@ -1117,11 +1140,24 @@ function onDrop(e) {
 .bottom-bar {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.65rem 1.25rem;
+  flex-direction: column;
+  padding: 0.65rem 1.25rem 0.5rem;
   border-top: 0.5px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
+  gap: 0.3rem;
+}
+
+.bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.storage-info {
+  font-size: 0.7rem;
+  color: #3a3a3c;
+  text-align: center;
+  letter-spacing: 0.01em;
 }
 
 .uploading-indicator {

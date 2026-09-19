@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Folder, Star, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Folder, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
 
 const props = defineProps({
@@ -48,7 +48,6 @@ function go(fav) {
         <button v-for="fav in favourites" :key="fav.id" class="fav-row" @click="go(fav)">
           <span class="fav-icon-wrap">
             <Folder class="fav-folder-icon" />
-            <Star class="fav-badge" />
           </span>
           <span class="fav-label">{{ fav.label }}</span>
         </button>

@@ -272,6 +272,14 @@ async def view_file(
     return _inline_response(file_path, media_type)
 
 
+@router.get("/disk")
+async def disk_usage(request: Request):
+    import shutil
+    await get_current_user(request)
+    usage = shutil.disk_usage(str(_base("external")))
+    return {"total": usage.total, "used": usage.used, "free": usage.free}
+
+
 @router.get("/download")
 async def download_file(
     request: Request,
