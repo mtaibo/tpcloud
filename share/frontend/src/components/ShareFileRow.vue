@@ -7,7 +7,7 @@ import { formatSize } from '../utils/formatSize.js'
 const props = defineProps({
   entry: Object,
 })
-const emit = defineEmits(['open', 'open-file', 'download'])
+const emit = defineEmits(['open', 'open-file', 'open-tab', 'download'])
 
 const fileIcon = computed(() => getFileIcon(props.entry))
 const iconColor = computed(() => getIconColor(props.entry))
@@ -19,10 +19,14 @@ function onRowClick() {
 function onRowDblClick() {
   if (props.entry.type === 'file') emit('open-file', props.entry)
 }
+
+function onRowAuxClick(e) {
+  if (e.button === 1 && props.entry.type === 'file') emit('open-tab', props.entry)
+}
 </script>
 
 <template>
-  <tr class="file-row" @click="onRowClick" @dblclick="onRowDblClick">
+  <tr class="file-row" @click="onRowClick" @dblclick="onRowDblClick" @auxclick.prevent="onRowAuxClick">
     <td class="cell-name">
       <div class="name-btn">
         <component :is="fileIcon" class="file-icon" :style="{ color: iconColor }" />

@@ -3,6 +3,7 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { ChevronLeft, ChevronRight, MoreHorizontal, LayoutGrid, List, FolderDown, Download, ExternalLink } from 'lucide-vue-next'
 import ShareFileRow from './ShareFileRow.vue'
 import ShareGalleryThumb from './ShareGalleryThumb.vue'
+import ImageViewer from './ImageViewer.vue'
 import { getFileIcon, getIconColor, IMAGE_EXTS } from '../fileTypes.js'
 
 const props = defineProps({
@@ -27,6 +28,15 @@ const moreBtn = ref(null)
 const menuVisible = ref(false)
 const menuPos = ref({ x: 0, y: 0 })
 const activeEntry = ref(null)
+
+const imageViewEntry = ref(null)
+const imageViewSrc = computed(() => {
+  if (!imageViewEntry.value) return ''
+  const path = currentPath.value ? `${currentPath.value}/${imageViewEntry.value.name}` : imageViewEntry.value.name
+  const params = new URLSearchParams({ path })
+  if (props.sessionToken) params.set('session', props.sessionToken)
+  return `/api/share/${props.token}/files/view?${params}`
+})
 
 const breadcrumbs = computed(() => currentPath.value.split('/').filter(Boolean))
 const rootLabel = computed(() => props.shareInfo?.label || props.token)
@@ -183,6 +193,19 @@ function showMoreMenu() {
   })
 }
 
+function onFileActivate(entry) {
+  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
+  if (IMAGE_EXTS.has(ext)) {
+    imageViewEntry.value = entry
+  } else {
+    openInTab(entry)
+  }
+}
+
+function onMiddleClick(entry, e) {
+  if (e.button === 1 && entry.type === 'file') openInTab(entry)
+}
+
 async function openInTab(entry) {
   const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
   const newTab = window.open('', '_blank')
@@ -206,8 +229,8 @@ async function openInTab(entry) {
   newTab.location.href = viewSrc(entry)
 }
 
-async function openActiveItem() {
-  await openInTab(activeEntry.value)
+function openActiveItem() {
+  onFileActivate(activeEntry.value)
   hideMenu()
 }
 
@@ -294,7 +317,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
           :key="entry.name"
           class="gallery-card"
           @click="entry.type === 'directory' ? onOpen(entry) : null"
-          @dblclick="entry.type === 'file' ? openInTab(entry) : null"
+          @dblclick="entry.type === 'file' ? onFileActivate(entry) : null"
+          @auxclick.prevent="onMiddleClick(entry, $event)"
           @contextmenu.stop="showMenuForEntry(entry, $event)"
         >
           <div class="gallery-thumb">
@@ -328,7 +352,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
             :key="entry.name"
             :entry="entry"
             @open="onOpen"
-            @open-file="openInTab"
+            @open-file="onFileActivate"
+            @open-tab="openInTab"
             @download="downloadEntry"
             @contextmenu.stop="showMenuForEntry(entry, $event)"
           />
@@ -383,6 +408,13 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         </div>
       </Transition>
     </Teleport>
+
+    <ImageViewer
+      v-if="imageViewEntry"
+      :src="imageViewSrc"
+      :name="imageViewEntry.name"
+      @close="imageViewEntry = null"
+    />
 
   </div>
 </template>
