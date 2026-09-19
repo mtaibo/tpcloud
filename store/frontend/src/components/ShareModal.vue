@@ -96,7 +96,7 @@ async function copyUrl() {
 <template>
   <BaseModal @close="emit('close')">
     <div class="modal-header">
-      <div class="entry-icon" style="color: #007AFF">
+      <div class="entry-icon" style="color: #8E8E93">
         <Share2 style="width:18px;height:18px" />
       </div>
       <div class="header-text">
@@ -266,12 +266,12 @@ async function copyUrl() {
   border: 0.5px solid rgba(255,255,255,0.08);
   transition: background 0.12s;
 }
-.radio-opt.selected { background: rgba(0,122,255,0.15); border-color: rgba(0,122,255,0.3); color: #fff; }
+.radio-opt.selected { background: rgba(142,142,147,0.15); border-color: rgba(142,142,147,0.3); color: #fff; }
 .radio-opt input { display: none; }
 
 .toggle-row { display: flex; align-items: center; gap: 0.5rem; width: 100%; }
 
-.toggle-cb { accent-color: #007AFF; width: 16px; height: 16px; flex-shrink: 0; }
+.toggle-cb { accent-color: #8E8E93; width: 16px; height: 16px; flex-shrink: 0; }
 
 .err-msg { font-size: 0.8rem; color: #ff453a; text-align: center; }
 

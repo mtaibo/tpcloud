@@ -226,7 +226,7 @@ onUnmounted(() => {
 }
 
 .tab-item.active .tab-icon {
-  color: #007AFF;
+  color: #8E8E93;
   transform: scale(1.05);
 }
 

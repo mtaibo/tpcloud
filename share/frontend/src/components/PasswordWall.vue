@@ -100,7 +100,7 @@ function onKeydown(e) {
   margin-bottom: 0.25rem;
 }
 
-.lock-icon { width: 24px; height: 24px; color: #007AFF; }
+.lock-icon { width: 24px; height: 24px; color: #8E8E93; }
 
 .title {
   font-size: 1rem;
@@ -133,8 +133,8 @@ function onKeydown(e) {
 .pw-input::placeholder { color: #3a3a3c; }
 
 .pw-input:focus {
-  border-color: #007AFF;
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2);
+  border-color: #8E8E93;
+  box-shadow: 0 0 0 3px rgba(142, 142, 147, 0.2);
 }
 
 .error-msg {
@@ -150,7 +150,7 @@ function onKeydown(e) {
   font-size: 0.9rem;
   font-weight: 600;
   color: #fff;
-  background: #007AFF;
+  background: #8E8E93;
   border: none;
   font-family: inherit;
   transition: opacity 0.12s;

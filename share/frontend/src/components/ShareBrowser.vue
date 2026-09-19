@@ -625,7 +625,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   font-family: inherit;
   letter-spacing: -0.01em;
 }
-.ctx-item:hover { background: #007AFF; color: #fff; }
+.ctx-item:hover { background: #8E8E93; color: #fff; }
 .ctx-icon { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.7; }
 .ctx-item:hover .ctx-icon { opacity: 1; }
 

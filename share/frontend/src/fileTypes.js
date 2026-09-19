@@ -20,5 +20,5 @@ export function getFileIcon(entry) {
 }
 
 export function getIconColor(entry) {
-  return entry.type === 'directory' ? '#007AFF' : '#636366'
+  return entry.type === 'directory' ? '#8E8E93' : '#636366'
 }

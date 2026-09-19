@@ -1071,12 +1071,12 @@ function onDrop(e) {
   justify-content: center;
   pointer-events: none;
   z-index: 10;
-  background: rgba(0, 122, 255, 0.07);
-  border: 2px dashed rgba(0, 122, 255, 0.5);
+  background: rgba(142, 142, 147, 0.07);
+  border: 2px dashed rgba(142, 142, 147, 0.5);
 }
 
 .drag-overlay p {
-  color: #007AFF;
+  color: #8E8E93;
   font-size: 1rem;
   font-weight: 500;
 }
@@ -1350,7 +1350,7 @@ function onDrop(e) {
 }
 
 .ctx-item:hover {
-  background: #007AFF;
+  background: #8E8E93;
   color: #fff;
 }
 

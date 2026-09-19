@@ -178,7 +178,7 @@ function go(fav) {
 
 .fav-icon-wrap { position: relative; width: 22px; height: 22px; flex-shrink: 0; }
 
-.fav-folder-icon { width: 22px; height: 22px; color: #007AFF; }
+.fav-folder-icon { width: 22px; height: 22px; color: #8E8E93; }
 
 .fav-badge {
   position: absolute;

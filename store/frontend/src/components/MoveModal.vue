@@ -175,7 +175,7 @@ async function doAction() {
 
 .dir-row:hover { background: rgba(255, 255, 255, 0.05); }
 
-.dir-icon { width: 16px; height: 16px; color: #007AFF; flex-shrink: 0; }
+.dir-icon { width: 16px; height: 16px; color: #8E8E93; flex-shrink: 0; }
 
 .dir-name {
   flex: 1;

@@ -446,7 +446,7 @@ function navigateToCrumb(index) {
   width: 100%;
 }
 
-.lock-icon { width: 28px; height: 28px; color: #007AFF; }
+.lock-icon { width: 28px; height: 28px; color: #8E8E93; }
 
 .pw-title {
   font-size: 1rem;
@@ -475,7 +475,7 @@ function navigateToCrumb(index) {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .pw-input::placeholder { color: #3a3a3c; }
-.pw-input:focus { border-color: #007AFF; box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2); }
+.pw-input:focus { border-color: #8E8E93; box-shadow: 0 0 0 3px rgba(142, 142, 147, 0.2); }
 
 .pw-error { font-size: 0.8rem; color: #ff453a; text-align: center; }
 
@@ -486,7 +486,7 @@ function navigateToCrumb(index) {
   font-size: 0.9rem;
   font-weight: 600;
   color: #fff;
-  background: #007AFF;
+  background: #8E8E93;
   border: none;
   font-family: inherit;
   transition: opacity 0.12s;

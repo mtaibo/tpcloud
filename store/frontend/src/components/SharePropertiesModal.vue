@@ -164,7 +164,7 @@ async function deleteShare() {
 
 .field-group { display: flex; flex-direction: column; gap: 0.45rem; width: 100%; }
 .toggle-row { display: flex; align-items: center; gap: 0.5rem; width: 100%; }
-.toggle-cb { accent-color: #007AFF; width: 16px; height: 16px; flex-shrink: 0; }
+.toggle-cb { accent-color: #8E8E93; width: 16px; height: 16px; flex-shrink: 0; }
 .field-label { font-size: 0.82rem; color: #ababab; }
 
 .modal-input {
@@ -172,7 +172,7 @@ async function deleteShare() {
   background: rgba(255,255,255,0.05); border: 0.5px solid rgba(255,255,255,0.1);
   border-radius: 7px; color: #fff; font-size: 0.82rem; font-family: inherit; outline: none;
 }
-.modal-input:focus { border-color: #007AFF; }
+.modal-input:focus { border-color: #8E8E93; }
 
 .err-msg { font-size: 0.8rem; color: #ff453a; text-align: center; }
 

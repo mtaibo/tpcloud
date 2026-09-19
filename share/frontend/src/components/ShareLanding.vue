@@ -113,13 +113,13 @@ function open(token) {
   width: 44px;
   height: 44px;
   border-radius: 11px;
-  background: rgba(0, 122, 255, 0.15);
+  background: rgba(142, 142, 147, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.folder-icon { width: 22px; height: 22px; color: #007AFF; }
+.folder-icon { width: 22px; height: 22px; color: #8E8E93; }
 
 .card-body {
   display: flex;

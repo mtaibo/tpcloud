@@ -84,8 +84,8 @@ body {
 .modal-input::placeholder { color: #3a3a3c; }
 
 .modal-input:focus {
-  border-color: #007AFF;
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.25);
+  border-color: #8E8E93;
+  box-shadow: 0 0 0 3px rgba(142, 142, 147, 0.25);
 }
 
 /* ── Shared modal buttons ── */
@@ -112,13 +112,13 @@ body {
   font-size: 13px;
   font-weight: 500;
   color: #fff;
-  background: #007AFF;
+  background: #8E8E93;
   border: none;
   transition: background 0.12s, opacity 0.12s;
   font-family: inherit;
 }
 
-.btn-primary:hover:not(:disabled) { background: #0066d6; }
+.btn-primary:hover:not(:disabled) { background: #636366; }
 .btn-primary:disabled { opacity: 0.35; cursor: default; }
 
 .btn-danger {

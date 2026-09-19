@@ -189,7 +189,7 @@ onMounted(load)
   border-bottom: 0.5px solid rgba(255,255,255,0.08);
 }
 
-.panel-icon { width: 18px; height: 18px; color: #007AFF; flex-shrink: 0; }
+.panel-icon { width: 18px; height: 18px; color: #8E8E93; flex-shrink: 0; }
 .panel-title { font-size: 0.95rem; font-weight: 600; color: #fff; }
 
 .state-msg {
@@ -276,7 +276,7 @@ onMounted(load)
 
 .share-url {
   font-size: 0.78rem;
-  color: #007AFF;
+  color: #8E8E93;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -323,7 +323,7 @@ onMounted(load)
   gap: 0.45rem;
 }
 
-.edit-cb { accent-color: #007AFF; width: 14px; height: 14px; flex-shrink: 0; }
+.edit-cb { accent-color: #8E8E93; width: 14px; height: 14px; flex-shrink: 0; }
 
 .edit-label { font-size: 0.82rem; color: #ababab; }
 
@@ -338,7 +338,7 @@ onMounted(load)
   font-family: inherit;
   outline: none;
 }
-.edit-input:focus { border-color: #007AFF; }
+.edit-input:focus { border-color: #8E8E93; }
 
 .edit-footer {
   display: flex;
@@ -365,7 +365,7 @@ onMounted(load)
   gap: 0.35rem;
   padding: 5px 12px;
   border-radius: 7px;
-  background: #007AFF;
+  background: #8E8E93;
   border: none;
   color: #fff;
   font-size: 0.82rem;

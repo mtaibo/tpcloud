@@ -296,7 +296,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
 .nav-item.active { background: #1c1c1e; font-weight: 700; }
 
-.nav-icon { width: 20px; height: 20px; flex-shrink: 0; color: #007AFF; }
+.nav-icon { width: 20px; height: 20px; flex-shrink: 0; color: #8E8E93; }
 
 .fav-icon-wrap { position: relative; width: 20px; height: 20px; flex-shrink: 0; }
 
@@ -346,8 +346,8 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
 .logout-item:hover { color: #f87171; }
 .admin-item { color: rgba(255, 255, 255, 0.5); }
-.admin-item--active { color: #007AFF; }
-.admin-item:hover { color: #007AFF; }
+.admin-item--active { color: #8E8E93; }
+.admin-item:hover { color: #8E8E93; }
 
 .menu-icon { width: 16px; height: 16px; flex-shrink: 0; }
 
@@ -374,7 +374,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   flex-shrink: 0;
 }
 
-.avatar-icon { width: 15px; height: 15px; color: #007AFF; }
+.avatar-icon { width: 15px; height: 15px; color: #8E8E93; }
 
 .user-display-name {
   margin-left: 1rem;

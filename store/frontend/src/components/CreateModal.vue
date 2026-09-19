@@ -30,7 +30,7 @@ function onKeydown(e) {
 <template>
   <BaseModal @close="emit('close')">
     <div class="modal-header">
-      <component :is="isFolder ? FolderPlus : FilePlus" class="entry-icon" style="color: #007AFF" />
+      <component :is="isFolder ? FolderPlus : FilePlus" class="entry-icon" style="color: #8E8E93" />
       <span class="modal-title">{{ title }}</span>
     </div>
 
