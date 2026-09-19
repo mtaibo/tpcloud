@@ -3,11 +3,13 @@ import { ref, computed, onMounted } from 'vue'
 import PasswordWall from './components/PasswordWall.vue'
 import ShareBrowser from './components/ShareBrowser.vue'
 import ShareLanding from './components/ShareLanding.vue'
+import FileViewer from './components/FileViewer.vue'
 
 const token = window.location.pathname.replace(/^\/+/, '').split('/')[0]
 
 const shareInfo = ref(null)
 const sessionToken = ref(null)
+const fileInfo = ref(null)
 const error = ref('')
 const loading = ref(true)
 
@@ -20,7 +22,13 @@ onMounted(async () => {
   try {
     const res = await fetch(`/api/share/${token}`)
     if (res.status === 404) {
-      error.value = 'This share link does not exist.'
+      const openRes = await fetch(`/api/open/${token}/info`)
+      if (openRes.ok) {
+        fileInfo.value = await openRes.json()
+        loading.value = false
+        return
+      }
+      error.value = 'This link does not exist.'
       loading.value = false
       return
     }
@@ -45,7 +53,13 @@ function onAuthenticated(st) {
 </script>
 
 <template>
-  <ShareLanding v-if="!loading && !token" />
+  <FileViewer
+    v-if="!loading && fileInfo"
+    :filename="fileInfo.filename"
+    :content-type="fileInfo.content_type"
+    :file-url="`/api/open/${token}`"
+  />
+  <ShareLanding v-else-if="!loading && !token" />
   <div v-else-if="loading" class="center-msg">Loading…</div>
   <div v-else-if="error" class="center-msg err">{{ error }}</div>
   <template v-else-if="shareInfo">

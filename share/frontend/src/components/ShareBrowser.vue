@@ -183,12 +183,26 @@ function showMoreMenu() {
   })
 }
 
-function openInTab(entry) {
-  window.open(viewSrc(entry), '_blank')
+async function openInTab(entry) {
+  const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
+  const newTab = window.open('', '_blank')
+  try {
+    const res = await fetch(`/api/share/${props.token}/files/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ path }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      newTab.location.href = `/${data.token}`
+      return
+    }
+  } catch {}
+  newTab.location.href = viewSrc(entry)
 }
 
-function openActiveItem() {
-  window.open(viewSrc(activeEntry.value), '_blank')
+async function openActiveItem() {
+  await openInTab(activeEntry.value)
   hideMenu()
 }
 
@@ -309,6 +323,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
             :key="entry.name"
             :entry="entry"
             @open="onOpen"
+            @open-file="openInTab"
             @download="downloadEntry"
             @contextmenu.stop="showMenuForEntry(entry, $event)"
           />

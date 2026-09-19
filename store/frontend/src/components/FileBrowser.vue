@@ -322,7 +322,7 @@ async function viewItem(entry) {
     body: JSON.stringify({ path, location: props.location }),
   })
   const data = await res.json()
-  window.open(`/api/files/open/${data.token}`, '_blank')
+  window.open(`/${data.token}`, '_blank')
 }
 
 function downloadItem(entry) {

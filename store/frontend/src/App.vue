@@ -5,6 +5,7 @@ import FileBrowser from './components/FileBrowser.vue'
 import SharesPanel from './components/SharesPanel.vue'
 import MobileBottomNav from './components/MobileBottomNav.vue'
 import MobileBrowse from './components/MobileBrowse.vue'
+import FileViewer from './components/FileViewer.vue'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -56,6 +57,9 @@ function goForward() {
   if (canGoForward.value) _applyState(navIndex.value + 1)
 }
 
+const fileViewerToken = ref(null)
+const fileViewerInfo = ref(null)
+
 const showShares = ref(false)
 
 const mobileTab = ref('personal')
@@ -92,11 +96,6 @@ onMounted(async () => {
     const res = await fetch('/auth/passkey/me')
     if (res.ok) {
       user.value = await res.json()
-      const initialPath = `users/${user.value.email}`
-      location.value = 'external'
-      currentPath.value = initialPath
-      navHistory.value = [{ location: 'external', path: initialPath }]
-      navIndex.value = 0
     } else {
       window.location.href = `${LOGIN_URL}/?redirect=store.migueltaibo.com`
       return
@@ -105,12 +104,37 @@ onMounted(async () => {
     window.location.href = `${LOGIN_URL}/?redirect=store.migueltaibo.com`
     return
   }
+
+  const pathParts = window.location.pathname.replace(/^\//, '').split('/')
+  const potentialToken = (pathParts.length === 1 && pathParts[0]) ? pathParts[0] : null
+
+  if (potentialToken) {
+    const infoRes = await fetch(`/api/files/open/${potentialToken}/info`)
+    if (infoRes.ok) {
+      fileViewerToken.value = potentialToken
+      fileViewerInfo.value = await infoRes.json()
+      appReady.value = true
+      return
+    }
+  }
+
+  const initialPath = `users/${user.value.email}`
+  location.value = 'external'
+  currentPath.value = initialPath
+  navHistory.value = [{ location: 'external', path: initialPath }]
+  navIndex.value = 0
   appReady.value = true
 })
 </script>
 
 <template>
-  <div v-if="appReady && user" class="app">
+  <FileViewer
+    v-if="appReady && fileViewerToken && fileViewerInfo"
+    :filename="fileViewerInfo.filename"
+    :content-type="fileViewerInfo.content_type"
+    :file-url="`/api/files/open/${fileViewerToken}`"
+  />
+  <div v-else-if="appReady && user" class="app">
     <Sidebar :user="user" :location="location" :current-path="currentPath" :view-as-admin="viewAsAdmin" @navigate="navigate" @toggle-admin-view="toggleAdminView" />
     <MobileBrowse v-if="activeTab === 'browse'" class="mobile-only" :user="user" :can-go-back="canGoBack" :can-go-forward="canGoForward" @navigate="onMobileNavigate" @go-back="goBack" @go-forward="goForward" />
     <SharesPanel v-if="showShares" :class="activeTab === 'browse' ? 'mobile-hidden' : ''" @navigate="navigate" />

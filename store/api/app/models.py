@@ -38,3 +38,15 @@ class ShareSession(SQLModel, table=True):
     session_token: str = Field(unique=True, index=True)
     share_token: str = Field(index=True)
     expires_at: datetime
+
+
+class ShareFileToken(SQLModel, table=True):
+    __tablename__ = "share_file_tokens"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token: str = Field(unique=True, index=True)
+    share_token: str = Field(index=True)
+    path: str
+    session_token: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    first_accessed_at: Optional[datetime] = Field(default=None)

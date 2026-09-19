@@ -163,6 +163,29 @@ async def create_file_token(
     return {"token": token}
 
 
+@router.get("/open/{token}/info")
+async def get_file_token_info(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_session),
+):
+    user = await get_current_user(request)
+    file_token = db.exec(select(FileViewToken).where(FileViewToken.token == token)).first()
+    if not file_token:
+        raise HTTPException(404, "Token not found")
+    if file_token.first_accessed_at:
+        expiry = file_token.first_accessed_at.replace(tzinfo=timezone.utc) + timedelta(hours=24)
+        if datetime.now(timezone.utc) > expiry:
+            raise HTTPException(410, "Token expired")
+    _check_access(file_token.location, file_token.path, user["email"], user["is_admin"])
+    base = _base(file_token.location)
+    file_path = _resolve(base, file_token.path)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+    media_type, _ = mimetypes.guess_type(str(file_path))
+    return {"filename": file_path.name, "content_type": media_type or "application/octet-stream"}
+
+
 @router.get("/open/{token}")
 async def open_file_by_token(
     token: str,

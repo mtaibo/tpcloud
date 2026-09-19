@@ -75,6 +75,10 @@ http://share.migueltaibo.com {
         header Cache-Control "no-store, no-cache, must-revalidate"
         reverse_proxy store-api:8000
     }
+    handle /api/open/* {
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        reverse_proxy store-api:8000
+    }
     handle {
         header Cache-Control "no-store, no-cache, must-revalidate"
         reverse_proxy share-frontend:80

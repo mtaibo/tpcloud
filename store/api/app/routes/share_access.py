@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models import ShareLink, ShareSession
+from app.models import ShareLink, ShareSession, ShareFileToken
 from app.utils import get_base, resolve_path, list_directory_entries as _list_entries
 
 router = APIRouter(prefix="/api/share", tags=["share-access"])
@@ -134,6 +134,44 @@ def authenticate_share(token: str, body: AuthBody, db: Session = Depends(get_ses
     db.add(sess)
     db.commit()
     return {"session_token": session_token}
+
+
+# ── Share file token ─────────────────────────────────────────────────────────
+
+class ShareFileTokenBody(BaseModel):
+    path: str
+
+
+@router.post("/{token}/files/token")
+def create_share_file_token(
+    token: str,
+    request: Request,
+    body: ShareFileTokenBody,
+    db: Session = Depends(get_session),
+):
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    base = get_base(share.location)
+    share_root = (base / share.path).resolve()
+    file_path = resolve_path(share_root, body.path)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+    session_tok = (
+        request.headers.get("X-Share-Session")
+        or request.query_params.get("session")
+    )
+    while True:
+        file_token = secrets.token_urlsafe(8)
+        if not db.exec(select(ShareFileToken).where(ShareFileToken.token == file_token)).first():
+            break
+    db.add(ShareFileToken(
+        token=file_token,
+        share_token=token,
+        path=body.path,
+        session_token=session_tok,
+    ))
+    db.commit()
+    return {"token": file_token}
 
 
 # ── File access ───────────────────────────────────────────────────────────────
