@@ -7,6 +7,8 @@ import {
   Home, Heart, Star, User, Users, Smile, Baby, Glasses, Dumbbell, Trophy, Award,
   Sun, Moon, Leaf, Mountain, Plane, Car, Train, Ship, Bike, Flower, Zap, Umbrella, Anchor, Flame, Snowflake,
   Shield, Lock, Key, Settings, Wrench, Gift, Palette, Lightbulb, Coffee, ShoppingCart, TestTube,
+  GraduationCap, School, BookCopy, Notebook, NotebookPen, Pencil, Ruler, Calculator, Microscope, Atom, Brain, Library, Sigma, Pi, FlaskConical, PenLine,
+  Calendar, CalendarDays, CalendarCheck, CalendarClock, CalendarRange, Clock, Timer, AlarmClock,
 } from 'lucide-vue-next'
 
 export const FOLDER_ICONS_MAP = {
@@ -18,4 +20,6 @@ export const FOLDER_ICONS_MAP = {
   Home, Heart, Star, User, Users, Smile, Baby, Glasses, Dumbbell, Trophy, Award,
   Sun, Moon, Leaf, Mountain, Plane, Car, Train, Ship, Bike, Flower, Zap, Umbrella, Anchor, Flame, Snowflake,
   Shield, Lock, Key, Settings, Wrench, Gift, Palette, Lightbulb, Coffee, ShoppingCart, TestTube,
+  GraduationCap, School, BookCopy, Notebook, NotebookPen, Pencil, Ruler, Calculator, Microscope, Atom, Brain, Library, Sigma, Pi, FlaskConical, PenLine,
+  Calendar, CalendarDays, CalendarCheck, CalendarClock, CalendarRange, Clock, Timer, AlarmClock,
 }

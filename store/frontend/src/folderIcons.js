@@ -7,6 +7,8 @@ import {
   Home, Heart, Star, User, Users, Smile, Baby, Glasses, Dumbbell, Trophy, Award,
   Sun, Moon, Leaf, Mountain, Plane, Car, Train, Ship, Bike, Flower, Zap, Umbrella, Anchor, Flame, Snowflake,
   Shield, Lock, Key, Settings, Wrench, Gift, Palette, Lightbulb, Coffee, ShoppingCart, TestTube,
+  GraduationCap, School, BookCopy, Notebook, NotebookPen, Pencil, Ruler, Calculator, Microscope, Atom, Brain, Library, Sigma, Pi, FlaskConical, PenLine,
+  Calendar, CalendarDays, CalendarCheck, CalendarClock, CalendarRange, Clock, Timer, AlarmClock,
 } from 'lucide-vue-next'
 
 export const FOLDER_ICONS_MAP = {
@@ -18,12 +20,22 @@ export const FOLDER_ICONS_MAP = {
   Home, Heart, Star, User, Users, Smile, Baby, Glasses, Dumbbell, Trophy, Award,
   Sun, Moon, Leaf, Mountain, Plane, Car, Train, Ship, Bike, Flower, Zap, Umbrella, Anchor, Flame, Snowflake,
   Shield, Lock, Key, Settings, Wrench, Gift, Palette, Lightbulb, Coffee, ShoppingCart, TestTube,
+  GraduationCap, School, BookCopy, Notebook, NotebookPen, Pencil, Ruler, Calculator, Microscope, Atom, Brain, Library, Sigma, Pi, FlaskConical, PenLine,
+  Calendar, CalendarDays, CalendarCheck, CalendarClock, CalendarRange, Clock, Timer, AlarmClock,
 }
 
 export const FOLDER_ICON_CATEGORIES = [
   {
     label: 'General',
     icons: ['Box', 'Package', 'Archive', 'Inbox', 'Layers', 'BookOpen', 'Book', 'Globe', 'Map', 'Compass'],
+  },
+  {
+    label: 'Education',
+    icons: ['GraduationCap', 'School', 'Library', 'BookCopy', 'Notebook', 'NotebookPen', 'Pencil', 'Ruler', 'Calculator', 'Microscope', 'Atom', 'Brain', 'Sigma', 'Pi', 'FlaskConical', 'PenLine'],
+  },
+  {
+    label: 'Calendar & Time',
+    icons: ['Calendar', 'CalendarDays', 'CalendarCheck', 'CalendarClock', 'CalendarRange', 'Clock', 'Timer', 'AlarmClock'],
   },
   {
     label: 'Media',
