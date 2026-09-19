@@ -13,6 +13,7 @@ import FolderIconPicker from './FolderIconPicker.vue'
 import ImageViewer from './ImageViewer.vue'
 import GalleryThumb from './GalleryThumb.vue'
 import { useFavourites } from '../useFavourites.js'
+import { useTransfers } from '../useTransfers.js'
 import { IMAGE_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
 
 const props = defineProps({
@@ -29,8 +30,8 @@ const emit = defineEmits(['navigate', 'go-back', 'go-forward', 'open-shares'])
 const entries = ref([])
 const loading = ref(false)
 const error = ref(null)
-const uploading = ref(false)
 const isDragOver = ref(false)
+const { add: addTransfer, update: updateTransfer, setTotal: setTransferTotal, complete: completeTransfer, fail: failTransfer } = useTransfers()
 const fileInput = ref(null)
 
 const contextMenu = ref(null)
@@ -347,18 +348,12 @@ async function viewItem(entry) {
 function downloadItem(entry) {
   if (shareMode.value) {
     const entryPath = joinPath(shareMode.value.path, entry.name)
-    const a = document.createElement('a')
-    a.href = `/api/share/${shareMode.value.token}/files/download?path=${encodeURIComponent(entryPath)}`
-    a.download = entry.name
-    a.click()
+    downloadWithProgress(`/api/share/${shareMode.value.token}/files/download?path=${encodeURIComponent(entryPath)}`, entry.name)
     return
   }
   const path = joinPath(props.currentPath, entry.name)
   const params = new URLSearchParams({ path, location: props.location })
-  const a = document.createElement('a')
-  a.href = `/api/files/download?${params}`
-  a.download = entry.name
-  a.click()
+  downloadWithProgress(`/api/files/download?${params}`, entry.name)
 }
 
 function createFolder() {
@@ -457,10 +452,7 @@ function downloadFolderAsZip() {
   hideMenu()
   const path = joinPath(props.currentPath, entry.name)
   const params = new URLSearchParams({ path, location: props.location })
-  const a = document.createElement('a')
-  a.href = `/api/files/download-zip?${params}`
-  a.download = `${entry.name}.zip`
-  a.click()
+  downloadWithProgress(`/api/files/download-zip?${params}`, `${entry.name}.zip`)
 }
 
 async function compressItem() {
@@ -646,10 +638,7 @@ function downloadActiveShareFolderAsZip() {
   const entry = activeEntry.value
   hideMenu()
   const entryPath = joinPath(shareMode.value.path, entry.name)
-  const a = document.createElement('a')
-  a.href = `/api/share/${shareMode.value.token}/files/download-zip?path=${encodeURIComponent(entryPath)}`
-  a.download = `${entry.name}.zip`
-  a.click()
+  downloadWithProgress(`/api/share/${shareMode.value.token}/files/download-zip?path=${encodeURIComponent(entryPath)}`, `${entry.name}.zip`)
 }
 
 function triggerUpload() {
@@ -659,20 +648,103 @@ function triggerUpload() {
 
 async function uploadFiles(files) {
   if (!files || !files.length) return
-  uploading.value = true
-  const formData = new FormData()
-  for (const file of files) formData.append('files', file)
   const params = new URLSearchParams({ path: props.currentPath, location: props.location })
-  try {
-    const res = await fetch(`/api/files/upload?${params}`, { method: 'POST', body: formData })
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      alert(data.detail || 'Error uploading files')
-    } else {
-      loadDirectory()
+
+  for (const file of files) {
+    const id = addTransfer('upload', file.name, file.size)
+    await new Promise(resolve => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `/api/files/upload?${params}`)
+
+      xhr.upload.addEventListener('progress', e => {
+        if (e.lengthComputable) updateTransfer(id, e.loaded)
+      })
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          completeTransfer(id)
+        } else {
+          let msg = `Error ${xhr.status}`
+          try { msg = JSON.parse(xhr.responseText).detail || msg } catch {}
+          failTransfer(id, msg)
+        }
+        resolve()
+      })
+
+      xhr.addEventListener('error', () => { failTransfer(id, 'Network error'); resolve() })
+      xhr.addEventListener('abort', () => { failTransfer(id, 'Cancelled'); resolve() })
+
+      const formData = new FormData()
+      formData.append('files', file)
+      xhr.send(formData)
+    })
+  }
+
+  loadDirectory()
+}
+
+async function downloadWithProgress(url, filename) {
+  if ('showSaveFilePicker' in window) {
+    let handle
+    try {
+      handle = await window.showSaveFilePicker({ suggestedName: filename })
+    } catch {
+      return
     }
-  } finally {
-    uploading.value = false
+    const id = addTransfer('download', filename, 0)
+    try {
+      const res = await fetch(url)
+      if (!res.ok) { failTransfer(id, `Error ${res.status}`); return }
+      const cl = res.headers.get('Content-Length')
+      if (cl) setTransferTotal(id, parseInt(cl))
+      const writable = await handle.createWritable()
+      const reader = res.body.getReader()
+      let loaded = 0
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          await writable.write(value)
+          loaded += value.length
+          updateTransfer(id, loaded)
+        }
+        await writable.close()
+      } catch (e) {
+        await writable.abort()
+        throw e
+      }
+      completeTransfer(id)
+    } catch (e) {
+      failTransfer(id, e.message || 'Failed')
+    }
+  } else {
+    const id = addTransfer('download', filename, 0)
+    try {
+      const res = await fetch(url)
+      if (!res.ok) { failTransfer(id, `Error ${res.status}`); return }
+      const cl = res.headers.get('Content-Length')
+      if (cl) setTransferTotal(id, parseInt(cl))
+      const reader = res.body.getReader()
+      const chunks = []
+      let loaded = 0
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(value)
+        loaded += value.length
+        updateTransfer(id, loaded)
+      }
+      const blob = new Blob(chunks)
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+      completeTransfer(id)
+    } catch (e) {
+      failTransfer(id, e.message || 'Failed')
+    }
   }
 }
 
@@ -847,7 +919,6 @@ function onDrop(e) {
           :view-as-admin="viewAsAdmin"
           @navigate="(loc, p) => emit('navigate', loc, p)"
         />
-        <span v-if="uploading" class="uploading-indicator">Uploading…</span>
       </div>
       <div v-if="diskInfo" class="storage-info">
         {{ formatGB(diskInfo.used) }} occupied, {{ formatGB(diskInfo.free) }} available
@@ -1216,10 +1287,6 @@ function onDrop(e) {
   letter-spacing: 0.01em;
 }
 
-.uploading-indicator {
-  font-size: 0.75rem;
-  color: #636366;
-}
 
 .share-crumbs {
   display: flex;

@@ -1,8 +1,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Plus, X, Shield, ShieldCheck, Share2 } from 'lucide-vue-next'
+import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Plus, X, Shield, ShieldCheck, Share2, Upload, Download } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
+import { useTransfers } from '../useTransfers.js'
 import { getFileIcon } from '../fileTypes.js'
+import TransferPanel from './TransferPanel.vue'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -19,6 +21,19 @@ const menuOpen = ref(false)
 const cardRef = ref(null)
 
 const { favourites, load, add, remove } = useFavourites()
+const { hasUploads, hasDownloads, uploads, downloads } = useTransfers()
+
+const panelOpen = ref(false)
+const transfersRef = ref(null)
+
+function togglePanel() {
+  panelOpen.value = !panelOpen.value
+}
+
+function onClickOutside(e) {
+  if (cardRef.value && !cardRef.value.contains(e.target)) menuOpen.value = false
+  if (transfersRef.value && !transfersRef.value.contains(e.target)) panelOpen.value = false
+}
 
 function addFavourite() {
   add(props.location, props.currentPath, props.user.email)
@@ -34,10 +49,6 @@ function isActive(loc, path) {
 
 function go(loc, path) {
   emit('navigate', loc, path)
-}
-
-function onClickOutside(e) {
-  if (cardRef.value && !cardRef.value.contains(e.target)) menuOpen.value = false
 }
 
 async function logout() {
@@ -111,6 +122,22 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
       </template>
 
     </nav>
+
+    <div v-if="hasUploads || hasDownloads" ref="transfersRef" class="transfers-section">
+      <button v-if="hasUploads" :class="['nav-item', 'transfer-btn', { 'transfer-btn--active': panelOpen }]" @click="togglePanel">
+        <Upload class="nav-icon transfer-icon" />
+        <span>Uploads</span>
+        <span class="transfer-count">{{ uploads.length }}</span>
+        <span class="active-dot" />
+      </button>
+      <button v-if="hasDownloads" :class="['nav-item', 'transfer-btn', { 'transfer-btn--active': panelOpen }]" @click="togglePanel">
+        <Download class="nav-icon transfer-icon" />
+        <span>Downloads</span>
+        <span class="transfer-count">{{ downloads.length }}</span>
+        <span class="active-dot" />
+      </button>
+      <TransferPanel :show="panelOpen" />
+    </div>
 
     <footer class="sidebar-footer">
       <div ref="cardRef" class="user-card">
@@ -309,6 +336,48 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   color: #FFD60A;
   fill: #FFD60A;
   stroke-width: 2;
+}
+
+.transfers-section {
+  padding: 0 0.75rem 0.5rem;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.transfer-btn {
+  position: relative;
+  justify-content: flex-start;
+}
+
+.transfer-btn--active { background: #1c1c1e; }
+
+.transfer-icon { color: #8E8E93; }
+
+.transfer-count {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #636366;
+  background: #2c2c2e;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-right: 0.25rem;
+}
+
+.active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #0a84ff;
+  flex-shrink: 0;
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 .sidebar-footer { padding: 0.5rem 1rem 1.5rem; flex-shrink: 0; }
