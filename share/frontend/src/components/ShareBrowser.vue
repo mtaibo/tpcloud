@@ -186,16 +186,21 @@ function showMoreMenu() {
 async function openInTab(entry) {
   const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
   const newTab = window.open('', '_blank')
+  if (!newTab) return
   try {
-    const res = await fetch(`/api/share/${props.token}/files/token`, {
+    const tokenRes = await fetch(`/api/share/${props.token}/files/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ path }),
     })
-    if (res.ok) {
-      const data = await res.json()
-      newTab.location.href = `/${data.token}`
-      return
+    if (tokenRes.ok) {
+      const { token: fileToken } = await tokenRes.json()
+      const infoRes = await fetch(`/api/open/${fileToken}/info`)
+      const ct = infoRes.ok ? (infoRes.headers.get('content-type') || '') : ''
+      if (ct.includes('application/json')) {
+        newTab.location.href = `/${fileToken}`
+        return
+      }
     }
   } catch {}
   newTab.location.href = viewSrc(entry)
