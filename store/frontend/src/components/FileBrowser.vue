@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star, Share2, LayoutGrid, List, Folder } from 'lucide-vue-next'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star, Share2, LayoutGrid, List, Folder, Palette } from 'lucide-vue-next'
 import Breadcrumb from './Breadcrumb.vue'
 import FileRow from './FileRow.vue'
 import MoveModal from './MoveModal.vue'
@@ -9,6 +9,7 @@ import DeleteModal from './DeleteModal.vue'
 import CreateModal from './CreateModal.vue'
 import ShareModal from './ShareModal.vue'
 import SharePropertiesModal from './SharePropertiesModal.vue'
+import FolderIconPicker from './FolderIconPicker.vue'
 import ImageViewer from './ImageViewer.vue'
 import GalleryThumb from './GalleryThumb.vue'
 import { useFavourites } from '../useFavourites.js'
@@ -46,6 +47,7 @@ const createMode = ref(null)
 const shareEntry = ref(null)
 const sharePropsEntry = ref(null)
 const imageViewEntry = ref(null)
+const iconPickerEntry = ref(null)
 const galleryMode = ref(localStorage.getItem('gallery-mode') === '1')
 const shareMode = ref(null) // { token, label, path, history, historyIndex } | null
 const diskInfo = ref(null)
@@ -161,6 +163,7 @@ function onDocKeydown(e) {
     shareEntry.value = null
     sharePropsEntry.value = null
     imageViewEntry.value = null
+    iconPickerEntry.value = null
   }
 }
 
@@ -491,6 +494,39 @@ async function decompressItem() {
 function deleteActiveItem() {
   deleteEntry.value = activeEntry.value
   hideMenu()
+}
+
+function changeIcon() {
+  iconPickerEntry.value = activeEntry.value
+  hideMenu()
+}
+
+async function onIconPickerDone(iconName) {
+  const entry = iconPickerEntry.value
+  iconPickerEntry.value = null
+  const path = joinPath(props.currentPath, entry.name)
+  if (iconName) {
+    const res = await fetch('/api/files/icon', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, location: props.location, icon_name: iconName }),
+    })
+    if (res.ok) {
+      const idx = entries.value.findIndex(e => e.name === entry.name)
+      if (idx !== -1) entries.value[idx] = { ...entries.value[idx], icon_name: iconName }
+    }
+  } else {
+    const params = new URLSearchParams({ path, location: props.location })
+    const res = await fetch(`/api/files/icon?${params}`, { method: 'DELETE' })
+    if (res.ok) {
+      const idx = entries.value.findIndex(e => e.name === entry.name)
+      if (idx !== -1) {
+        const updated = { ...entries.value[idx] }
+        delete updated.icon_name
+        entries.value[idx] = updated
+      }
+    }
+  }
 }
 
 async function onDeleteConfirmed() {
@@ -863,6 +899,10 @@ function onDrop(e) {
               <Pencil class="ctx-icon" />
               <span>Rename</span>
             </button>
+            <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="changeIcon">
+              <Palette class="ctx-icon" />
+              <span>Change Icon…</span>
+            </button>
             <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="addEntryToFavourites">
               <Star class="ctx-icon" />
               <span>Add to Favorites</span>
@@ -1004,6 +1044,14 @@ function onDrop(e) {
       @close="sharePropsEntry = null"
       @updated="sharePropsEntry = null; loadDirectory()"
       @deleted="sharePropsEntry = null; loadDirectory()"
+    />
+
+    <!-- Folder icon picker -->
+    <FolderIconPicker
+      v-if="iconPickerEntry"
+      :entry="iconPickerEntry"
+      @close="iconPickerEntry = null"
+      @done="onIconPickerDone"
     />
 
   </div>

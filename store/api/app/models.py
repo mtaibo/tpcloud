@@ -50,3 +50,13 @@ class ShareFileToken(SQLModel, table=True):
     session_token: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     first_accessed_at: Optional[datetime] = Field(default=None)
+
+
+class FolderIcon(SQLModel, table=True):
+    __tablename__ = "folder_icons"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_email: str = Field(index=True)
+    location: str
+    path: str
+    icon_name: str

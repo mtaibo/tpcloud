@@ -1,4 +1,5 @@
 import { Folder, FolderSymlink, File, FileText, Image, Film, Music, Archive, Code } from 'lucide-vue-next'
+import { FOLDER_ICONS_MAP } from './folderIcons.js'
 
 export const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'heic'])
 export const VIDEO_EXTS = new Set(['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v'])
@@ -9,7 +10,10 @@ export const DOC_EXTS = new Set(['pdf', 'txt', 'md', 'doc', 'docx', 'odt', 'rtf'
 
 export function getFileIcon(entry) {
   if (entry.type === 'share-link') return FolderSymlink
-  if (entry.type === 'directory') return Folder
+  if (entry.type === 'directory') {
+    if (entry.icon_name && FOLDER_ICONS_MAP[entry.icon_name]) return FOLDER_ICONS_MAP[entry.icon_name]
+    return Folder
+  }
   const ext = (entry.name.split('.').pop() || '').toLowerCase()
   if (IMAGE_EXTS.has(ext)) return Image
   if (VIDEO_EXTS.has(ext)) return Film

@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 
 from app.auth import get_current_user
 from app.database import get_session, DATA_DIR
-from app.models import FileViewToken
+from app.models import FileViewToken, FolderIcon
 from app.utils import get_base as _base, resolve_path as _resolve, check_access as _check_access, list_directory_entries as _list_entries
 
 _THUMB_DIR = DATA_DIR / "thumbs"
@@ -80,6 +80,7 @@ async def list_directory(
     request: Request,
     path: str = Query(default=""),
     location: str = Query(default="external"),
+    db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
     _check_access(location, path, user["email"], user["is_admin"])
@@ -102,7 +103,27 @@ async def list_directory(
     if not dir_path.is_dir():
         raise HTTPException(400, "Path is not a directory")
 
-    return {"path": path, "entries": _list_entries(dir_path)}
+    entries = _list_entries(dir_path)
+
+    dir_names = [e["name"] for e in entries if e["type"] == "directory"]
+    if dir_names:
+        prefix = (path.rstrip("/") + "/") if path else ""
+        paths_to_check = [f"{prefix}{name}" for name in dir_names]
+        icons = db.exec(
+            select(FolderIcon).where(
+                FolderIcon.owner_email == user["email"],
+                FolderIcon.location == location,
+                FolderIcon.path.in_(paths_to_check),
+            )
+        ).all()
+        icon_map = {i.path: i.icon_name for i in icons}
+        for e in entries:
+            if e["type"] == "directory":
+                full_path = f"{prefix}{e['name']}"
+                if full_path in icon_map:
+                    e["icon_name"] = icon_map[full_path]
+
+    return {"path": path, "entries": entries}
 
 
 @router.post("/upload")
@@ -278,6 +299,62 @@ async def disk_usage(request: Request):
     await get_current_user(request)
     usage = shutil.disk_usage(str(_base("external")))
     return {"total": usage.total, "used": usage.used, "free": usage.free}
+
+
+class IconBody(BaseModel):
+    path: str
+    location: str = "external"
+    icon_name: str
+
+
+@router.put("/icon")
+async def set_folder_icon(
+    request: Request,
+    body: IconBody,
+    db: Session = Depends(get_session),
+):
+    user = await get_current_user(request)
+    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    existing = db.exec(
+        select(FolderIcon).where(
+            FolderIcon.owner_email == user["email"],
+            FolderIcon.location == body.location,
+            FolderIcon.path == body.path,
+        )
+    ).first()
+    if existing:
+        existing.icon_name = body.icon_name
+        db.add(existing)
+    else:
+        db.add(FolderIcon(
+            owner_email=user["email"],
+            location=body.location,
+            path=body.path,
+            icon_name=body.icon_name,
+        ))
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/icon")
+async def delete_folder_icon(
+    request: Request,
+    path: str = Query(...),
+    location: str = Query(default="external"),
+    db: Session = Depends(get_session),
+):
+    user = await get_current_user(request)
+    existing = db.exec(
+        select(FolderIcon).where(
+            FolderIcon.owner_email == user["email"],
+            FolderIcon.location == location,
+            FolderIcon.path == path,
+        )
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+    return {"ok": True}
 
 
 @router.get("/download")

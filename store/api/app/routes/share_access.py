@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models import ShareLink, ShareSession, ShareFileToken
+from app.models import ShareLink, ShareSession, ShareFileToken, FolderIcon
 from app.utils import get_base, resolve_path, list_directory_entries as _list_entries
 
 router = APIRouter(prefix="/api/share", tags=["share-access"])
@@ -190,7 +190,29 @@ def list_files(
     if not dir_path.exists() or not dir_path.is_dir():
         raise HTTPException(404, "Directory not found")
 
-    return {"path": path, "entries": _list_entries(dir_path)}
+    entries = _list_entries(dir_path)
+
+    dir_names = [e["name"] for e in entries if e["type"] == "directory"]
+    if dir_names:
+        share_base = share.path.rstrip("/")
+        sub = path.strip("/")
+        prefix = f"{share_base}/{sub}/" if sub else f"{share_base}/"
+        paths_to_check = [f"{prefix}{name}" for name in dir_names]
+        icons = db.exec(
+            select(FolderIcon).where(
+                FolderIcon.owner_email == share.owner_email,
+                FolderIcon.location == share.location,
+                FolderIcon.path.in_(paths_to_check),
+            )
+        ).all()
+        icon_map = {i.path: i.icon_name for i in icons}
+        for e in entries:
+            if e["type"] == "directory":
+                full_path = f"{prefix}{e['name']}"
+                if full_path in icon_map:
+                    e["icon_name"] = icon_map[full_path]
+
+    return {"path": path, "entries": entries}
 
 
 @router.get("/{token}/files/view")
