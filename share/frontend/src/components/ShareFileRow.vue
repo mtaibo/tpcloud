@@ -14,7 +14,6 @@ const iconColor = computed(() => getIconColor(props.entry))
 
 function onRowClick() {
   if (props.entry.type === 'directory') emit('open', props.entry)
-  else emit('download', props.entry)
 }
 
 function onRowDblClick() {

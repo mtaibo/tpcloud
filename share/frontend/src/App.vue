@@ -22,12 +22,17 @@ onMounted(async () => {
   try {
     const res = await fetch(`/api/share/${token}`)
     if (res.status === 404) {
-      const openRes = await fetch(`/api/open/${token}/info`)
-      if (openRes.ok) {
-        fileInfo.value = await openRes.json()
-        loading.value = false
-        return
-      }
+      try {
+        const openRes = await fetch(`/api/open/${token}/info`)
+        if (openRes.ok) {
+          const ct = openRes.headers.get('content-type') || ''
+          if (ct.includes('application/json')) {
+            fileInfo.value = await openRes.json()
+            loading.value = false
+            return
+          }
+        }
+      } catch {}
       error.value = 'This link does not exist.'
       loading.value = false
       return
