@@ -1,6 +1,11 @@
 {
     auto_https off
     admin off
+    log {
+        output stderr
+        format json
+        level INFO
+    }
 }
 
 (protected) {
