@@ -21,7 +21,7 @@ const menuOpen = ref(false)
 const cardRef = ref(null)
 
 const { favourites, load, add, remove } = useFavourites()
-const { hasUploads, hasDownloads, uploads, downloads, uploadEta, downloadEta } = useTransfers()
+const { hasUploads, hasDownloads, uploads, downloads, uploadEta, downloadEta, fetchPendingUploads } = useTransfers()
 
 const panelOpen = ref(false)
 const transfersRef = ref(null)
@@ -59,6 +59,7 @@ async function logout() {
 onMounted(() => {
   document.addEventListener('click', onClickOutside)
   load()
+  fetchPendingUploads()
 })
 onUnmounted(() => document.removeEventListener('click', onClickOutside))
 </script>

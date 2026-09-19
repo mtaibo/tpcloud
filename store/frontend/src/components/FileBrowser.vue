@@ -13,7 +13,7 @@ import FolderIconPicker from './FolderIconPicker.vue'
 import ImageViewer from './ImageViewer.vue'
 import GalleryThumb from './GalleryThumb.vue'
 import { useFavourites } from '../useFavourites.js'
-import { useTransfers } from '../useTransfers.js'
+import { useTransfers, formatBytes } from '../useTransfers.js'
 import { IMAGE_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
 
 const props = defineProps({
@@ -31,7 +31,7 @@ const entries = ref([])
 const loading = ref(false)
 const error = ref(null)
 const isDragOver = ref(false)
-const { add: addTransfer, update: updateTransfer, setTotal: setTransferTotal, complete: completeTransfer, fail: failTransfer } = useTransfers()
+const { startUpload, resumeUpload, cancelPendingUpload } = useTransfers()
 const fileInput = ref(null)
 
 const contextMenu = ref(null)
@@ -168,9 +168,22 @@ function onDocKeydown(e) {
   }
 }
 
+function resumeActiveUpload() {
+  const entry = activeEntry.value
+  hideMenu()
+  resumeUpload({ ...entry, file_size: entry.size })
+}
+
+async function cancelActiveUpload() {
+  const entry = activeEntry.value
+  hideMenu()
+  await cancelPendingUpload(entry.upload_id)
+}
+
 onMounted(async () => {
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onDocKeydown)
+  window.addEventListener('tpstore:refresh-directory', loadDirectory)
   try {
     const res = await fetch('/api/files/disk')
     if (res.ok) diskInfo.value = await res.json()
@@ -180,6 +193,7 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onDocKeydown)
+  window.removeEventListener('tpstore:refresh-directory', loadDirectory)
 })
 
 async function loadDirectory() {
@@ -646,53 +660,11 @@ function triggerUpload() {
   fileInput.value.click()
 }
 
-const CHUNK_SIZE = 32 * 1024 * 1024 // 32 MB
-
 async function uploadFiles(files) {
   if (!files || !files.length) return
-
   for (const file of files) {
-    const id = addTransfer('upload', file.name, file.size)
-    const uploadId = crypto.randomUUID()
-    const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE))
-    let failed = false
-
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * CHUNK_SIZE
-      const end = Math.min(start + CHUNK_SIZE, file.size)
-      const params = new URLSearchParams({
-        upload_id: uploadId,
-        chunk_index: i,
-        total_chunks: totalChunks,
-        filename: file.name,
-        path: props.currentPath,
-        location: props.location,
-      })
-      try {
-        const res = await fetch(`/api/files/upload-chunk?${params}`, {
-          method: 'POST',
-          body: file.slice(start, end),
-          headers: { 'Content-Type': 'application/octet-stream' },
-        })
-        if (!res.ok) {
-          let msg = `Error ${res.status}`
-          try { msg = (await res.json()).detail || msg } catch {}
-          failTransfer(id, msg)
-          failed = true
-          break
-        }
-        updateTransfer(id, end)
-      } catch (e) {
-        failTransfer(id, e.message || 'Network error')
-        failed = true
-        break
-      }
-    }
-
-    if (!failed) completeTransfer(id)
+    await startUpload(file, props.currentPath, props.location)
   }
-
-  loadDirectory()
 }
 
 async function downloadWithProgress(url, filename) {
@@ -946,8 +918,21 @@ function onDrop(e) {
           class="ctx-menu"
           :style="menuStyle"
         >
+          <!-- Pending upload entry menu -->
+          <template v-if="activeEntry?.type === 'upload-pending'">
+            <button class="ctx-item" @click="resumeActiveUpload">
+              <Upload class="ctx-icon" />
+              <span>Resume Upload…</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item ctx-item--danger" @click="cancelActiveUpload">
+              <Trash2 class="ctx-icon" />
+              <span>Cancel Upload</span>
+            </button>
+          </template>
+
           <!-- Share-link entry menu -->
-          <template v-if="activeEntry?.type === 'share-link'">
+          <template v-else-if="activeEntry?.type === 'share-link'">
             <button class="ctx-item" @click="openShareInBrowser">
               <ExternalLink class="ctx-icon" />
               <span>Open in Browser</span>

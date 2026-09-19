@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 
 from app.auth import get_current_user
 from app.database import get_session, DATA_DIR
-from app.models import FileViewToken, FolderIcon
+from app.models import FileViewToken, FolderIcon, PendingUpload
 from app.utils import get_base as _base, resolve_path as _resolve, check_access as _check_access, list_directory_entries as _list_entries
 
 _THUMB_DIR = DATA_DIR / "thumbs"
@@ -123,6 +123,25 @@ async def list_directory(
                 if full_path in icon_map:
                     e["icon_name"] = icon_map[full_path]
 
+    existing_names = {e["name"] for e in entries}
+    pending_uploads = db.exec(
+        select(PendingUpload).where(
+            PendingUpload.owner_email == user["email"],
+            PendingUpload.location == location,
+            PendingUpload.path == path,
+        )
+    ).all()
+    for p in pending_uploads:
+        if p.filename not in existing_names:
+            entries.append({
+                "name": p.filename,
+                "type": "upload-pending",
+                "size": p.file_size,
+                "modified": p.created_at.timestamp(),
+                "upload_id": p.upload_id,
+                "bytes_received": p.bytes_received,
+            })
+
     return {"path": path, "entries": entries}
 
 
@@ -164,8 +183,10 @@ async def upload_chunk(
     chunk_index: int = Query(...),
     total_chunks: int = Query(...),
     filename: str = Query(...),
+    file_size: int = Query(...),
     path: str = Query(default=""),
     location: str = Query(default="external"),
+    db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
     _check_access(location, path, user["email"], user["is_admin"])
@@ -183,17 +204,72 @@ async def upload_chunk(
     if not str(dest).startswith(str(dir_path.resolve())):
         raise HTTPException(400, "Invalid path")
 
+    pending = db.get(PendingUpload, upload_id)
+    if not pending:
+        pending = PendingUpload(
+            upload_id=upload_id,
+            filename=safe_name,
+            path=path,
+            location=location,
+            owner_email=user["email"],
+            file_size=file_size,
+            total_chunks=total_chunks,
+        )
+        db.add(pending)
+        db.commit()
+
     part_file = dir_path / f".{upload_id}.part"
-    mode = "wb" if chunk_index == 0 else "ab"
-    async with aiofiles.open(part_file, mode) as f:
+    async with aiofiles.open(part_file, "ab") as f:
         async for data in request.stream():
             await f.write(data)
 
+    pending.bytes_received = part_file.stat().st_size
+    db.add(pending)
+    db.commit()
+
     if chunk_index == total_chunks - 1:
         await run_in_threadpool(lambda: part_file.replace(dest))
+        db.delete(pending)
+        db.commit()
         return {"status": "complete", "filename": safe_name}
 
     return {"status": "ok"}
+
+
+@router.get("/pending-uploads")
+async def list_pending_uploads(request: Request, db: Session = Depends(get_session)):
+    user = await get_current_user(request)
+    pending = db.exec(
+        select(PendingUpload).where(PendingUpload.owner_email == user["email"])
+    ).all()
+    return [
+        {
+            "upload_id": p.upload_id,
+            "filename": p.filename,
+            "path": p.path,
+            "location": p.location,
+            "file_size": p.file_size,
+            "bytes_received": p.bytes_received,
+            "total_chunks": p.total_chunks,
+        }
+        for p in pending
+    ]
+
+
+@router.delete("/cancel-upload/{upload_id}")
+async def cancel_upload(upload_id: str, request: Request, db: Session = Depends(get_session)):
+    user = await get_current_user(request)
+    pending = db.get(PendingUpload, upload_id)
+    if not pending or pending.owner_email != user["email"]:
+        raise HTTPException(404, "Upload not found")
+    base = _base(pending.location)
+    dir_path = _resolve(base, pending.path)
+    part_file = dir_path / f".{upload_id}.part"
+    if part_file.exists():
+        await run_in_threadpool(part_file.unlink)
+    db.delete(pending)
+    db.commit()
+    return {"status": "cancelled"}
 
 
 class TokenBody(BaseModel):

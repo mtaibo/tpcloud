@@ -29,6 +29,7 @@ function onTouchMove() { clearTimeout(longPressTimer) }
 function onRowClick() {
   if (longPressActivated) return
   if (props.entry.type === 'directory' || props.entry.type === 'share-link') emit('open', props.entry)
+  // upload-pending: no action on click
 }
 
 function onRowDblClick() {
@@ -62,7 +63,12 @@ function formatDate(ts) {
         <span class="file-name">{{ entry.name }}</span>
       </div>
     </td>
-    <td class="cell-meta">{{ formatSize(entry.size) }}</td>
+    <td class="cell-meta">
+      <template v-if="entry.type === 'upload-pending'">
+        <span class="pending-pct">{{ Math.round((entry.bytes_received / entry.size) * 100) }}%</span>
+      </template>
+      <template v-else>{{ formatSize(entry.size) }}</template>
+    </td>
     <td class="cell-meta">{{ formatDate(entry.modified) }}</td>
   </tr>
 </template>
@@ -100,6 +106,12 @@ function formatDate(ts) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pending-pct {
+  color: #ff9f0a;
+  font-size: 0.8rem;
+  font-weight: 500;
 }
 
 @media (max-width: 767px) {

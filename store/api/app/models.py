@@ -60,3 +60,17 @@ class FolderIcon(SQLModel, table=True):
     location: str
     path: str
     icon_name: str
+
+
+class PendingUpload(SQLModel, table=True):
+    __tablename__ = "pending_uploads"
+
+    upload_id: str = Field(primary_key=True)
+    filename: str
+    path: str
+    location: str
+    owner_email: str
+    file_size: int
+    bytes_received: int = Field(default=0)
+    total_chunks: int
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

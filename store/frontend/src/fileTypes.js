@@ -1,4 +1,4 @@
-import { Folder, FolderSymlink, File, FileText, Image, Film, Music, Archive, Code } from 'lucide-vue-next'
+import { Folder, FolderSymlink, File, FileText, Image, Film, Music, Archive, Code, UploadCloud } from 'lucide-vue-next'
 import { FOLDER_ICONS_MAP } from './folderIcons.js'
 
 export const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'heic'])
@@ -9,6 +9,7 @@ export const CODE_EXTS = new Set(['js', 'ts', 'py', 'go', 'rs', 'java', 'c', 'cp
 export const DOC_EXTS = new Set(['pdf', 'txt', 'md', 'doc', 'docx', 'odt', 'rtf', 'csv', 'xls', 'xlsx'])
 
 export function getFileIcon(entry) {
+  if (entry.type === 'upload-pending') return UploadCloud
   if (entry.type === 'share-link') return FolderSymlink
   if (entry.type === 'directory') {
     if (entry.icon_name && FOLDER_ICONS_MAP[entry.icon_name]) return FOLDER_ICONS_MAP[entry.icon_name]
@@ -25,6 +26,7 @@ export function getFileIcon(entry) {
 }
 
 export function getIconColor(entry) {
+  if (entry.type === 'upload-pending') return '#ff9f0a'
   if (entry.type === 'share-link') return '#8E8E93'
   return entry.type === 'directory' ? '#8E8E93' : '#636366'
 }
