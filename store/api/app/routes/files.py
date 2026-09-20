@@ -87,23 +87,24 @@ async def list_directory(
     base = _base(location)
     dir_path = _resolve(base, path)
 
-    if not dir_path.exists():
-        clean = path.lstrip("/")
-        parts = Path(clean).parts if clean else ()
-        if (
-            location == "external"
-            and len(parts) >= 2
-            and parts[0] == "users"
-            and parts[1] == user["email"]
-        ):
-            dir_path.mkdir(parents=True, exist_ok=True)
-        else:
-            raise HTTPException(404, "Directory not found")
+    def _check_and_list() -> list[dict]:
+        if not dir_path.exists():
+            clean = path.lstrip("/")
+            parts = Path(clean).parts if clean else ()
+            if (
+                location == "external"
+                and len(parts) >= 2
+                and parts[0] == "users"
+                and parts[1] == user["email"]
+            ):
+                dir_path.mkdir(parents=True, exist_ok=True)
+            else:
+                raise HTTPException(404, "Directory not found")
+        if not dir_path.is_dir():
+            raise HTTPException(400, "Path is not a directory")
+        return _list_entries(dir_path)
 
-    if not dir_path.is_dir():
-        raise HTTPException(400, "Path is not a directory")
-
-    entries = _list_entries(dir_path)
+    entries = await run_in_threadpool(_check_and_list)
 
     dir_names = [e["name"] for e in entries if e["type"] == "directory"]
     if dir_names:
@@ -412,7 +413,7 @@ async def view_file(
 async def disk_usage(request: Request):
     import shutil
     await get_current_user(request)
-    usage = shutil.disk_usage(str(_base("external")))
+    usage = await run_in_threadpool(shutil.disk_usage, str(_base("external")))
     return {"total": usage.total, "used": usage.used, "free": usage.free}
 
 
