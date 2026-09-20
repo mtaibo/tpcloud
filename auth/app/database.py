@@ -7,12 +7,14 @@ load_dotenv(find_dotenv())
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///tpauth.db")
 
-engine = create_engine(DATABASE_URL, echo=False)
+engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
 
 
 def init_db():
     SQLModel.metadata.create_all(engine)
     with engine.connect() as conn:
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+        conn.commit()
         for sql in [
             "ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0",
             "ALTER TABLE users ADD COLUMN password_hash TEXT",

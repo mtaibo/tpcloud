@@ -254,9 +254,12 @@ def validate(request: Request, session: DBSession = Depends(get_session)):
             and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc)
             and db_session.totp_verified
         ):
-            db_session.expires_at = datetime.now(timezone.utc) + SESSION_DURATION
-            session.add(db_session)
-            session.commit()
+            now = datetime.now(timezone.utc)
+            expires = db_session.expires_at.replace(tzinfo=timezone.utc)
+            if expires - now < SESSION_DURATION / 2:
+                db_session.expires_at = now + SESSION_DURATION
+                session.add(db_session)
+                session.commit()
             return Response(status_code=200)
 
     original_host = request.headers.get("X-Forwarded-Host", "")
