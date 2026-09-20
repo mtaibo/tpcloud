@@ -58,11 +58,17 @@ const displayEntries = computed(() => {
     }
   }
 
-  return base.map(e => {
-    if (e.type !== 'upload-pending') return e
-    const active = uploads.value.find(t => t.uploadId === e.upload_id)
-    return active ? { ...e, bytes_received: active.loaded } : e
-  })
+  const doneIds = new Set(
+    uploads.value.filter(t => t.status === 'done' && t.uploadId).map(t => t.uploadId)
+  )
+
+  return base
+    .filter(e => e.type !== 'upload-pending' || !doneIds.has(e.upload_id))
+    .map(e => {
+      if (e.type !== 'upload-pending') return e
+      const active = uploads.value.find(t => t.uploadId === e.upload_id)
+      return active ? { ...e, bytes_received: active.loaded } : e
+    })
 })
 const fileInput = ref(null)
 
@@ -84,6 +90,7 @@ const iconPickerEntry = ref(null)
 const galleryMode = ref(localStorage.getItem('gallery-mode') === '1')
 const shareMode = ref(null) // { token, label, path, history, historyIndex } | null
 const diskInfo = ref(null)
+let _loadController = null
 
 function formatGB(bytes) {
   const gb = bytes / (1024 * 1024 * 1024)
@@ -242,6 +249,10 @@ onUnmounted(() => {
 })
 
 async function loadDirectory() {
+  if (_loadController) _loadController.abort()
+  _loadController = new AbortController()
+  const { signal } = _loadController
+
   if (shareMode.value) {
     await loadShareDirectory()
     return
@@ -251,7 +262,7 @@ async function loadDirectory() {
   error.value = null
   try {
     const params = new URLSearchParams({ path: props.currentPath, location: props.location })
-    const res = await fetch(`/api/files/list?${params}`)
+    const res = await fetch(`/api/files/list?${params}`, { signal })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       throw new Error(data.detail || `Error ${res.status}`)
@@ -261,7 +272,7 @@ async function loadDirectory() {
 
     if (props.location === 'external' && props.currentPath === 'shared') {
       let ownTokens = new Set()
-      const sres = await fetch('/api/shares')
+      const sres = await fetch('/api/shares', { signal })
       if (sres.ok) {
         const sdata = await sres.json()
         ownTokens = new Set(sdata.map(s => s.token))
@@ -276,7 +287,7 @@ async function loadDirectory() {
         }))
         real = [...virtual, ...real]
       }
-      const pres = await fetch('/api/share')
+      const pres = await fetch('/api/share', { signal })
       if (pres.ok) {
         const pdata = await pres.json()
         const pubVirtual = pdata
@@ -302,10 +313,11 @@ async function loadDirectory() {
       }
     })
   } catch (e) {
+    if (e.name === 'AbortError') return
     error.value = e.message
     entries.value = []
   } finally {
-    loading.value = false
+    if (!signal.aborted) loading.value = false
   }
 }
 
