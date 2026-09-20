@@ -187,6 +187,19 @@ function onDocClick(e) {
 }
 
 function onDocKeydown(e) {
+  if (imageViewEntry.value) {
+    const navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'a', 'A', 'd', 'D', 'w', 'W', 's', 'S']
+    if (navKeys.includes(e.key)) {
+      e.preventDefault()
+      const images = displayEntries.value.filter(entryIsImage)
+      const idx = images.findIndex(img => img.name === imageViewEntry.value.name)
+      const prev = ['ArrowLeft', 'ArrowUp', 'a', 'A', 'w', 'W']
+      const next = ['ArrowRight', 'ArrowDown', 'd', 'D', 's', 'S']
+      if (prev.includes(e.key) && idx > 0) imageViewEntry.value = images[idx - 1]
+      else if (next.includes(e.key) && idx < images.length - 1) imageViewEntry.value = images[idx + 1]
+      return
+    }
+  }
   if (e.key === 'Escape') {
     hideMenu()
     pickerEntry.value = null

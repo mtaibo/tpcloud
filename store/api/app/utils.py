@@ -47,6 +47,8 @@ def list_directory_entries(dir_path: Path) -> list[dict]:
         raise HTTPException(403, "Permission denied")
     entries = []
     for item in items:
+        if item.name.startswith('.'):
+            continue
         try:
             stat = item.stat()
             entries.append({

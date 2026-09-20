@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 
 const CHUNK_SIZE = 32 * 1024 * 1024
+const CHUNK_THRESHOLD = 10 * 1024 * 1024
 
 const transfers = ref([])
 const pendingServerUploads = ref([])
@@ -161,8 +162,29 @@ export function useTransfers() {
     }
   }
 
+  async function _doSimpleUpload(file, path, location) {
+    const params = new URLSearchParams({ path, location })
+    const form = new FormData()
+    form.append('file', file)
+    try {
+      const res = await fetch(`/api/files/upload?${params}`, { method: 'POST', body: form })
+      if (!res.ok) {
+        let msg = `Error ${res.status}`
+        try { msg = (await res.json()).detail || msg } catch {}
+        console.error('Upload failed:', msg)
+      }
+    } catch (e) {
+      console.error('Upload error:', e)
+    }
+    window.dispatchEvent(new CustomEvent('tpstore:refresh-directory'))
+  }
+
   async function startUpload(file, path, location) {
-    await _doChunkedUpload(file, crypto.randomUUID(), 0, path, location)
+    if (file.size <= CHUNK_THRESHOLD) {
+      await _doSimpleUpload(file, path, location)
+    } else {
+      await _doChunkedUpload(file, crypto.randomUUID(), 0, path, location)
+    }
   }
 
   async function resumeUpload(pending) {
