@@ -62,6 +62,21 @@ class FolderIcon(SQLModel, table=True):
     icon_name: str
 
 
+class CompressionJob(SQLModel, table=True):
+    __tablename__ = "compression_jobs"
+
+    job_id: str = Field(primary_key=True)
+    owner_email: str
+    filename: str
+    path: str
+    location: str
+    status: str = Field(default="active")  # active, done, error, cancelled
+    total_bytes: int = Field(default=0)
+    extracted_bytes: int = Field(default=0)
+    error: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class PendingUpload(SQLModel, table=True):
     __tablename__ = "pending_uploads"
 

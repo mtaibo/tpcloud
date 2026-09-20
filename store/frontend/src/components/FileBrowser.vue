@@ -14,6 +14,7 @@ import ImageViewer from './ImageViewer.vue'
 import GalleryThumb from './GalleryThumb.vue'
 import { useFavourites } from '../useFavourites.js'
 import { useTransfers, formatBytes } from '../useTransfers.js'
+import { useCompression } from '../useCompression.js'
 import { IMAGE_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
 
 const props = defineProps({
@@ -32,6 +33,7 @@ const loading = ref(false)
 const error = ref(null)
 const isDragOver = ref(false)
 const { startUpload, resumeUpload, cancelPendingUpload, uploads } = useTransfers()
+const { startDecompress } = useCompression()
 
 // Merges server entries with real-time active upload progress,
 // and injects synthetic pending entries for uploads in this folder.
@@ -546,18 +548,8 @@ async function compressItem() {
 async function decompressItem() {
   const entry = activeEntry.value
   hideMenu()
-  const path = joinPath(props.currentPath, entry.name)
-  const res = await fetch('/api/files/decompress', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, location: props.location }),
-  })
-  if (res.ok) {
-    loadDirectory()
-  } else {
-    const data = await res.json().catch(() => ({}))
-    alert(data.detail || 'Error decompressing')
-  }
+  const ok = await startDecompress(entry.name, props.currentPath, props.location)
+  if (!ok) alert('Error starting extraction')
 }
 
 function deleteActiveItem() {

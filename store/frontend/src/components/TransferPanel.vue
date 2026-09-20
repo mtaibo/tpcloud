@@ -1,13 +1,20 @@
 <script setup>
 import { watch } from 'vue'
-import { Check, X, ArrowUp, ArrowDown, Play, Square } from 'lucide-vue-next'
+import { Check, X, ArrowUp, ArrowDown, Play, Square, Archive } from 'lucide-vue-next'
 import { useTransfers, formatBytes, formatEta } from '../useTransfers.js'
+import { useCompression } from '../useCompression.js'
 
 const props = defineProps({ show: Boolean })
 
 const { uploads, downloads, visiblePendingUploads, cancelTransfer, resumeUpload, fetchPendingUploads } = useTransfers()
+const { jobs: compressionJobs, cancelJob, fetchJobs } = useCompression()
 
-watch(() => props.show, val => { if (val) fetchPendingUploads() })
+watch(() => props.show, val => {
+  if (val) {
+    fetchPendingUploads()
+    fetchJobs()
+  }
+})
 
 function progress(t) {
   return t.totalSize > 0 ? Math.min(100, (t.loaded / t.totalSize) * 100) : null
@@ -25,6 +32,21 @@ function speed(t) {
 function pendingPct(p) {
   return p.file_size > 0 ? Math.round((p.bytes_received / p.file_size) * 100) : 0
 }
+
+function jobProgress(j) {
+  return j.total_bytes > 0 ? Math.min(100, (j.extracted_bytes / j.total_bytes) * 100) : null
+}
+
+function jobEta(j) {
+  if (j.status !== 'active' || !j.speed || j.speed <= 0 || !j.total_bytes) return null
+  return formatEta((j.total_bytes - j.extracted_bytes) / j.speed)
+}
+
+function jobSpeed(j) {
+  return j.status === 'active' && j.speed > 0 ? `${formatBytes(j.speed)}/s` : null
+}
+
+const hasTransfers = () => uploads.value.length || visiblePendingUploads.value.length || downloads.value.length
 </script>
 
 <template>
@@ -116,6 +138,43 @@ function pendingPct(p) {
               </template>
               <span v-else-if="t.status === 'done'" class="done-label"><Check class="si" />{{ formatBytes(t.totalSize || t.loaded) }}</span>
               <span v-else class="err-label"><X class="si" />{{ t.error }}</span>
+            </div>
+          </div>
+        </section>
+
+        <div v-if="hasTransfers() && compressionJobs.length" class="sep" />
+
+        <!-- Extractions -->
+        <section v-if="compressionJobs.length" class="sec">
+          <div class="sec-head">
+            <Archive class="sec-icon" />
+            <span>Extractions</span>
+            <span class="badge">{{ compressionJobs.length }}</span>
+          </div>
+          <div v-for="j in compressionJobs" :key="j.job_id" class="item">
+            <div class="item-top">
+              <div class="item-name" :title="j.filename">{{ j.filename }}</div>
+              <button v-if="j.status === 'active'" class="cancel-btn" title="Cancel" @click="cancelJob(j.job_id)">
+                <Square class="cancel-icon" />
+              </button>
+            </div>
+            <div class="bar-wrap">
+              <div
+                class="bar bar--ex"
+                :class="{
+                  'bar--done': j.status === 'done',
+                  'bar--error': j.status === 'error',
+                  'bar--indet': !j.total_bytes && j.status === 'active',
+                }"
+                :style="j.total_bytes ? { width: jobProgress(j) + '%' } : {}"
+              />
+            </div>
+            <div class="item-meta">
+              <template v-if="j.status === 'active'">
+                {{ formatBytes(j.extracted_bytes) }}{{ j.total_bytes ? ` / ${formatBytes(j.total_bytes)}` : '' }}<template v-if="jobSpeed(j)"> · {{ jobSpeed(j) }}</template><template v-if="jobEta(j)"> · {{ jobEta(j) }} left</template>
+              </template>
+              <span v-else-if="j.status === 'done'" class="done-label"><Check class="si" />{{ formatBytes(j.total_bytes) }}</span>
+              <span v-else class="err-label"><X class="si" />{{ j.error || 'Error' }}</span>
             </div>
           </div>
         </section>
@@ -231,6 +290,7 @@ function pendingPct(p) {
 }
 
 .bar--dl { background: #30d158; }
+.bar--ex { background: #bf5af2; }
 .bar--paused { background: #ff9f0a; opacity: 0.7; }
 .bar--done { opacity: 0.5; width: 100% !important; }
 .bar--error { background: #ff453a !important; width: 100% !important; opacity: 0.7; }

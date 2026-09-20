@@ -1,8 +1,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Plus, X, Shield, ShieldCheck, Share2, Upload, Download } from 'lucide-vue-next'
+import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Plus, X, Shield, ShieldCheck, Share2, Upload, Download, Archive } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
 import { useTransfers } from '../useTransfers.js'
+import { useCompression } from '../useCompression.js'
 import { getFileIcon } from '../fileTypes.js'
 import TransferPanel from './TransferPanel.vue'
 
@@ -22,6 +23,7 @@ const cardRef = ref(null)
 
 const { favourites, load, add, remove } = useFavourites()
 const { hasUploads, hasDownloads, uploads, downloads, uploadEta, downloadEta, fetchPendingUploads } = useTransfers()
+const { hasJobs, activeCount, init: initCompression } = useCompression()
 
 const panelOpen = ref(false)
 const transfersRef = ref(null)
@@ -60,6 +62,7 @@ onMounted(() => {
   document.addEventListener('click', onClickOutside)
   load()
   fetchPendingUploads()
+  initCompression()
 })
 onUnmounted(() => document.removeEventListener('click', onClickOutside))
 </script>
@@ -124,7 +127,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
     </nav>
 
-    <div v-if="hasUploads || hasDownloads" ref="transfersRef" class="transfers-section">
+    <div v-if="hasUploads || hasDownloads || hasJobs" ref="transfersRef" class="transfers-section">
       <button v-if="hasUploads" :class="['nav-item', 'transfer-btn', { 'transfer-btn--active': panelOpen }]" @click="togglePanel">
         <Upload class="nav-icon transfer-icon" />
         <span>Uploads</span>
@@ -136,6 +139,11 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         <span>Downloads</span>
         <span class="transfer-count">{{ downloads.length }}</span>
         <span v-if="downloadEta" class="transfer-eta">{{ downloadEta }}</span>
+      </button>
+      <button v-if="hasJobs" :class="['nav-item', 'transfer-btn', { 'transfer-btn--active': panelOpen }]" @click="togglePanel">
+        <Archive class="nav-icon transfer-icon" />
+        <span>Extractions</span>
+        <span class="transfer-count">{{ activeCount }}</span>
       </button>
       <TransferPanel :show="panelOpen" />
     </div>
