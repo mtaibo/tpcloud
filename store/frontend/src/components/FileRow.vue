@@ -60,15 +60,15 @@ function formatDate(ts) {
     <td class="cell-name">
       <div class="name-btn">
         <component :is="fileIcon" class="file-icon" :style="{ color: iconColor }" />
-        <span class="file-name">{{ entry.name }}</span>
+        <div class="name-col">
+          <span class="file-name">{{ entry.name }}</span>
+          <div v-if="entry.type === 'upload-pending'" class="upload-bar-wrap">
+            <div class="upload-bar" :style="{ width: Math.min(100, Math.round((entry.bytes_received / entry.size) * 100)) + '%' }" />
+          </div>
+        </div>
       </div>
     </td>
-    <td class="cell-meta">
-      <template v-if="entry.type === 'upload-pending'">
-        <span class="pending-pct">{{ Math.round((entry.bytes_received / entry.size) * 100) }}%</span>
-      </template>
-      <template v-else>{{ formatSize(entry.size) }}</template>
-    </td>
+    <td class="cell-meta">{{ formatSize(entry.size) }}</td>
     <td class="cell-meta">{{ formatDate(entry.modified) }}</td>
   </tr>
 </template>
@@ -97,9 +97,18 @@ function formatDate(ts) {
   gap: 0.7rem;
   font-size: 1rem;
   width: 100%;
+  min-width: 0;
 }
 
 .file-icon { width: 20px; height: 20px; flex-shrink: 0; }
+
+.name-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
 
 .file-name {
   color: #d1d1d6;
@@ -108,10 +117,19 @@ function formatDate(ts) {
   white-space: nowrap;
 }
 
-.pending-pct {
-  color: #ff9f0a;
-  font-size: 0.8rem;
-  font-weight: 500;
+.upload-bar-wrap {
+  height: 2px;
+  background: rgba(255, 159, 10, 0.2);
+  border-radius: 1px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.upload-bar {
+  height: 100%;
+  background: #ff9f0a;
+  border-radius: 1px;
+  transition: width 0.4s ease;
 }
 
 @media (max-width: 767px) {

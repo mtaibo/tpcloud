@@ -31,7 +31,39 @@ const entries = ref([])
 const loading = ref(false)
 const error = ref(null)
 const isDragOver = ref(false)
-const { startUpload, resumeUpload, cancelPendingUpload } = useTransfers()
+const { startUpload, resumeUpload, cancelPendingUpload, uploads } = useTransfers()
+
+// Merges server entries with real-time active upload progress,
+// and injects synthetic pending entries for uploads in this folder.
+const displayEntries = computed(() => {
+  const base = [...entries.value]
+  const existing = new Set(base.map(e => e.name))
+
+  for (const t of uploads.value) {
+    if (
+      t.status === 'active' &&
+      t.name &&
+      t.path === props.currentPath &&
+      t.location === props.location &&
+      !existing.has(t.name)
+    ) {
+      base.push({
+        name: t.name,
+        type: 'upload-pending',
+        size: t.totalSize,
+        modified: Date.now() / 1000,
+        upload_id: t.uploadId,
+        bytes_received: t.loaded,
+      })
+    }
+  }
+
+  return base.map(e => {
+    if (e.type !== 'upload-pending') return e
+    const active = uploads.value.find(t => t.uploadId === e.upload_id)
+    return active ? { ...e, bytes_received: active.loaded } : e
+  })
+})
 const fileInput = ref(null)
 
 const contextMenu = ref(null)
@@ -816,7 +848,7 @@ function onDrop(e) {
       </div>
 
       <!-- Empty -->
-      <div v-else-if="!entries.length" class="state-center">
+      <div v-else-if="!displayEntries.length" class="state-center">
         <span class="state-text">Empty folder</span>
         <span class="state-hint">Right-click to upload or create files</span>
       </div>
@@ -824,7 +856,7 @@ function onDrop(e) {
       <!-- Gallery grid -->
       <div v-else-if="galleryMode" class="gallery-grid">
         <div
-          v-for="entry in entries"
+          v-for="entry in displayEntries"
           :key="entry.name"
           class="gallery-card"
           @click="(entry.type === 'directory' || entry.type === 'share-link') ? openItem(entry) : null"
@@ -859,7 +891,7 @@ function onDrop(e) {
         </thead>
         <tbody>
           <FileRow
-            v-for="entry in entries"
+            v-for="entry in displayEntries"
             :key="entry.name"
             :entry="entry"
             @open="openItem"

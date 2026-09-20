@@ -25,7 +25,12 @@ export function useTransfers() {
   function add(type, name, totalSize = 0) {
     const id = _id++
     const now = Date.now()
-    transfers.value.push({ id, type, name, totalSize, loaded: 0, speed: 0, status: 'active', error: null, _t: now, _l: 0, uploadId: null, controller: null })
+    transfers.value.push({
+      id, type, name, totalSize, loaded: 0, speed: 0,
+      status: 'active', error: null,
+      _t: now, _l: 0,
+      uploadId: null, controller: null, path: null, location: null,
+    })
     return id
   }
 
@@ -47,11 +52,13 @@ export function useTransfers() {
     if (t) t.totalSize = total
   }
 
-  function setUploadMeta(id, uploadId, controller) {
+  function setUploadMeta(id, uploadId, controller, path, location) {
     const t = transfers.value.find(t => t.id === id)
     if (!t) return
     t.uploadId = uploadId
     t.controller = controller
+    t.path = path
+    t.location = location
   }
 
   function complete(id) {
@@ -75,14 +82,15 @@ export function useTransfers() {
     if (!t) return
     t.controller?.abort()
     if (t.uploadId) {
-      fetch(`/api/files/cancel-upload/${t.uploadId}`, { method: 'DELETE' }).catch(() => {})
+      try { await fetch(`/api/files/cancel-upload/${t.uploadId}`, { method: 'DELETE' }) } catch {}
     }
     transfers.value = transfers.value.filter(x => x.id !== id)
     await fetchPendingUploads()
+    window.dispatchEvent(new CustomEvent('tpstore:refresh-directory'))
   }
 
   async function cancelPendingUpload(uploadId) {
-    await fetch(`/api/files/cancel-upload/${uploadId}`, { method: 'DELETE' })
+    try { await fetch(`/api/files/cancel-upload/${uploadId}`, { method: 'DELETE' }) } catch {}
     await fetchPendingUploads()
     window.dispatchEvent(new CustomEvent('tpstore:refresh-directory'))
   }
@@ -99,13 +107,14 @@ export function useTransfers() {
   async function _doChunkedUpload(file, uploadId, startByte, path, location) {
     const id = add('upload', file.name, file.size)
     const controller = new AbortController()
-    setUploadMeta(id, uploadId, controller)
+    setUploadMeta(id, uploadId, controller, path, location)
 
     if (startByte > 0) update(id, startByte)
 
     const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE))
     const startChunk = Math.floor(startByte / CHUNK_SIZE)
     let failed = false
+    let firstChunkDone = false
 
     for (let i = startChunk; i < totalChunks; i++) {
       const start = i * CHUNK_SIZE
@@ -134,6 +143,10 @@ export function useTransfers() {
           break
         }
         update(id, end)
+        if (!firstChunkDone) {
+          firstChunkDone = true
+          window.dispatchEvent(new CustomEvent('tpstore:refresh-directory'))
+        }
       } catch (e) {
         if (e.name !== 'AbortError') fail(id, e.message || 'Network error')
         failed = true
@@ -149,9 +162,7 @@ export function useTransfers() {
   }
 
   async function startUpload(file, path, location) {
-    const uploadId = crypto.randomUUID()
-    await fetchPendingUploads()
-    await _doChunkedUpload(file, uploadId, 0, path, location)
+    await _doChunkedUpload(file, crypto.randomUUID(), 0, path, location)
   }
 
   async function resumeUpload(pending) {
@@ -176,7 +187,14 @@ export function useTransfers() {
 
   const uploads = computed(() => transfers.value.filter(t => t.type === 'upload'))
   const downloads = computed(() => transfers.value.filter(t => t.type === 'download'))
-  const hasUploads = computed(() => uploads.value.length > 0 || pendingServerUploads.value.length > 0)
+
+  // Excludes uploads that are currently active (to avoid duplicates in the panel)
+  const visiblePendingUploads = computed(() => {
+    const activeIds = new Set(transfers.value.map(t => t.uploadId).filter(Boolean))
+    return pendingServerUploads.value.filter(p => !activeIds.has(p.upload_id))
+  })
+
+  const hasUploads = computed(() => uploads.value.length > 0 || visiblePendingUploads.value.length > 0)
   const hasDownloads = computed(() => downloads.value.length > 0)
 
   function _groupEta(list) {
@@ -190,10 +208,10 @@ export function useTransfers() {
   const downloadEta = computed(() => _groupEta(downloads.value))
 
   return {
-    uploads, downloads, pendingServerUploads,
+    uploads, downloads, visiblePendingUploads,
     hasUploads, hasDownloads,
     uploadEta, downloadEta,
-    add, update, setTotal, setUploadMeta, complete, fail,
+    add, update, setTotal, complete, fail,
     cancelTransfer, cancelPendingUpload,
     fetchPendingUploads, startUpload, resumeUpload,
   }

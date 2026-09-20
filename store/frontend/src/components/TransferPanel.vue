@@ -5,7 +5,7 @@ import { useTransfers, formatBytes, formatEta } from '../useTransfers.js'
 
 const props = defineProps({ show: Boolean })
 
-const { uploads, downloads, pendingServerUploads, cancelTransfer, resumeUpload, fetchPendingUploads } = useTransfers()
+const { uploads, downloads, visiblePendingUploads, cancelTransfer, resumeUpload, fetchPendingUploads } = useTransfers()
 
 watch(() => props.show, val => { if (val) fetchPendingUploads() })
 
@@ -64,14 +64,14 @@ function pendingPct(p) {
         </section>
 
         <!-- Paused / resumable uploads -->
-        <section v-if="pendingServerUploads.length" class="sec">
+        <section v-if="visiblePendingUploads.length" class="sec">
           <div v-if="uploads.length" class="inner-sep" />
           <div class="sec-head">
             <ArrowUp class="sec-icon paused-icon" />
             <span>Paused</span>
-            <span class="badge">{{ pendingServerUploads.length }}</span>
+            <span class="badge">{{ visiblePendingUploads.length }}</span>
           </div>
-          <div v-for="p in pendingServerUploads" :key="p.upload_id" class="item">
+          <div v-for="p in visiblePendingUploads" :key="p.upload_id" class="item">
             <div class="item-top">
               <div class="item-name" :title="p.filename">{{ p.filename }}</div>
               <button class="resume-btn" title="Resume" @click="resumeUpload(p)">
@@ -87,7 +87,7 @@ function pendingPct(p) {
           </div>
         </section>
 
-        <div v-if="(uploads.length || pendingServerUploads.length) && downloads.length" class="sep" />
+        <div v-if="(uploads.length || visiblePendingUploads.length) && downloads.length" class="sep" />
 
         <!-- Active downloads -->
         <section v-if="downloads.length" class="sec">
