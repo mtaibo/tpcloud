@@ -165,7 +165,7 @@ export function useTransfers() {
   async function _doSimpleUpload(file, path, location) {
     const params = new URLSearchParams({ path, location })
     const form = new FormData()
-    form.append('file', file)
+    form.append('files', file)
     try {
       const res = await fetch(`/api/files/upload?${params}`, { method: 'POST', body: form })
       if (!res.ok) {

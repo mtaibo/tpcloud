@@ -32,7 +32,9 @@ const entries = ref([])
 const loading = ref(false)
 const error = ref(null)
 const isDragOver = ref(false)
-const { startUpload, resumeUpload, cancelPendingUpload, uploads } = useTransfers()
+const { startUpload, resumeUpload, cancelPendingUpload, uploads,
+        add: addTransfer, update: updateTransfer, setTotal: setTransferTotal,
+        complete: completeTransfer, fail: failTransfer } = useTransfers()
 const { startDecompress } = useCompression()
 
 // Merges server entries with real-time active upload progress,
