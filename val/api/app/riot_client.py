@@ -246,6 +246,45 @@ async def complete_mfa(user_email: str, code: str) -> dict:
         return await _finish_auth_cffi(session, access_token, client_version)
 
 
+def get_cached_tokens(user_email: str) -> dict | None:
+    """Return in-memory cached tokens if still valid, else None."""
+    cached = _token_cache.get(user_email)
+    if cached and cached[1] > time.monotonic():
+        return cached[0]
+    return None
+
+
+async def auth_with_access_token(user_email: str, access_token: str) -> dict:
+    """Complete auth using a browser-obtained access_token. Calls entitlements + userinfo."""
+    client_version = await _get_client_version()
+    ua = _ua(client_version)
+    async with httpx.AsyncClient(timeout=15.0) as c:
+        ent_resp = await c.post(
+            "https://entitlements.auth.riotgames.com/api/token/v1",
+            json={},
+            headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua, "Content-Type": "application/json"},
+        )
+        if ent_resp.status_code != 200:
+            logger.warning("Entitlements call failed: %s %s", ent_resp.status_code, ent_resp.text[:200])
+            raise HTTPException(status_code=401, detail="Invalid access token — get a fresh one from the Riot login flow")
+        entitlements_token = ent_resp.json().get("entitlements_token", "")
+
+        user_resp = await c.get(
+            "https://auth.riotgames.com/userinfo",
+            headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua},
+        )
+        puuid = user_resp.json().get("sub", "")
+
+    logger.info("Token auth SUCCESS for %s, puuid=%s", user_email, puuid)
+    return {
+        "access_token": access_token,
+        "entitlements_token": entitlements_token,
+        "puuid": puuid,
+        "client_version": client_version,
+        "_cookies": {},
+    }
+
+
 async def auth_with_ssid(user_email: str, ssid: str) -> dict:
     """Authenticate using browser ssid cookie. Bypasses password auth and captcha entirely."""
     client_version = await _get_client_version()

@@ -36,6 +36,10 @@ class CookieAuthBody(BaseModel):
     ssid: str
 
 
+class TokenAuthBody(BaseModel):
+    access_token: str
+
+
 
 @router.get("")
 async def get_account(request: Request, db: Session = Depends(get_session)):
@@ -186,6 +190,27 @@ def _persist_tokens_and_creds(tokens: dict, username: str, password: str, acc, u
     riot_client.cache_tokens(user_email, tokens)
     db.commit()
 
+
+
+@router.post("/credentials/token")
+async def save_credentials_token(body: TokenAuthBody, request: Request, db: Session = Depends(get_session)):
+    """Auth using a browser access_token (from Riot OAuth popup). Cached in memory — no persistent storage."""
+    user = await get_current_user(request)
+
+    acc = db.exec(select(LinkedAccount).where(LinkedAccount.user_email == user["email"])).first()
+    if not acc:
+        raise HTTPException(status_code=400, detail="Link a Riot account first")
+
+    tokens = await riot_client.auth_with_access_token(user["email"], body.access_token.strip())
+
+    if tokens.get("puuid") and tokens["puuid"] != acc.puuid:
+        acc.puuid = tokens["puuid"]
+        acc.updated_at = datetime.now(timezone.utc)
+        db.add(acc)
+        db.commit()
+
+    riot_client.cache_tokens(user["email"], tokens)
+    return {"ok": True}
 
 
 @router.post("/credentials/cookie")

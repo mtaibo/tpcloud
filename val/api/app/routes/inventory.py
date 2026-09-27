@@ -32,19 +32,22 @@ async def get_inventory(
     if not acc:
         raise HTTPException(status_code=404, detail="No linked Riot account")
 
-    creds = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
-    if not creds:
-        return {"requires_credentials": True}
+    # Fast path: in-memory cached tokens (e.g. from browser OAuth login)
+    tokens = riot_client.get_cached_tokens(user["email"])
+    if tokens is None:
+        creds = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
+        if not creds:
+            return {"requires_credentials": True}
 
-    has_password = creds.encrypted_username and creds.encrypted_password
-    has_ssid = bool(creds.encrypted_ssid)
-    if not has_password and not has_ssid:
-        return {"requires_credentials": True}
+        has_password = creds.encrypted_username and creds.encrypted_password
+        has_ssid = bool(creds.encrypted_ssid)
+        if not has_password and not has_ssid:
+            return {"requires_credentials": True}
 
-    username = crypto.decrypt(creds.encrypted_username) if has_password else None
-    password = crypto.decrypt(creds.encrypted_password) if has_password else None
-    ssid = crypto.decrypt(creds.encrypted_ssid) if has_ssid else None
-    tokens = await riot_client.get_tokens(user["email"], username, password, ssid=ssid)
+        username = crypto.decrypt(creds.encrypted_username) if has_password else None
+        password = crypto.decrypt(creds.encrypted_password) if has_password else None
+        ssid = crypto.decrypt(creds.encrypted_ssid) if has_ssid else None
+        tokens = await riot_client.get_tokens(user["email"], username, password, ssid=ssid)
 
     puuid = tokens.get("puuid") or acc.puuid
     if not puuid:
