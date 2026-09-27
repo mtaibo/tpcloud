@@ -30,7 +30,7 @@ const kda = stats.kills !== undefined
   <div :class="['match-card', match?.won ? 'won' : 'lost']">
     <div class="match-result-bar" />
 
-    <AgentPortrait :agent-id="match?.agent_id" :agent-name="match?.agent" class="match-agent" />
+    <AgentPortrait :agent-id="match?.agent_id" :agent-name="match?.agent" :agent-img="match?.agent_img" class="match-agent" />
 
     <div class="match-info">
       <div class="match-top">

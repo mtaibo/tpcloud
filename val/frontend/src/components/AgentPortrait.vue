@@ -5,13 +5,13 @@ import { User } from 'lucide-vue-next'
 const props = defineProps({
   agentId: String,
   agentName: String,
+  agentImg: String,
   class: String,
 })
 
 const imgError = ref(false)
-const src = props.agentId
-  ? `https://media.valorant-api.com/agents/${props.agentId}/displayiconsmall.png`
-  : null
+const src = props.agentImg
+  || (props.agentId ? `https://media.valorant-api.com/agents/${props.agentId}/displayiconsmall.png` : null)
 </script>
 
 <template>
