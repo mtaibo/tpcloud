@@ -36,12 +36,15 @@ async def get_inventory(
     if not creds:
         return {"requires_credentials": True}
 
-    if not creds.encrypted_username or not creds.encrypted_password:
+    has_password = creds.encrypted_username and creds.encrypted_password
+    has_ssid = bool(creds.encrypted_ssid)
+    if not has_password and not has_ssid:
         return {"requires_credentials": True}
 
-    username = crypto.decrypt(creds.encrypted_username)
-    password = crypto.decrypt(creds.encrypted_password)
-    tokens = await riot_client.get_tokens(user["email"], username, password)
+    username = crypto.decrypt(creds.encrypted_username) if has_password else None
+    password = crypto.decrypt(creds.encrypted_password) if has_password else None
+    ssid = crypto.decrypt(creds.encrypted_ssid) if has_ssid else None
+    tokens = await riot_client.get_tokens(user["email"], username, password, ssid=ssid)
 
     puuid = tokens.get("puuid") or acc.puuid
     if not puuid:

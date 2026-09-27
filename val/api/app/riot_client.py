@@ -246,7 +246,21 @@ async def complete_mfa(user_email: str, code: str) -> dict:
         return await _finish_auth_cffi(session, access_token, client_version)
 
 
-async def get_tokens(user_email: str, username: str, password: str) -> dict:
+async def auth_with_ssid(user_email: str, ssid: str) -> dict:
+    """Authenticate using browser ssid cookie. Bypasses password auth and captcha entirely."""
+    client_version = await _get_client_version()
+    async with AsyncSession(impersonate="chrome120", timeout=15, cookies={"ssid": ssid}) as session:
+        tokens = await _cookie_reauth(session, client_version)
+        if not tokens:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired ssid cookie — log in again in your browser and copy a fresh ssid",
+            )
+        logger.info("Cookie auth SUCCESS for %s, puuid=%s", user_email, tokens.get("puuid"))
+        return tokens
+
+
+async def get_tokens(user_email: str, username: str | None, password: str | None, *, ssid: str | None = None) -> dict:
     now = time.monotonic()
     cached = _token_cache.get(user_email)
     if cached and cached[1] > now:
@@ -254,7 +268,7 @@ async def get_tokens(user_email: str, username: str, password: str) -> dict:
 
     client_version = await _get_client_version()
 
-    # Try cookie reauth if we have cookies from a previous session
+    # Try cookie reauth with cached cookies from the previous session
     old_cookies = cached[2] if cached else {}
     if old_cookies:
         try:
@@ -265,6 +279,21 @@ async def get_tokens(user_email: str, username: str, password: str) -> dict:
                     return _token_cache[user_email][0]
         except Exception:
             pass
+
+    # Try cookie reauth with the stored ssid (e.g. after a server restart when in-memory cache is gone)
+    if ssid:
+        try:
+            async with AsyncSession(impersonate="chrome120", timeout=15, cookies={"ssid": ssid}) as session:
+                tokens = await _cookie_reauth(session, client_version)
+                if tokens:
+                    logger.info("ssid reauth SUCCESS for %s", user_email)
+                    cache_tokens(user_email, tokens)
+                    return _token_cache[user_email][0]
+        except Exception:
+            pass
+
+    if not username or not password:
+        raise HTTPException(status_code=401, detail="No valid credentials — add your Riot credentials")
 
     # Backoff: don't hammer Riot if we failed recently
     last_fail = _auth_failures.get(user_email, 0)

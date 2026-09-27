@@ -32,6 +32,10 @@ class DiagnoseBody(BaseModel):
     password: str
 
 
+class CookieAuthBody(BaseModel):
+    ssid: str
+
+
 
 @router.get("")
 async def get_account(request: Request, db: Session = Depends(get_session)):
@@ -182,6 +186,41 @@ def _persist_tokens_and_creds(tokens: dict, username: str, password: str, acc, u
     riot_client.cache_tokens(user_email, tokens)
     db.commit()
 
+
+
+@router.post("/credentials/cookie")
+async def save_credentials_cookie(body: CookieAuthBody, request: Request, db: Session = Depends(get_session)):
+    user = await get_current_user(request)
+
+    if not crypto.is_configured():
+        raise HTTPException(status_code=503, detail="RIOT_CRED_KEY not configured on server")
+
+    acc = db.exec(select(LinkedAccount).where(LinkedAccount.user_email == user["email"])).first()
+    if not acc:
+        raise HTTPException(status_code=400, detail="Link a Riot account first")
+
+    ssid = body.ssid.strip()
+    tokens = await riot_client.auth_with_ssid(user["email"], ssid)
+
+    if tokens.get("puuid") and tokens["puuid"] != acc.puuid:
+        acc.puuid = tokens["puuid"]
+        acc.updated_at = datetime.now(timezone.utc)
+        db.add(acc)
+
+    enc_ssid = crypto.encrypt(ssid)
+    creds = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
+    if creds:
+        creds.encrypted_username = None
+        creds.encrypted_password = None
+        creds.encrypted_ssid = enc_ssid
+        creds.updated_at = datetime.now(timezone.utc)
+        db.add(creds)
+    else:
+        db.add(RiotCredentials(user_email=user["email"], encrypted_ssid=enc_ssid))
+
+    riot_client.cache_tokens(user["email"], tokens)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/auth/diagnose")
