@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import re
+import secrets
 import time
 
 import httpx
@@ -96,12 +97,13 @@ async def start_auth(user_email: str, username: str, password: str) -> dict:
             "https://auth.riotgames.com/api/v1/authorization",
             json={
                 "client_id": "riot-client",
-                "nonce": "1",
+                "nonce": secrets.token_hex(16),
                 "redirect_uri": "http://localhost/redirect",
                 "response_type": "token id_token",
-                "scope": "account openid",
+                "scope": "openid link ban lol_region account",
+                "acr_values": "urn:riot:bronze",
             },
-            headers=headers,
+            headers={**headers, "Accept": "application/json", "Accept-Language": "en-US,en;q=0.9"},
         )
 
         resp = await client.put(
@@ -113,7 +115,7 @@ async def start_auth(user_email: str, username: str, password: str) -> dict:
                 "remember": False,
                 "language": "en_US",
             },
-            headers=headers,
+            headers={**headers, "Accept": "application/json", "Accept-Language": "en-US,en;q=0.9"},
         )
         data = resp.json()
 
@@ -154,7 +156,7 @@ async def complete_mfa(user_email: str, code: str) -> dict:
         resp = await client.put(
             "https://auth.riotgames.com/api/v1/authorization",
             json={"type": "multifactor", "code": code.strip(), "rememberDevice": False},
-            headers=headers,
+            headers={**headers, "Accept": "application/json", "Accept-Language": "en-US,en;q=0.9"},
         )
         data = resp.json()
 
