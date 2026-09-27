@@ -93,6 +93,9 @@ services:
       - RIOT_CRED_KEY=${RIOT_CRED_KEY}
     volumes:
       - ./data:/app/data
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       - auth
     networks:

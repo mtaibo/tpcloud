@@ -4,7 +4,7 @@ import httpx
 from fastapi import HTTPException
 
 HENRIK_API_KEY = os.getenv("HENRIK_API_KEY", "")
-BASE_URL = "https://api.henrikdev.tech"
+BASE_URL = "https://api.henrikdev.xyz"
 
 _client: httpx.AsyncClient | None = None
 
