@@ -63,7 +63,7 @@ async def get_shop(request: Request, db: Session = Depends(get_session)):
         }
 
     if creds.encrypted_ssid:
-        tokens = await riot_client.auth_with_ssid(user["email"], crypto.decrypt(creds.encrypted_ssid))
+        tokens = await riot_client.auth_with_access_token(user["email"], crypto.decrypt(creds.encrypted_ssid))
     elif creds.encrypted_username and creds.encrypted_password:
         username = crypto.decrypt(creds.encrypted_username)
         password = crypto.decrypt(creds.encrypted_password)

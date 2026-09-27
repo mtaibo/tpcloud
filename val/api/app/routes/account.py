@@ -27,8 +27,8 @@ class MFABody(BaseModel):
     code: str
 
 
-class SSIDBody(BaseModel):
-    ssid: str
+class TokenBody(BaseModel):
+    token: str
 
 
 @router.get("")
@@ -181,8 +181,8 @@ def _persist_tokens_and_creds(tokens: dict, username: str, password: str, acc, u
     db.commit()
 
 
-@router.post("/credentials/ssid")
-async def save_ssid(body: SSIDBody, request: Request, db: Session = Depends(get_session)):
+@router.post("/credentials/token")
+async def save_token(body: TokenBody, request: Request, db: Session = Depends(get_session)):
     user = await get_current_user(request)
 
     if not crypto.is_configured():
@@ -193,25 +193,25 @@ async def save_ssid(body: SSIDBody, request: Request, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="Link a Riot account first")
 
     try:
-        tokens = await riot_client.auth_with_ssid(user["email"], body.ssid.strip())
+        tokens = await riot_client.auth_with_access_token(user["email"], body.token.strip())
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"SSID auth failed: {e}")
+        raise HTTPException(status_code=401, detail=f"Token auth failed: {e}")
 
     if tokens.get("puuid") and tokens["puuid"] != acc.puuid:
         acc.puuid = tokens["puuid"]
         acc.updated_at = datetime.now(timezone.utc)
         db.add(acc)
 
-    enc_ssid = crypto.encrypt(body.ssid.strip())
+    enc_token = crypto.encrypt(body.token.strip())
     existing = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
     if existing:
-        existing.encrypted_ssid = enc_ssid
+        existing.encrypted_ssid = enc_token
         existing.updated_at = datetime.now(timezone.utc)
         db.add(existing)
     else:
-        db.add(RiotCredentials(user_email=user["email"], encrypted_ssid=enc_ssid))
+        db.add(RiotCredentials(user_email=user["email"], encrypted_ssid=enc_token))
 
     riot_client.cache_tokens(user["email"], tokens)
     db.commit()

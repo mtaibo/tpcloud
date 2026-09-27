@@ -9,7 +9,7 @@ const step = ref(1) // 1 = credentials, 2 = MFA code, 3 = SSID cookie
 const username = ref('')
 const password = ref('')
 const mfaCode = ref('')
-const ssid = ref('')
+const tokenValue = ref('')
 const loading = ref(false)
 const error = ref('')
 
@@ -75,22 +75,22 @@ async function submitMfa() {
   }
 }
 
-async function submitSsid() {
+async function submitToken() {
   error.value = ''
-  if (!ssid.value.trim()) {
-    error.value = 'Paste the ssid cookie value'
+  if (!tokenValue.value.trim()) {
+    error.value = 'Paste the token value'
     return
   }
   loading.value = true
   try {
-    const r = await fetch('/api/val/account/credentials/ssid', {
+    const r = await fetch('/api/val/account/credentials/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ssid: ssid.value.trim() }),
+      body: JSON.stringify({ token: tokenValue.value.trim() }),
     })
     const data = await r.json()
     if (!r.ok) {
-      error.value = data.detail || 'Invalid or expired SSID cookie'
+      error.value = data.detail || 'Invalid or expired token'
       return
     }
     emit('saved')
@@ -104,7 +104,7 @@ async function submitSsid() {
 function backToCredentials() {
   step.value = 1
   mfaCode.value = ''
-  ssid.value = ''
+  tokenValue.value = ''
   error.value = ''
 }
 
@@ -194,43 +194,42 @@ function goToSsid() {
       </div>
     </template>
 
-    <!-- Step 3: SSID cookie -->
+    <!-- Step 3: Access token -->
     <template v-else>
       <div class="modal-header">
         <Cookie :size="18" color="#FF4655" style="flex-shrink:0" />
         <div>
-          <p class="modal-title">Cookie Authentication</p>
-          <span class="modal-subtitle">Works reliably from any server</span>
+          <p class="modal-title">Token Authentication</p>
+          <span class="modal-subtitle">Copy your access token from the browser</span>
         </div>
       </div>
 
       <div class="modal-body">
         <div class="info-text">
-          <p style="margin-bottom:10px">Server-side logins are blocked by Riot's IP detection. Use your browser session cookie instead — it lasts for months.</p>
+          <p style="margin-bottom:10px">Server-side logins are blocked by Riot. Use your browser's access token instead.</p>
           <p class="step-label">Steps:</p>
           <ol class="steps-list">
             <li>
-              Log in at
+              Go to
               <a href="https://account.riotgames.com" target="_blank" rel="noopener" class="ext-link">account.riotgames.com</a>
-              in <strong>Chrome</strong>
+              and log in if needed
             </li>
-            <li>Press <strong>F12</strong> to open DevTools (stay on that page)</li>
-            <li>Click the <strong>Application</strong> tab → expand <strong>Cookies</strong> in the left sidebar</li>
-            <li>Click on <code>https://auth.riotgames.com</code> in the list</li>
-            <li>Find the row named <code>ssid</code> and copy its <strong>Value</strong></li>
+            <li>Press <strong>F12</strong> → <strong>Application</strong> tab</li>
+            <li>In the sidebar: <strong>Cookies</strong> → click <code>account.riotgames.com</code></li>
+            <li>Find <code>__Secure-access_token</code> and copy its <strong>Value</strong></li>
           </ol>
-          <p class="note">Note: do not navigate to auth.riotgames.com directly — the cookie is set when you log in via account.riotgames.com and will appear in DevTools under that domain.</p>
+          <p class="note">The token starts with <code>eyJ…</code> and is valid for ~1 hour. You'll need to repeat this when it expires.</p>
         </div>
 
         <div class="form-group">
-          <label class="form-label">ssid cookie value</label>
+          <label class="form-label">__Secure-access_token value</label>
           <input
-            v-model="ssid"
+            v-model="tokenValue"
             class="modal-input"
-            placeholder="Paste here…"
+            placeholder="eyJ…"
             autocomplete="off"
             spellcheck="false"
-            @keydown.enter="submitSsid"
+            @keydown.enter="submitToken"
           />
         </div>
 
@@ -239,7 +238,7 @@ function goToSsid() {
 
       <div class="modal-footer">
         <button class="btn-cancel" @click="backToCredentials">Back</button>
-        <button class="btn-primary" :disabled="loading || !ssid.trim()" @click="submitSsid">
+        <button class="btn-primary" :disabled="loading || !tokenValue.trim()" @click="submitToken">
           {{ loading ? 'Verifying…' : 'Save' }}
         </button>
       </div>

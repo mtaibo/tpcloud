@@ -191,39 +191,45 @@ async def complete_mfa(user_email: str, code: str) -> dict:
         return await _finish_auth_cffi(session, access_token, client_version)
 
 
-async def auth_with_ssid(user_email: str, ssid: str) -> dict:
-    """Re-authenticate using a Riot SSID session cookie. Works from datacenter IPs."""
+async def auth_with_access_token(user_email: str, access_token: str) -> dict:
+    """Exchange a pre-obtained web access token for entitlements. Works from datacenter IPs."""
     client_version = await _get_client_version()
-    headers = {**_auth_headers(client_version), "Accept": "application/json", "Accept-Language": "en-US,en;q=0.9"}
+    ua = _ua(client_version)
 
     async with AsyncSession(impersonate="chrome120", timeout=15) as session:
-        session.cookies.set("ssid", ssid, domain=".auth.riotgames.com")
-
-        resp = await session.get(
-            "https://auth.riotgames.com/authorize",
-            params={
-                "redirect_uri": "http://localhost/redirect",
-                "client_id": "riot-client",
-                "response_type": "token id_token",
-                "nonce": secrets.token_hex(16),
-                "scope": "openid link ban lol_region account",
-            },
-            headers=headers,
-            allow_redirects=False,
+        ent_resp = await session.post(
+            "https://entitlements.auth.riotgames.com/api/token/v1",
+            json={},
+            headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua, "Content-Type": "application/json"},
         )
+        if ent_resp.status_code != 200:
+            raise HTTPException(status_code=401, detail=f"Token rejected by Riot ({ent_resp.status_code})")
 
-        location = resp.headers.get("location", "")
-        logger.warning("SSID re-auth location prefix=%r", location[:80])
-        if not location or "access_token" not in location:
-            raise HTTPException(status_code=401, detail="Invalid or expired SSID cookie")
+        entitlements_token = ent_resp.json().get("entitlements_token", "")
 
-        match = re.search(r"access_token=([^&]+)", location)
-        if not match:
-            raise HTTPException(status_code=401, detail="Could not extract token from re-auth response")
+        user_resp = await session.get(
+            "https://auth.riotgames.com/userinfo",
+            headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua},
+        )
+        puuid = user_resp.json().get("sub", "")
 
-        tokens = await _finish_auth_cffi(session, match.group(1), client_version)
-        _token_cache[user_email] = (tokens, time.monotonic() + 3300)
-        return tokens
+    tokens = {
+        "access_token": access_token,
+        "entitlements_token": entitlements_token,
+        "puuid": puuid,
+        "client_version": client_version,
+    }
+    # Decode JWT expiry to set accurate cache TTL
+    try:
+        import base64 as _b64, json as _json
+        payload = access_token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        exp = _json.loads(_b64.urlsafe_b64decode(payload)).get("exp", 0)
+        ttl = max(60.0, exp - time.time() - 60)
+    except Exception:
+        ttl = 3300.0
+    _token_cache[user_email] = (tokens, time.monotonic() + ttl)
+    return tokens
 
 
 async def get_tokens(user_email: str, username: str, password: str) -> dict:
