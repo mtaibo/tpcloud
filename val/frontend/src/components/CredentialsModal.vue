@@ -206,15 +206,20 @@ function goToSsid() {
 
       <div class="modal-body">
         <div class="info-text">
-          <p style="margin-bottom:8px">Server-side logins are blocked by Riot's IP detection. Use your session cookie instead — it lasts for months.</p>
-          <p class="step-label">How to get your <code>ssid</code> cookie:</p>
+          <p style="margin-bottom:10px">Server-side logins are blocked by Riot's IP detection. Use your browser session cookie instead — it lasts for months.</p>
+          <p class="step-label">Steps:</p>
           <ol class="steps-list">
-            <li>Open <strong>Chrome</strong> and go to <code>https://auth.riotgames.com</code></li>
-            <li>Log in with your Riot account</li>
-            <li>Open DevTools → <strong>Application</strong> → Cookies → <code>https://auth.riotgames.com</code></li>
-            <li>Copy the value of the <code>ssid</code> cookie</li>
+            <li>
+              Log in at
+              <a href="https://account.riotgames.com" target="_blank" rel="noopener" class="ext-link">account.riotgames.com</a>
+              in <strong>Chrome</strong>
+            </li>
+            <li>Press <strong>F12</strong> to open DevTools (stay on that page)</li>
+            <li>Click the <strong>Application</strong> tab → expand <strong>Cookies</strong> in the left sidebar</li>
+            <li>Click on <code>https://auth.riotgames.com</code> in the list</li>
+            <li>Find the row named <code>ssid</code> and copy its <strong>Value</strong></li>
           </ol>
-          <p style="margin-top:8px;font-size:0.7rem;color:#48484a">Or open the console and run: <code>document.cookie.match(/ssid=([^;]+)/)?.[1]</code></p>
+          <p class="note">Note: do not navigate to auth.riotgames.com directly — the cookie is set when you log in via account.riotgames.com and will appear in DevTools under that domain.</p>
         </div>
 
         <div class="form-group">
@@ -272,6 +277,16 @@ function goToSsid() {
 .steps-list li { color: #8e8e93; }
 
 .steps-list strong { color: #aeaeb2; }
+
+.ext-link { color: #FF4655; text-decoration: underline; text-underline-offset: 2px; }
+
+.note {
+  margin-top: 10px;
+  font-size: 0.68rem;
+  color: #48484a;
+  font-style: italic;
+  line-height: 1.4;
+}
 
 code {
   font-family: ui-monospace, monospace;
