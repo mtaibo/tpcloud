@@ -196,22 +196,35 @@ async def auth_with_access_token(user_email: str, access_token: str) -> dict:
     client_version = await _get_client_version()
     ua = _ua(client_version)
 
-    async with AsyncSession(impersonate="chrome120", timeout=15) as session:
+    async with httpx.AsyncClient(timeout=15.0) as session:
         ent_resp = await session.post(
             "https://entitlements.auth.riotgames.com/api/token/v1",
-            json={},
-            headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua, "Content-Type": "application/json"},
+            content=b"{}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "User-Agent": ua,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
         )
+        logger.warning("Entitlements status=%d body=%r", ent_resp.status_code, ent_resp.text[:300])
         if ent_resp.status_code != 200:
-            raise HTTPException(status_code=401, detail=f"Token rejected by Riot ({ent_resp.status_code})")
+            raise HTTPException(status_code=401, detail=f"Entitlements rejected token ({ent_resp.status_code}): {ent_resp.text[:100]}")
 
-        entitlements_token = ent_resp.json().get("entitlements_token", "")
+        try:
+            entitlements_token = ent_resp.json().get("entitlements_token", "")
+        except Exception:
+            raise HTTPException(status_code=401, detail=f"Entitlements non-JSON: {ent_resp.text[:150]}")
 
         user_resp = await session.get(
             "https://auth.riotgames.com/userinfo",
             headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua},
         )
-        puuid = user_resp.json().get("sub", "")
+        logger.warning("Userinfo status=%d body=%r", user_resp.status_code, user_resp.text[:200])
+        try:
+            puuid = user_resp.json().get("sub", "")
+        except Exception:
+            raise HTTPException(status_code=401, detail=f"Userinfo non-JSON: {user_resp.text[:150]}")
 
     tokens = {
         "access_token": access_token,
