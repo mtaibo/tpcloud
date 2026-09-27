@@ -23,6 +23,7 @@ CLIENT_PLATFORM = base64.b64encode(json.dumps({
 _token_cache: dict[str, tuple[dict, float, dict]] = {}  # email -> (tokens, expires_at, cookies)
 _version_cache: tuple[str, float] = ("", 0.0)
 _pending_mfa: dict[str, tuple[dict, str, float]] = {}  # user_email -> (cookies, client_version, expires)
+_auth_failures: dict[str, float] = {}  # email -> monotonic timestamp of last failure
 
 
 async def _get_client_version() -> str:
@@ -142,16 +143,17 @@ async def start_auth(user_email: str, username: str, password: str) -> dict:
                 "type": "auth",
                 "username": username,
                 "password": password,
-                "remember": False,
+                "remember": True,
                 "language": "en_US",
             },
             headers=headers,
         )
         data = resp.json()
 
-        logger.warning("Riot auth: type=%r error=%r country=%r", data.get("type"), data.get("error"), data.get("country"))
+        logger.warning("Riot auth response: %s", data)
 
         if data.get("type") == "error" or data.get("error") == "auth_failure":
+            _auth_failures[user_email] = time.monotonic()
             raise HTTPException(status_code=401, detail="Invalid Riot credentials — check username and password")
 
         if data.get("type") == "multifactor" or "multifactor" in data:
@@ -218,6 +220,11 @@ async def get_tokens(user_email: str, username: str, password: str) -> dict:
         except Exception:
             pass
 
+    # Backoff: don't hammer Riot if we failed recently
+    last_fail = _auth_failures.get(user_email, 0)
+    if now - last_fail < 600:
+        raise HTTPException(status_code=401, detail="Riot auth failed recently — re-enter credentials to retry")
+
     # Full auth with username/password
     tokens = await start_auth(user_email, username, password)
     if tokens.get("requires_mfa"):
@@ -280,3 +287,4 @@ async def get_skin_info(skin_uuid: str) -> dict:
 def invalidate_tokens(user_email: str):
     _token_cache.pop(user_email, None)
     _pending_mfa.pop(user_email, None)
+    _auth_failures.pop(user_email, None)
