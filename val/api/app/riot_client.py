@@ -2,7 +2,6 @@ import base64
 import json
 import logging
 import re
-import secrets
 import time
 
 import httpx
@@ -21,7 +20,7 @@ CLIENT_PLATFORM = base64.b64encode(json.dumps({
     "platformChipset": "Unknown",
 }).encode()).decode()
 
-_token_cache: dict[str, tuple[dict, float]] = {}
+_token_cache: dict[str, tuple[dict, float, dict]] = {}  # email -> (tokens, expires_at, cookies)
 _version_cache: tuple[str, float] = ("", 0.0)
 _pending_mfa: dict[str, tuple[dict, str, float]] = {}  # user_email -> (cookies, client_version, expires)
 
@@ -87,7 +86,32 @@ async def _finish_auth_cffi(session: AsyncSession, access_token: str, client_ver
         "entitlements_token": entitlements_token,
         "puuid": puuid,
         "client_version": client_version,
+        "_cookies": dict(session.cookies),
     }
+
+
+async def _cookie_reauth(session: AsyncSession, client_version: str) -> dict | None:
+    """Try to get fresh tokens using stored session cookies. Returns tokens or None."""
+    try:
+        resp = await session.get(
+            "https://auth.riotgames.com/api/v1/authorization",
+            params={
+                "client_id": "play-valorant-web-prod",
+                "nonce": "1",
+                "redirect_uri": "https://playvalorant.com/opt_in",
+                "response_type": "token id_token",
+                "scope": "openid",
+            },
+            headers=_auth_headers(client_version),
+            allow_redirects=False,
+        )
+        location = resp.headers.get("location", "")
+        m = re.search(r"access_token=([^&]+)", location)
+        if not m:
+            return None
+        return await _finish_auth_cffi(session, m.group(1), client_version)
+    except Exception:
+        return None
 
 
 async def start_auth(user_email: str, username: str, password: str) -> dict:
@@ -99,14 +123,15 @@ async def start_auth(user_email: str, username: str, password: str) -> dict:
     headers = _auth_headers(client_version)
 
     async with AsyncSession(impersonate="chrome120", timeout=15) as session:
+        # Init session — establishes cookies
         await session.post(
             "https://auth.riotgames.com/api/v1/authorization",
             json={
-                "client_id": "riot-client",
-                "nonce": secrets.token_hex(16),
-                "redirect_uri": "http://localhost/redirect",
+                "client_id": "play-valorant-web-prod",
+                "nonce": "1",
+                "redirect_uri": "https://playvalorant.com/opt_in",
                 "response_type": "token id_token",
-                "scope": "account openid",
+                "scope": "openid",
             },
             headers=headers,
         )
@@ -179,16 +204,32 @@ async def get_tokens(user_email: str, username: str, password: str) -> dict:
     if cached and cached[1] > now:
         return cached[0]
 
+    client_version = await _get_client_version()
+
+    # Try cookie reauth if we have cookies from a previous session
+    old_cookies = cached[2] if cached else {}
+    if old_cookies:
+        try:
+            async with AsyncSession(impersonate="chrome120", timeout=15, cookies=old_cookies) as session:
+                tokens = await _cookie_reauth(session, client_version)
+                if tokens:
+                    cache_tokens(user_email, tokens)
+                    return _token_cache[user_email][0]
+        except Exception:
+            pass
+
+    # Full auth with username/password
     tokens = await start_auth(user_email, username, password)
     if tokens.get("requires_mfa"):
         raise HTTPException(status_code=428, detail="MFA required to refresh tokens")
-
-    _token_cache[user_email] = (tokens, now + 3300)
-    return tokens
+    cache_tokens(user_email, tokens)
+    return _token_cache[user_email][0]
 
 
 def cache_tokens(user_email: str, tokens: dict):
-    _token_cache[user_email] = (tokens, time.monotonic() + 3300)
+    cookies = tokens.get("_cookies", {})
+    clean = {k: v for k, v in tokens.items() if k != "_cookies"}
+    _token_cache[user_email] = (clean, time.monotonic() + 3300, cookies)
 
 
 def _riot_headers(tokens: dict) -> dict:
