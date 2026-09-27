@@ -18,6 +18,7 @@ CLIENT_PLATFORM = base64.b64encode(json.dumps({
 
 _token_cache: dict[str, tuple[dict, float]] = {}
 _version_cache: tuple[str, float] = ("", 0.0)
+_pending_mfa: dict[str, tuple[dict, str, float]] = {}  # user_email -> (cookies, client_version, expires)
 
 
 async def _get_client_version() -> str:
@@ -40,12 +41,54 @@ async def _get_client_version() -> str:
     return fallback
 
 
-async def authenticate(username: str, password: str) -> dict:
+def _ua(client_version: str) -> str:
+    return f"RiotClient/{client_version} rso-auth (Windows;10;;Professional, x64)"
+
+
+def _auth_headers(client_version: str) -> dict:
+    return {"User-Agent": _ua(client_version), "Content-Type": "application/json"}
+
+
+def _extract_access_token(data: dict) -> str:
+    uri = data.get("response", {}).get("parameters", {}).get("uri", "")
+    match = re.search(r"access_token=([^&]+)", uri)
+    if not match:
+        raise HTTPException(status_code=502, detail="Failed to extract Riot access token")
+    return match.group(1)
+
+
+async def _finish_auth(client: httpx.AsyncClient, access_token: str, client_version: str) -> dict:
+    ua = _ua(client_version)
+    ent_resp = await client.post(
+        "https://entitlements.auth.riotgames.com/api/token/v1",
+        json={},
+        headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua, "Content-Type": "application/json"},
+    )
+    entitlements_token = ent_resp.json().get("entitlements_token", "")
+
+    user_resp = await client.get(
+        "https://auth.riotgames.com/userinfo",
+        headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua},
+    )
+    puuid = user_resp.json().get("sub", "")
+
+    return {
+        "access_token": access_token,
+        "entitlements_token": entitlements_token,
+        "puuid": puuid,
+        "client_version": client_version,
+    }
+
+
+async def start_auth(user_email: str, username: str, password: str) -> dict:
+    """
+    Returns tokens dict on success, or {"requires_mfa": True} if MFA is needed.
+    Raises HTTPException on bad credentials.
+    """
     client_version = await _get_client_version()
-    ua = f"RiotClient/{client_version} rso-auth (Windows;10;;Professional, x64)"
+    headers = _auth_headers(client_version)
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        # Initialize auth session
         await client.post(
             "https://auth.riotgames.com/api/v1/authorization",
             json={
@@ -55,10 +98,9 @@ async def authenticate(username: str, password: str) -> dict:
                 "response_type": "token id_token",
                 "scope": "account openid",
             },
-            headers={"User-Agent": ua, "Content-Type": "application/json"},
+            headers=headers,
         )
 
-        # Send credentials
         resp = await client.put(
             "https://auth.riotgames.com/api/v1/authorization",
             json={
@@ -68,46 +110,49 @@ async def authenticate(username: str, password: str) -> dict:
                 "remember": False,
                 "language": "en_US",
             },
-            headers={"User-Agent": ua, "Content-Type": "application/json"},
+            headers=headers,
         )
-
         data = resp.json()
+
         if data.get("type") == "error":
             raise HTTPException(status_code=401, detail="Invalid Riot credentials")
+
         if data.get("type") == "multifactor":
-            raise HTTPException(status_code=400, detail="MFA is not supported")
+            cookies = {k: v for k, v in client.cookies.items()}
+            _pending_mfa[user_email] = (cookies, client_version, time.monotonic() + 300)
+            return {"requires_mfa": True}
 
-        uri = data.get("response", {}).get("parameters", {}).get("uri", "")
-        match = re.search(r"access_token=([^&]+)", uri)
-        if not match:
-            raise HTTPException(status_code=502, detail="Failed to extract Riot access token")
-        access_token = match.group(1)
+        access_token = _extract_access_token(data)
+        return await _finish_auth(client, access_token, client_version)
 
-        # Entitlements token
-        ent_resp = await client.post(
-            "https://entitlements.auth.riotgames.com/api/token/v1",
-            json={},
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "User-Agent": ua,
-                "Content-Type": "application/json",
-            },
+
+async def complete_mfa(user_email: str, code: str) -> dict:
+    """Complete MFA step using stored cookies from start_auth."""
+    pending = _pending_mfa.get(user_email)
+    if not pending:
+        raise HTTPException(status_code=400, detail="No pending MFA session — re-enter credentials")
+
+    cookies, client_version, expires = pending
+    if time.monotonic() > expires:
+        _pending_mfa.pop(user_email, None)
+        raise HTTPException(status_code=400, detail="MFA session expired — re-enter credentials")
+
+    headers = _auth_headers(client_version)
+
+    async with httpx.AsyncClient(timeout=15.0, cookies=cookies) as client:
+        resp = await client.put(
+            "https://auth.riotgames.com/api/v1/authorization",
+            json={"type": "multifactor", "code": code.strip(), "rememberDevice": False},
+            headers=headers,
         )
-        entitlements_token = ent_resp.json().get("entitlements_token", "")
+        data = resp.json()
 
-        # PUUID
-        user_resp = await client.get(
-            "https://auth.riotgames.com/userinfo",
-            headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua},
-        )
-        puuid = user_resp.json().get("sub", "")
+        if data.get("type") == "error":
+            raise HTTPException(status_code=401, detail="Invalid MFA code")
 
-        return {
-            "access_token": access_token,
-            "entitlements_token": entitlements_token,
-            "puuid": puuid,
-            "client_version": client_version,
-        }
+        _pending_mfa.pop(user_email, None)
+        access_token = _extract_access_token(data)
+        return await _finish_auth(client, access_token, client_version)
 
 
 async def get_tokens(user_email: str, username: str, password: str) -> dict:
@@ -116,9 +161,16 @@ async def get_tokens(user_email: str, username: str, password: str) -> dict:
     if cached and cached[1] > now:
         return cached[0]
 
-    tokens = await authenticate(username, password)
+    tokens = await start_auth(user_email, username, password)
+    if tokens.get("requires_mfa"):
+        raise HTTPException(status_code=428, detail="MFA required to refresh tokens")
+
     _token_cache[user_email] = (tokens, now + 3300)
     return tokens
+
+
+def cache_tokens(user_email: str, tokens: dict):
+    _token_cache[user_email] = (tokens, time.monotonic() + 3300)
 
 
 def _riot_headers(tokens: dict) -> dict:
@@ -168,3 +220,4 @@ async def get_skin_info(skin_uuid: str) -> dict:
 
 def invalidate_tokens(user_email: str):
     _token_cache.pop(user_email, None)
+    _pending_mfa.pop(user_email, None)

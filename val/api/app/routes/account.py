@@ -23,6 +23,10 @@ class CredentialsBody(BaseModel):
     password: str
 
 
+class MFABody(BaseModel):
+    code: str
+
+
 @router.get("")
 async def get_account(request: Request, db: Session = Depends(get_session)):
     user = await get_current_user(request)
@@ -101,38 +105,76 @@ async def save_credentials(body: CredentialsBody, request: Request, db: Session 
     if not acc:
         raise HTTPException(status_code=400, detail="Link a Riot account first")
 
-    # Test credentials before storing
     try:
-        tokens = await riot_client.authenticate(body.username, body.password)
+        result = await riot_client.start_auth(user["email"], body.username, body.password)
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Riot credentials")
 
-    # Update PUUID from tokens (authoritative)
+    if result.get("requires_mfa"):
+        # Store credentials encrypted so we can save them after MFA completes
+        enc_user = crypto.encrypt(body.username)
+        enc_pass = crypto.encrypt(body.password)
+        existing = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
+        if existing:
+            existing.encrypted_username = enc_user
+            existing.encrypted_password = enc_pass
+            existing.updated_at = datetime.now(timezone.utc)
+            db.add(existing)
+        else:
+            db.add(RiotCredentials(user_email=user["email"], encrypted_username=enc_user, encrypted_password=enc_pass))
+        db.commit()
+        return {"requires_mfa": True}
+
+    _persist_tokens_and_creds(result, body.username, body.password, acc, user["email"], db)
+    return {"ok": True}
+
+
+@router.post("/credentials/mfa")
+async def complete_mfa(body: MFABody, request: Request, db: Session = Depends(get_session)):
+    user = await get_current_user(request)
+
+    acc = db.exec(select(LinkedAccount).where(LinkedAccount.user_email == user["email"])).first()
+    if not acc:
+        raise HTTPException(status_code=400, detail="No linked account")
+
+    try:
+        tokens = await riot_client.complete_mfa(user["email"], body.code)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid MFA code")
+
+    if tokens.get("puuid") and tokens["puuid"] != acc.puuid:
+        acc.puuid = tokens["puuid"]
+        acc.updated_at = datetime.now(timezone.utc)
+        db.add(acc)
+        db.commit()
+
+    riot_client.cache_tokens(user["email"], tokens)
+    return {"ok": True}
+
+
+def _persist_tokens_and_creds(tokens: dict, username: str, password: str, acc, user_email: str, db):
     if tokens.get("puuid") and tokens["puuid"] != acc.puuid:
         acc.puuid = tokens["puuid"]
         acc.updated_at = datetime.now(timezone.utc)
         db.add(acc)
 
-    existing = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
-    enc_user = crypto.encrypt(body.username)
-    enc_pass = crypto.encrypt(body.password)
-
+    enc_user = crypto.encrypt(username)
+    enc_pass = crypto.encrypt(password)
+    existing = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user_email)).first()
     if existing:
         existing.encrypted_username = enc_user
         existing.encrypted_password = enc_pass
         existing.updated_at = datetime.now(timezone.utc)
         db.add(existing)
     else:
-        db.add(RiotCredentials(
-            user_email=user["email"],
-            encrypted_username=enc_user,
-            encrypted_password=enc_pass,
-        ))
+        db.add(RiotCredentials(user_email=user_email, encrypted_username=enc_user, encrypted_password=enc_pass))
 
+    riot_client.cache_tokens(user_email, tokens)
     db.commit()
-    return {"ok": True}
 
 
 @router.delete("/credentials")
