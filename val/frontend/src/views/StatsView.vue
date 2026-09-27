@@ -1,18 +1,27 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, watch, computed } from 'vue'
 
-defineProps({ linkedAccount: Object })
+const props = defineProps({ player: Object, linkedAccount: Object, isOwnAccount: Boolean, user: Object })
 
 const history = ref([])
 const loading = ref(true)
 
-onMounted(async () => {
+async function load() {
+  if (!props.player) return
+  loading.value = true
+  history.value = []
+
+  const { riot_name, riot_tag, region } = props.player
+  const q = `name=${encodeURIComponent(riot_name)}&tag=${encodeURIComponent(riot_tag)}&region=${encodeURIComponent(region || '')}`
+
   try {
-    const r = await fetch('/api/val/player/mmr-history')
+    const r = await fetch(`/api/val/player/mmr-history?${q}`)
     if (r.ok) history.value = (await r.json()).slice(0, 30).reverse()
   } catch { /* ignore */ }
   finally { loading.value = false }
-})
+}
+
+watch(() => props.player, load, { immediate: true })
 
 const chartData = computed(() => {
   if (!history.value.length) return null

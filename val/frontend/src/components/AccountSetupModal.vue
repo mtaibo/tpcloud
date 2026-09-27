@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { Shield, ChevronRight } from 'lucide-vue-next'
 import CredentialsModal from './CredentialsModal.vue'
 
-const emit = defineEmits(['linked'])
+const emit = defineEmits(['linked', 'close'])
 
 const step = ref(1) // 1 = link account, 2 = optional credentials
 const riotId = ref('')
@@ -60,8 +60,9 @@ function onCredentialsSaved() {
 </script>
 
 <template>
-  <div class="setup-screen">
+  <div class="setup-screen" @click.self="emit('close')">
     <div class="setup-card">
+      <button class="close-btn" @click="emit('close')">✕</button>
 
       <!-- Step 1: Link Riot account -->
       <template v-if="step === 1">
@@ -139,14 +140,30 @@ function onCredentialsSaved() {
 .setup-screen {
   position: fixed;
   inset: 0;
-  background: #000;
+  background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9000;
 }
 
+.close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #636366;
+  font-size: 1rem;
+  cursor: default;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+.close-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+
 .setup-card {
+  position: relative;
   width: 100%;
   max-width: 380px;
   padding: 40px 32px;

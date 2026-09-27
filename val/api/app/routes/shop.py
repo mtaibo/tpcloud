@@ -62,14 +62,12 @@ async def get_shop(request: Request, db: Session = Depends(get_session)):
             "cached": True,
         }
 
-    if creds.encrypted_ssid:
-        tokens = await riot_client.auth_with_access_token(user["email"], crypto.decrypt(creds.encrypted_ssid))
-    elif creds.encrypted_username and creds.encrypted_password:
-        username = crypto.decrypt(creds.encrypted_username)
-        password = crypto.decrypt(creds.encrypted_password)
-        tokens = await riot_client.get_tokens(user["email"], username, password)
-    else:
+    if not creds.encrypted_username or not creds.encrypted_password:
         return {"requires_credentials": True}
+
+    username = crypto.decrypt(creds.encrypted_username)
+    password = crypto.decrypt(creds.encrypted_password)
+    tokens = await riot_client.get_tokens(user["email"], username, password)
 
     puuid = tokens.get("puuid") or acc.puuid
     if not puuid:

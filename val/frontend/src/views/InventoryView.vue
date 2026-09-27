@@ -4,7 +4,7 @@ import { Lock } from 'lucide-vue-next'
 import SkinCard from '../components/SkinCard.vue'
 import CredentialsModal from '../components/CredentialsModal.vue'
 
-defineProps({ linkedAccount: Object })
+defineProps({ player: Object, linkedAccount: Object, isOwnAccount: Boolean, user: Object })
 
 const inventory = ref(null)
 const loading = ref(true)

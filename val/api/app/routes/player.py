@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session, select
 
 from app.auth import get_current_user
@@ -10,20 +10,30 @@ from app import henrik_client
 
 router = APIRouter(prefix="/api/val/player", tags=["player"])
 
+FALLBACK_REGION = "eu"
 
-async def _get_linked(user_email: str, db: Session) -> LinkedAccount:
+
+async def _resolve_player(user_email: str, db: Session, name: str | None, tag: str | None, region: str | None):
+    """Return (riot_name, riot_tag, riot_region) from params or linked account."""
+    if name and tag:
+        return name, tag, region or FALLBACK_REGION
     acc = db.exec(select(LinkedAccount).where(LinkedAccount.user_email == user_email)).first()
     if not acc:
         raise HTTPException(status_code=404, detail="No linked Riot account")
-    return acc
+    return acc.riot_name, acc.riot_tag, acc.region
 
 
 @router.get("/profile")
-async def get_profile(request: Request, db: Session = Depends(get_session)):
+async def get_profile(
+    request: Request,
+    db: Session = Depends(get_session),
+    name: str = Query(None),
+    tag: str = Query(None),
+):
     user = await get_current_user(request)
-    acc = await _get_linked(user["email"], db)
+    riot_name, riot_tag, _ = await _resolve_player(user["email"], db, name, tag, None)
 
-    data = await henrik_client.get_account(acc.riot_name, acc.riot_tag)
+    data = await henrik_client.get_account(riot_name, riot_tag)
     return {
         "name": data.get("name"),
         "tag": data.get("tag"),
@@ -37,11 +47,17 @@ async def get_profile(request: Request, db: Session = Depends(get_session)):
 
 
 @router.get("/rank")
-async def get_rank(request: Request, db: Session = Depends(get_session)):
+async def get_rank(
+    request: Request,
+    db: Session = Depends(get_session),
+    name: str = Query(None),
+    tag: str = Query(None),
+    region: str = Query(None),
+):
     user = await get_current_user(request)
-    acc = await _get_linked(user["email"], db)
+    riot_name, riot_tag, riot_region = await _resolve_player(user["email"], db, name, tag, region)
 
-    data = await henrik_client.get_mmr(acc.region, acc.riot_name, acc.riot_tag)
+    data = await henrik_client.get_mmr(riot_region, riot_name, riot_tag)
     current = data.get("current_data", {})
     highest = data.get("highest_rank", {})
 
@@ -60,38 +76,43 @@ async def get_rank(request: Request, db: Session = Depends(get_session)):
 
 
 @router.get("/mmr-history")
-async def get_mmr_history(request: Request, db: Session = Depends(get_session)):
+async def get_mmr_history(
+    request: Request,
+    db: Session = Depends(get_session),
+    name: str = Query(None),
+    tag: str = Query(None),
+    region: str = Query(None),
+):
     user = await get_current_user(request)
-    acc = await _get_linked(user["email"], db)
+    searching_other = bool(name and tag)
+    riot_name, riot_tag, riot_region = await _resolve_player(user["email"], db, name, tag, region)
 
-    # Fetch from Henrik
-    raw = await henrik_client.get_mmr_history(acc.region, acc.riot_name, acc.riot_tag)
+    raw = await henrik_client.get_mmr_history(riot_region, riot_name, riot_tag)
 
-    # Persist new entries to DB for future charting
-    existing_ids = {
-        r.match_id for r in db.exec(
-            select(RankHistory).where(RankHistory.user_email == user["email"])
-        ).all()
-    }
-
-    new_entries = []
-    for entry in raw:
-        match_id = entry.get("match_id", "")
-        if match_id and match_id not in existing_ids:
-            new_entries.append(RankHistory(
-                user_email=user["email"],
-                match_id=match_id,
-                tier=entry.get("currenttierpatched", ""),
-                tier_image_url=entry.get("images", {}).get("small"),
-                mmr=entry.get("elo", 0),
-                mmr_change=entry.get("mmr_change_to_last_game", 0),
-                recorded_at=datetime.now(timezone.utc),
-            ))
-
-    if new_entries:
-        for e in new_entries:
-            db.add(e)
-        db.commit()
+    # Only persist history for the user's own linked account
+    if not searching_other:
+        existing_ids = {
+            r.match_id for r in db.exec(
+                select(RankHistory).where(RankHistory.user_email == user["email"])
+            ).all()
+        }
+        new_entries = []
+        for entry in raw:
+            match_id = entry.get("match_id", "")
+            if match_id and match_id not in existing_ids:
+                new_entries.append(RankHistory(
+                    user_email=user["email"],
+                    match_id=match_id,
+                    tier=entry.get("currenttierpatched", ""),
+                    tier_image_url=entry.get("images", {}).get("small"),
+                    mmr=entry.get("elo", 0),
+                    mmr_change=entry.get("mmr_change_to_last_game", 0),
+                    recorded_at=datetime.now(timezone.utc),
+                ))
+        if new_entries:
+            for e in new_entries:
+                db.add(e)
+            db.commit()
 
     return [
         {

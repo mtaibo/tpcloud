@@ -27,9 +27,6 @@ class MFABody(BaseModel):
     code: str
 
 
-class TokenBody(BaseModel):
-    token: str
-
 
 @router.get("")
 async def get_account(request: Request, db: Session = Depends(get_session)):
@@ -180,42 +177,6 @@ def _persist_tokens_and_creds(tokens: dict, username: str, password: str, acc, u
     riot_client.cache_tokens(user_email, tokens)
     db.commit()
 
-
-@router.post("/credentials/token")
-async def save_token(body: TokenBody, request: Request, db: Session = Depends(get_session)):
-    user = await get_current_user(request)
-
-    if not crypto.is_configured():
-        raise HTTPException(status_code=503, detail="RIOT_CRED_KEY not configured on server")
-
-    acc = db.exec(select(LinkedAccount).where(LinkedAccount.user_email == user["email"])).first()
-    if not acc:
-        raise HTTPException(status_code=400, detail="Link a Riot account first")
-
-    try:
-        tokens = await riot_client.auth_with_access_token(user["email"], body.token.strip())
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Token auth failed: {e}")
-
-    if tokens.get("puuid") and tokens["puuid"] != acc.puuid:
-        acc.puuid = tokens["puuid"]
-        acc.updated_at = datetime.now(timezone.utc)
-        db.add(acc)
-
-    enc_token = crypto.encrypt(body.token.strip())
-    existing = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
-    if existing:
-        existing.encrypted_ssid = enc_token
-        existing.updated_at = datetime.now(timezone.utc)
-        db.add(existing)
-    else:
-        db.add(RiotCredentials(user_email=user["email"], encrypted_ssid=enc_token))
-
-    riot_client.cache_tokens(user["email"], tokens)
-    db.commit()
-    return {"ok": True}
 
 
 @router.delete("/credentials")

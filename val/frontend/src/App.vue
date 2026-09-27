@@ -12,8 +12,18 @@ const LOGIN_URL = 'https://login.migueltaibo.com'
 
 const user = ref(null)
 const appReady = ref(false)
-const linkedAccount = ref(null)
+const linkedAccount = ref(null)     // user's own linked account
+const activePlayer = ref(null)      // player currently being viewed
 const currentView = ref('dashboard')
+const showAccountSetup = ref(false)
+const searchLoading = ref(false)
+const searchError = ref('')
+
+const isOwnAccount = computed(() =>
+  !!(activePlayer.value && linkedAccount.value &&
+  activePlayer.value.riot_name?.toLowerCase() === linkedAccount.value.riot_name?.toLowerCase() &&
+  activePlayer.value.riot_tag?.toLowerCase() === linkedAccount.value.riot_tag?.toLowerCase())
+)
 
 const viewComponent = computed(() => {
   switch (currentView.value) {
@@ -29,15 +39,44 @@ async function loadLinkedAccount() {
   try {
     const r = await fetch('/api/val/account')
     if (r.ok) {
-      linkedAccount.value = await r.json()
+      const acc = await r.json()
+      linkedAccount.value = acc
+      if (acc && !activePlayer.value) {
+        activePlayer.value = { riot_name: acc.riot_name, riot_tag: acc.riot_tag, region: acc.region, puuid: acc.puuid }
+      }
     }
+  } catch { /* ignore */ }
+}
+
+async function onSearch(name, tag) {
+  searchError.value = ''
+  searchLoading.value = true
+  try {
+    const r = await fetch(`/api/val/player/profile?name=${encodeURIComponent(name)}&tag=${encodeURIComponent(tag)}`)
+    if (!r.ok) {
+      const d = await r.json()
+      searchError.value = d.detail || 'Player not found'
+      return
+    }
+    const data = await r.json()
+    activePlayer.value = {
+      riot_name: data.name,
+      riot_tag: data.tag,
+      region: data.region,
+      puuid: data.puuid,
+    }
+    currentView.value = 'dashboard'
   } catch {
-    // ignore
+    searchError.value = 'Network error'
+  } finally {
+    searchLoading.value = false
   }
 }
 
 function onAccountLinked(acc) {
   linkedAccount.value = acc
+  activePlayer.value = { riot_name: acc.riot_name, riot_tag: acc.riot_tag, region: acc.region, puuid: acc.puuid }
+  showAccountSetup.value = false
 }
 
 onMounted(async () => {
@@ -61,19 +100,51 @@ onMounted(async () => {
 
 <template>
   <AccountSetupModal
-    v-if="appReady && user && !linkedAccount"
+    v-if="showAccountSetup"
     @linked="onAccountLinked"
+    @close="showAccountSetup = false"
   />
 
-  <div v-else-if="appReady && user && linkedAccount" class="app">
+  <div v-if="appReady && user" class="app">
     <Sidebar
       :user="user"
       :current-view="currentView"
       :linked-account="linkedAccount"
+      :active-player="activePlayer"
+      :is-own-account="isOwnAccount"
+      :search-loading="searchLoading"
+      :search-error="searchError"
       @navigate="currentView = $event"
+      @search="onSearch"
+      @open-account-setup="showAccountSetup = true"
+      @go-home="activePlayer = linkedAccount ? { riot_name: linkedAccount.riot_name, riot_tag: linkedAccount.riot_tag, region: linkedAccount.region, puuid: linkedAccount.puuid } : null"
     />
     <main class="main-content">
-      <component :is="viewComponent" :linked-account="linkedAccount" :user="user" />
+      <div v-if="!activePlayer" class="search-landing">
+        <div class="search-landing-inner">
+          <div class="landing-logo">
+            <svg viewBox="0 0 32 32" width="48" height="48">
+              <rect width="32" height="32" rx="8" fill="#FF4655"/>
+              <path d="M8 10 L16 22 L24 10" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+          </div>
+          <h1 class="landing-title">Search a player</h1>
+          <p class="landing-sub">Enter a Riot ID in the sidebar to see stats, rank and match history</p>
+          <p v-if="!linkedAccount" class="landing-link" @click="showAccountSetup = true">
+            Link your own account →
+          </p>
+        </div>
+      </div>
+
+      <component
+        v-else
+        :is="viewComponent"
+        :player="activePlayer"
+        :linked-account="linkedAccount"
+        :is-own-account="isOwnAccount"
+        :user="user"
+        @reload-account="loadLinkedAccount"
+      />
     </main>
   </div>
 
@@ -99,6 +170,47 @@ input, textarea, [contenteditable] { user-select: text; -webkit-user-select: tex
   display: flex;
   flex-direction: column;
 }
+
+.search-landing {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search-landing-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  padding: 32px;
+}
+
+.landing-logo { margin-bottom: 8px; }
+
+.landing-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+.landing-sub {
+  font-size: 0.875rem;
+  color: #636366;
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+.landing-link {
+  font-size: 0.8rem;
+  color: #FF4655;
+  cursor: default;
+  margin-top: 8px;
+}
+
+.landing-link:hover { text-decoration: underline; }
 
 .loading-screen {
   height: 100dvh;

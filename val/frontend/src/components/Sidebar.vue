@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { LayoutDashboard, TrendingUp, ShoppingBag, Layers, Trophy, User, LogOut, Cloud } from 'lucide-vue-next'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { LayoutDashboard, TrendingUp, ShoppingBag, Layers, Trophy, User, LogOut, Cloud, Search, Link } from 'lucide-vue-next'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -8,19 +8,42 @@ const props = defineProps({
   user: Object,
   currentView: String,
   linkedAccount: Object,
+  activePlayer: Object,
+  isOwnAccount: Boolean,
+  searchLoading: Boolean,
+  searchError: String,
 })
-const emit = defineEmits(['navigate'])
+const emit = defineEmits(['navigate', 'search', 'open-account-setup', 'go-home'])
 
 const menuOpen = ref(false)
 const cardRef = ref(null)
+const searchInput = ref('')
 
-const navItems = [
-  { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
-  { id: 'stats', label: 'Stats', icon: TrendingUp },
-  { id: 'shop', label: 'Daily Shop', icon: ShoppingBag },
-  { id: 'inventory', label: 'Inventory', icon: Layers },
-  { id: 'esports', label: 'Esports', icon: Trophy },
+const allNavItems = [
+  { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, requiresOwn: false },
+  { id: 'stats', label: 'Stats', icon: TrendingUp, requiresOwn: false },
+  { id: 'shop', label: 'Daily Shop', icon: ShoppingBag, requiresOwn: true },
+  { id: 'inventory', label: 'Inventory', icon: Layers, requiresOwn: true },
+  { id: 'esports', label: 'Esports', icon: Trophy, requiresOwn: false },
 ]
+
+const navItems = computed(() =>
+  allNavItems.filter(item => !item.requiresOwn || props.isOwnAccount)
+)
+
+function doSearch() {
+  const raw = searchInput.value.trim()
+  if (!raw) return
+  const parts = raw.split('#')
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return
+  emit('search', parts[0].trim(), parts[1].trim())
+  searchInput.value = ''
+}
+
+function goHome() {
+  emit('go-home')
+  searchInput.value = ''
+}
 
 function onClickOutside(e) {
   if (cardRef.value && !cardRef.value.contains(e.target)) menuOpen.value = false
@@ -37,11 +60,28 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
 <template>
   <aside class="sidebar">
-    <div class="sidebar-brand">
+    <div class="sidebar-brand" @click="goHome" style="cursor:default">
       <span class="brand-text">TPVal</span>
     </div>
 
+    <!-- Search box -->
+    <div class="search-wrap">
+      <div class="search-box" :class="{ loading: searchLoading }">
+        <Search class="search-icon" />
+        <input
+          v-model="searchInput"
+          class="search-input"
+          placeholder="name#TAG"
+          autocomplete="off"
+          spellcheck="false"
+          @keydown.enter="doSearch"
+        />
+      </div>
+      <p v-if="searchError" class="search-error">{{ searchError }}</p>
+    </div>
+
     <nav class="sidebar-nav">
+      <!-- Nav items (filtered by isOwnAccount for shop/inventory) -->
       <div class="section-label-row">
         <p class="section-label">Navigation</p>
       </div>
@@ -56,14 +96,38 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         <span>{{ item.label }}</span>
       </button>
 
-      <div v-if="linkedAccount" class="section-label-row section-mt">
-        <p class="section-label">Account</p>
+      <!-- Active player indicator -->
+      <div v-if="activePlayer" class="section-label-row section-mt">
+        <p class="section-label">Viewing</p>
       </div>
 
-      <div v-if="linkedAccount" class="account-badge">
-        <span class="account-name">{{ linkedAccount.riot_name }}<span class="account-tag">#{{ linkedAccount.riot_tag }}</span></span>
-        <span class="account-region">{{ linkedAccount.region.toUpperCase() }}</span>
+      <div v-if="activePlayer" class="account-badge" :class="{ own: isOwnAccount }">
+        <span class="account-name">{{ activePlayer.riot_name }}<span class="account-tag">#{{ activePlayer.riot_tag }}</span></span>
+        <span class="account-region">{{ (activePlayer.region || '').toUpperCase() }}</span>
       </div>
+
+      <!-- Own account section -->
+      <div class="section-label-row section-mt">
+        <p class="section-label">My Account</p>
+      </div>
+
+      <div v-if="linkedAccount" class="own-account-row">
+        <button
+          class="own-account-btn"
+          :class="{ active: isOwnAccount }"
+          @click="goHome"
+        >
+          <span class="own-name">{{ linkedAccount.riot_name }}<span class="account-tag">#{{ linkedAccount.riot_tag }}</span></span>
+        </button>
+        <button class="manage-btn" @click="emit('open-account-setup')" title="Manage account">
+          <Link class="manage-icon" />
+        </button>
+      </div>
+
+      <button v-else class="nav-item link-btn" @click="emit('open-account-setup')">
+        <Link class="nav-icon" />
+        <span>Link Riot Account</span>
+      </button>
     </nav>
 
     <footer class="sidebar-footer">
@@ -121,20 +185,60 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   letter-spacing: -0.02em;
 }
 
+/* Search */
+.search-wrap {
+  padding: 0 0.75rem 0.5rem;
+  flex-shrink: 0;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0 10px;
+  transition: border-color 0.15s;
+}
+
+.search-box:focus-within { border-color: rgba(255, 70, 85, 0.5); }
+.search-box.loading { opacity: 0.6; }
+
+.search-icon { width: 14px; height: 14px; color: #636366; flex-shrink: 0; }
+
+.search-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: 0.8rem;
+  color: #fff;
+  padding: 7px 0;
+  min-width: 0;
+}
+
+.search-input::placeholder { color: #636366; }
+
+.search-error {
+  font-size: 0.7rem;
+  color: #ff453a;
+  margin-top: 4px;
+  padding: 0 2px;
+}
+
+/* Nav */
 .sidebar-nav {
   flex: 1;
-  padding: 0.75rem;
+  padding: 0.25rem 0.75rem 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
 }
 
-.section-label-row {
-  padding: 0.25rem 0.5rem;
-}
-
-.section-mt { margin-top: 1rem; }
+.section-label-row { padding: 0.25rem 0.5rem; }
+.section-mt { margin-top: 0.75rem; }
 
 .section-label {
   font-size: 0.7rem;
@@ -164,9 +268,9 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 .nav-item:hover:not(.active) { background: rgba(255, 255, 255, 0.04); }
 .nav-item.active { background: rgba(255, 70, 85, 0.12); font-weight: 600; }
 .nav-item.active .nav-icon { color: #FF4655; }
-
 .nav-icon { width: 20px; height: 20px; flex-shrink: 0; color: #8E8E93; transition: color 0.15s; }
 
+/* Viewing badge */
 .account-badge {
   display: flex;
   align-items: center;
@@ -175,6 +279,11 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   border: 0.5px solid rgba(255, 255, 255, 0.06);
+}
+
+.account-badge.own {
+  background: rgba(255, 70, 85, 0.06);
+  border-color: rgba(255, 70, 85, 0.2);
 }
 
 .account-name {
@@ -199,6 +308,59 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   margin-left: 6px;
 }
 
+/* Own account row */
+.own-account-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0.25rem;
+}
+
+.own-account-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 0.3rem 0.75rem;
+  border-radius: 8px;
+  text-align: left;
+  cursor: default;
+  transition: background 0.15s;
+  min-width: 0;
+}
+
+.own-account-btn:hover { background: rgba(255, 255, 255, 0.04); }
+.own-account-btn.active { background: rgba(255, 70, 85, 0.08); }
+
+.own-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #8e8e93;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.own-account-btn.active .own-name { color: #FF4655; }
+
+.manage-btn {
+  background: none;
+  border: none;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: default;
+  color: #636366;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.manage-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+.manage-icon { width: 14px; height: 14px; }
+
+.link-btn { color: #636366; }
+.link-btn:hover { color: #fff; }
+
+/* Footer */
 .sidebar-footer { padding: 0.5rem 1rem 1.5rem; flex-shrink: 0; }
 .user-card { position: relative; }
 

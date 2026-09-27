@@ -1,10 +1,12 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch } from 'vue'
 import RankBadge from '../components/RankBadge.vue'
 import MatchCard from '../components/MatchCard.vue'
 
 const props = defineProps({
+  player: Object,
   linkedAccount: Object,
+  isOwnAccount: Boolean,
   user: Object,
 })
 
@@ -14,12 +16,23 @@ const matches = ref([])
 const loading = ref(true)
 const error = ref('')
 
-onMounted(async () => {
+async function load() {
+  if (!props.player) return
+  loading.value = true
+  error.value = ''
+  profile.value = null
+  rank.value = null
+  matches.value = []
+
+  const { riot_name, riot_tag, region, puuid } = props.player
+  const q = `name=${encodeURIComponent(riot_name)}&tag=${encodeURIComponent(riot_tag)}&region=${encodeURIComponent(region || '')}`
+  const pq = puuid ? `&puuid=${encodeURIComponent(puuid)}` : ''
+
   try {
     const [profileRes, rankRes, matchRes] = await Promise.all([
-      fetch('/api/val/player/profile'),
-      fetch('/api/val/player/rank'),
-      fetch('/api/val/matches?mode=competitive&size=5'),
+      fetch(`/api/val/player/profile?${q}`),
+      fetch(`/api/val/player/rank?${q}`),
+      fetch(`/api/val/matches?mode=competitive&size=5&${q}${pq}`),
     ])
 
     if (profileRes.ok) profile.value = await profileRes.json()
@@ -30,7 +43,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+watch(() => props.player, load, { immediate: true })
 </script>
 
 <template>
@@ -43,7 +58,7 @@ onMounted(async () => {
           <img v-if="profile.card?.small" :src="profile.card.small" class="player-card-img" alt="Player card" />
           <div class="player-text">
             <h1 class="player-name">{{ profile.name }}<span class="player-tag">#{{ profile.tag }}</span></h1>
-            <p class="player-meta">Level {{ profile.account_level }} · {{ linkedAccount?.region?.toUpperCase() }}</p>
+            <p class="player-meta">Level {{ profile.account_level }} · {{ (player?.region || '').toUpperCase() }}</p>
           </div>
         </div>
         <RankBadge v-if="rank" :tier="rank.tier" :tier-id="rank.tier_id" :rr="rank.rr" :mmr-change="rank.mmr_change" :images="rank.images" size="lg" />
