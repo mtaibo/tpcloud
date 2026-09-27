@@ -1,16 +1,19 @@
 <script setup>
 import { ref } from 'vue'
-import { Lock, ShieldCheck } from 'lucide-vue-next'
+import { Lock, ShieldCheck, FlaskConical } from 'lucide-vue-next'
 import BaseModal from './BaseModal.vue'
 
 const emit = defineEmits(['close', 'saved'])
 
-const step = ref(1) // 1 = credentials, 2 = MFA code
+const step = ref(1)
 const username = ref('')
 const password = ref('')
 const mfaCode = ref('')
 const loading = ref(false)
 const error = ref('')
+const showDiagnose = ref(false)
+const diagnosing = ref(false)
+const diagResults = ref(null)
 
 async function save() {
   error.value = ''
@@ -19,6 +22,8 @@ async function save() {
     return
   }
   loading.value = true
+  showDiagnose.value = false
+  diagResults.value = null
   try {
     const r = await fetch('/api/val/account/credentials', {
       method: 'POST',
@@ -28,6 +33,7 @@ async function save() {
     const data = await r.json()
     if (!r.ok) {
       error.value = data.detail || 'Invalid credentials'
+      showDiagnose.value = true
       return
     }
     if (data.requires_mfa) {
@@ -37,9 +43,43 @@ async function save() {
     emit('saved')
   } catch {
     error.value = 'Network error — check server logs'
+    showDiagnose.value = true
   } finally {
     loading.value = false
   }
+}
+
+async function runDiagnosis() {
+  if (!username.value || !password.value) return
+  diagnosing.value = true
+  diagResults.value = null
+  try {
+    const r = await fetch('/api/val/account/auth/diagnose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username.value, password: password.value }),
+    })
+    diagResults.value = await r.json()
+  } catch {
+    diagResults.value = [{ strategy: 'network', error: 'Failed to reach server', success: false }]
+  } finally {
+    diagnosing.value = false
+  }
+}
+
+function diagLabel(row) {
+  if (row.success) return 'SUCCESS'
+  if (row.mfa) return 'MFA'
+  if (row.captcha) return 'CAPTCHA'
+  if (row.error && !row.type) return 'ERR'
+  return (row.type || '?').toUpperCase()
+}
+
+function diagColor(row) {
+  if (row.success) return '#30d158'
+  if (row.mfa) return '#ffd60a'
+  if (row.captcha) return '#ff9f0a'
+  return '#ff453a'
 }
 
 async function submitMfa() {
@@ -76,7 +116,7 @@ function backToCredentials() {
 </script>
 
 <template>
-  <BaseModal width="360px" @close="emit('close')">
+  <BaseModal width="380px" @close="emit('close')">
 
     <!-- Step 1: Credentials -->
     <template v-if="step === 1">
@@ -103,6 +143,28 @@ function backToCredentials() {
         </div>
 
         <p v-if="error" class="form-error">{{ error }}</p>
+
+        <div v-if="showDiagnose" class="diag-trigger">
+          <button class="btn-diag" :disabled="diagnosing" @click="runDiagnosis">
+            <FlaskConical :size="12" />
+            {{ diagnosing ? 'Running…' : 'Run diagnostics' }}
+          </button>
+          <span class="diag-hint">Tests 4 auth strategies — check server logs too</span>
+        </div>
+
+        <div v-if="diagResults" class="diag-results">
+          <p class="diag-title">Strategy results</p>
+          <div v-for="row in diagResults" :key="row.strategy" class="diag-row">
+            <span class="diag-strategy">{{ row.strategy }}</span>
+            <span class="diag-badge" :style="{ color: diagColor(row), borderColor: diagColor(row) }">{{ diagLabel(row) }}</span>
+            <span class="diag-detail">
+              {{ row.captcha ? 'bot blocked (captcha)' : (row.error && !row.type) ? row.error : `init=${row.init_status} auth=${row.auth_status} cookies=[${(row.init_cookies||[]).join(',')}]` }}
+            </span>
+          </div>
+          <p class="diag-note">
+            If all show AUTH or CAPTCHA, Riot is blocking from this IP — wait 1–2h and retry.
+          </p>
+        </div>
       </div>
 
       <div class="modal-footer">
@@ -190,5 +252,89 @@ function backToCredentials() {
   font-size: 0.75rem;
   color: #ff453a;
   margin-top: 8px;
+}
+
+.diag-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn-diag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.7rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  color: #8E8E93;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.btn-diag:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-diag:not(:disabled):hover { background: rgba(255, 255, 255, 0.1); color: #d1d1d6; }
+
+.diag-hint {
+  font-size: 0.65rem;
+  color: #525252;
+}
+
+.diag-results {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+
+.diag-title {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #636366;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.diag-row {
+  display: grid;
+  grid-template-columns: 108px 62px 1fr;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.04);
+}
+.diag-row:last-of-type { border-bottom: none; }
+
+.diag-strategy { font-size: 0.65rem; color: #8E8E93; font-family: monospace; }
+
+.diag-badge {
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 0.5px solid;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+
+.diag-detail {
+  font-size: 0.6rem;
+  color: #525252;
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diag-note {
+  font-size: 0.65rem;
+  color: #636366;
+  margin-top: 8px;
+  line-height: 1.4;
 }
 </style>

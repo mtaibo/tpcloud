@@ -27,6 +27,11 @@ class MFABody(BaseModel):
     code: str
 
 
+class DiagnoseBody(BaseModel):
+    username: str
+    password: str
+
+
 
 @router.get("")
 async def get_account(request: Request, db: Session = Depends(get_session)):
@@ -177,6 +182,13 @@ def _persist_tokens_and_creds(tokens: dict, username: str, password: str, acc, u
     riot_client.cache_tokens(user_email, tokens)
     db.commit()
 
+
+
+@router.post("/auth/diagnose")
+async def diagnose_auth(body: DiagnoseBody, request: Request):
+    """Try each TLS impersonation strategy and return raw Riot responses. No DB writes."""
+    await get_current_user(request)
+    return await riot_client.run_auth_diagnosis(body.username, body.password)
 
 
 @router.delete("/credentials")
