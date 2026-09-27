@@ -18,27 +18,12 @@ class LinkAccountBody(BaseModel):
     region: str
 
 
-class CredentialsBody(BaseModel):
-    username: str
-    password: str
-
-
-class MFABody(BaseModel):
-    code: str
-
-
-class DiagnoseBody(BaseModel):
-    username: str
-    password: str
-
-
 class CookieAuthBody(BaseModel):
     ssid: str
 
 
 class TokenAuthBody(BaseModel):
     access_token: str
-
 
 
 @router.get("")
@@ -48,12 +33,16 @@ async def get_account(request: Request, db: Session = Depends(get_session)):
     if not acc:
         return None
     creds = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
+    has_credentials = (
+        riot_client.get_cached_tokens(user["email"]) is not None
+        or (creds is not None and bool(creds.encrypted_ssid))
+    )
     return {
         "riot_name": acc.riot_name,
         "riot_tag": acc.riot_tag,
         "region": acc.region,
         "puuid": acc.puuid,
-        "has_credentials": creds is not None,
+        "has_credentials": has_credentials,
         "linked_at": acc.created_at.isoformat(),
     }
 
@@ -62,7 +51,6 @@ async def get_account(request: Request, db: Session = Depends(get_session)):
 async def link_account(body: LinkAccountBody, request: Request, db: Session = Depends(get_session)):
     user = await get_current_user(request)
 
-    # Verify the account exists via Henrik
     try:
         account_data = await henrik_client.get_account(body.riot_name, body.riot_tag)
     except HTTPException as e:
@@ -108,90 +96,6 @@ async def unlink_account(request: Request, db: Session = Depends(get_session)):
     return {"ok": True}
 
 
-@router.post("/credentials")
-async def save_credentials(body: CredentialsBody, request: Request, db: Session = Depends(get_session)):
-    user = await get_current_user(request)
-
-    if not crypto.is_configured():
-        raise HTTPException(status_code=503, detail="RIOT_CRED_KEY not configured on server")
-
-    acc = db.exec(select(LinkedAccount).where(LinkedAccount.user_email == user["email"])).first()
-    if not acc:
-        raise HTTPException(status_code=400, detail="Link a Riot account first")
-
-    try:
-        result = await riot_client.start_auth(user["email"], body.username, body.password)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid Riot credentials")
-
-    if result.get("requires_mfa"):
-        # Store credentials encrypted so we can save them after MFA completes
-        enc_user = crypto.encrypt(body.username)
-        enc_pass = crypto.encrypt(body.password)
-        existing = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
-        if existing:
-            existing.encrypted_username = enc_user
-            existing.encrypted_password = enc_pass
-            existing.updated_at = datetime.now(timezone.utc)
-            db.add(existing)
-        else:
-            db.add(RiotCredentials(user_email=user["email"], encrypted_username=enc_user, encrypted_password=enc_pass))
-        db.commit()
-        return {"requires_mfa": True}
-
-    _persist_tokens_and_creds(result, body.username, body.password, acc, user["email"], db)
-    return {"ok": True}
-
-
-@router.post("/credentials/mfa")
-async def complete_mfa(body: MFABody, request: Request, db: Session = Depends(get_session)):
-    user = await get_current_user(request)
-
-    acc = db.exec(select(LinkedAccount).where(LinkedAccount.user_email == user["email"])).first()
-    if not acc:
-        raise HTTPException(status_code=400, detail="No linked account")
-
-    try:
-        tokens = await riot_client.complete_mfa(user["email"], body.code)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid MFA code")
-
-    if tokens.get("puuid") and tokens["puuid"] != acc.puuid:
-        acc.puuid = tokens["puuid"]
-        acc.updated_at = datetime.now(timezone.utc)
-        db.add(acc)
-        db.commit()
-
-    riot_client.cache_tokens(user["email"], tokens)
-    return {"ok": True}
-
-
-def _persist_tokens_and_creds(tokens: dict, username: str, password: str, acc, user_email: str, db):
-    if tokens.get("puuid") and tokens["puuid"] != acc.puuid:
-        acc.puuid = tokens["puuid"]
-        acc.updated_at = datetime.now(timezone.utc)
-        db.add(acc)
-
-    enc_user = crypto.encrypt(username)
-    enc_pass = crypto.encrypt(password)
-    existing = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user_email)).first()
-    if existing:
-        existing.encrypted_username = enc_user
-        existing.encrypted_password = enc_pass
-        existing.updated_at = datetime.now(timezone.utc)
-        db.add(existing)
-    else:
-        db.add(RiotCredentials(user_email=user_email, encrypted_username=enc_user, encrypted_password=enc_pass))
-
-    riot_client.cache_tokens(user_email, tokens)
-    db.commit()
-
-
-
 @router.post("/credentials/token")
 async def save_credentials_token(body: TokenAuthBody, request: Request, db: Session = Depends(get_session)):
     """Auth using a browser access_token (from Riot OAuth popup). Cached in memory — no persistent storage."""
@@ -235,8 +139,6 @@ async def save_credentials_cookie(body: CookieAuthBody, request: Request, db: Se
     enc_ssid = crypto.encrypt(ssid)
     creds = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
     if creds:
-        creds.encrypted_username = None
-        creds.encrypted_password = None
         creds.encrypted_ssid = enc_ssid
         creds.updated_at = datetime.now(timezone.utc)
         db.add(creds)
@@ -246,13 +148,6 @@ async def save_credentials_cookie(body: CookieAuthBody, request: Request, db: Se
     riot_client.cache_tokens(user["email"], tokens)
     db.commit()
     return {"ok": True}
-
-
-@router.post("/auth/diagnose")
-async def diagnose_auth(body: DiagnoseBody, request: Request):
-    """Try each TLS impersonation strategy and return raw Riot responses. No DB writes."""
-    await get_current_user(request)
-    return await riot_client.run_auth_diagnosis(body.username, body.password)
 
 
 @router.delete("/credentials")
