@@ -85,6 +85,22 @@ http://share.migueltaibo.com {
     }
 }
 
+http://val.migueltaibo.com {
+    handle /auth/* {
+        reverse_proxy auth:8000
+    }
+    handle /api/* {
+        import protected
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        reverse_proxy val-api:8000
+    }
+    handle {
+        import protected
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        reverse_proxy val-frontend:80
+    }
+}
+
 http://tphome.migueltaibo.com {
     header Cache-Control "no-store, no-cache, must-revalidate"
 
