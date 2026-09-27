@@ -1,10 +1,13 @@
 import base64
 import json
+import logging
 import re
 import time
 
 import httpx
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 REGION = "eu"
 WEAPON_SKIN_ITEM_TYPE = "e7c63390-eda7-46e0-bb9a-14f0a3a9f911"
@@ -53,7 +56,7 @@ def _extract_access_token(data: dict) -> str:
     uri = data.get("response", {}).get("parameters", {}).get("uri", "")
     match = re.search(r"access_token=([^&]+)", uri)
     if not match:
-        raise HTTPException(status_code=502, detail="Failed to extract Riot access token")
+        raise HTTPException(status_code=500, detail=f"Failed to extract Riot access token from URI: {uri[:200]}")
     return match.group(1)
 
 
@@ -114,13 +117,21 @@ async def start_auth(user_email: str, username: str, password: str) -> dict:
         )
         data = resp.json()
 
+        logger.warning("Riot auth response type=%r keys=%s", data.get("type"), list(data.keys()))
+
         if data.get("type") == "error":
             raise HTTPException(status_code=401, detail="Invalid Riot credentials")
 
-        if data.get("type") == "multifactor":
+        if data.get("type") == "multifactor" or "multifactor" in data:
             cookies = {k: v for k, v in client.cookies.items()}
             _pending_mfa[user_email] = (cookies, client_version, time.monotonic() + 300)
             return {"requires_mfa": True}
+
+        if data.get("type") != "response":
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected Riot auth response: type={data.get('type')!r} — {str(data)[:300]}",
+            )
 
         access_token = _extract_access_token(data)
         return await _finish_auth(client, access_token, client_version)
