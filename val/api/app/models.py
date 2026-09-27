@@ -22,8 +22,9 @@ class RiotCredentials(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     user_email: str = Field(unique=True, index=True)
-    encrypted_username: str
-    encrypted_password: str
+    encrypted_username: Optional[str] = Field(default=None)
+    encrypted_password: Optional[str] = Field(default=None)
+    encrypted_ssid: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

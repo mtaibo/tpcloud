@@ -191,6 +191,41 @@ async def complete_mfa(user_email: str, code: str) -> dict:
         return await _finish_auth_cffi(session, access_token, client_version)
 
 
+async def auth_with_ssid(user_email: str, ssid: str) -> dict:
+    """Re-authenticate using a Riot SSID session cookie. Works from datacenter IPs."""
+    client_version = await _get_client_version()
+    headers = {**_auth_headers(client_version), "Accept": "application/json", "Accept-Language": "en-US,en;q=0.9"}
+
+    async with AsyncSession(impersonate="chrome120", timeout=15) as session:
+        session.cookies.set("ssid", ssid, domain=".auth.riotgames.com")
+
+        resp = await session.get(
+            "https://auth.riotgames.com/authorize",
+            params={
+                "redirect_uri": "http://localhost/redirect",
+                "client_id": "riot-client",
+                "response_type": "token id_token",
+                "nonce": secrets.token_hex(16),
+                "scope": "openid link ban lol_region account",
+            },
+            headers=headers,
+            allow_redirects=False,
+        )
+
+        location = resp.headers.get("location", "")
+        logger.warning("SSID re-auth location prefix=%r", location[:80])
+        if not location or "access_token" not in location:
+            raise HTTPException(status_code=401, detail="Invalid or expired SSID cookie")
+
+        match = re.search(r"access_token=([^&]+)", location)
+        if not match:
+            raise HTTPException(status_code=401, detail="Could not extract token from re-auth response")
+
+        tokens = await _finish_auth_cffi(session, match.group(1), client_version)
+        _token_cache[user_email] = (tokens, time.monotonic() + 3300)
+        return tokens
+
+
 async def get_tokens(user_email: str, username: str, password: str) -> dict:
     now = time.monotonic()
     cached = _token_cache.get(user_email)

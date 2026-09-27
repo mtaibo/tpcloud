@@ -27,6 +27,10 @@ class MFABody(BaseModel):
     code: str
 
 
+class SSIDBody(BaseModel):
+    ssid: str
+
+
 @router.get("")
 async def get_account(request: Request, db: Session = Depends(get_session)):
     user = await get_current_user(request)
@@ -175,6 +179,43 @@ def _persist_tokens_and_creds(tokens: dict, username: str, password: str, acc, u
 
     riot_client.cache_tokens(user_email, tokens)
     db.commit()
+
+
+@router.post("/credentials/ssid")
+async def save_ssid(body: SSIDBody, request: Request, db: Session = Depends(get_session)):
+    user = await get_current_user(request)
+
+    if not crypto.is_configured():
+        raise HTTPException(status_code=503, detail="RIOT_CRED_KEY not configured on server")
+
+    acc = db.exec(select(LinkedAccount).where(LinkedAccount.user_email == user["email"])).first()
+    if not acc:
+        raise HTTPException(status_code=400, detail="Link a Riot account first")
+
+    try:
+        tokens = await riot_client.auth_with_ssid(user["email"], body.ssid.strip())
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"SSID auth failed: {e}")
+
+    if tokens.get("puuid") and tokens["puuid"] != acc.puuid:
+        acc.puuid = tokens["puuid"]
+        acc.updated_at = datetime.now(timezone.utc)
+        db.add(acc)
+
+    enc_ssid = crypto.encrypt(body.ssid.strip())
+    existing = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
+    if existing:
+        existing.encrypted_ssid = enc_ssid
+        existing.updated_at = datetime.now(timezone.utc)
+        db.add(existing)
+    else:
+        db.add(RiotCredentials(user_email=user["email"], encrypted_ssid=enc_ssid))
+
+    riot_client.cache_tokens(user["email"], tokens)
+    db.commit()
+    return {"ok": True}
 
 
 @router.delete("/credentials")
