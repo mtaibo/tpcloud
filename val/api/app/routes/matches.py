@@ -29,6 +29,10 @@ def _format_match(match: dict, puuid: str) -> dict:
     if not me:
         me = players[0] if players else {}
 
+    # Henrik v4: teams is a list; v3: teams is a dict keyed by team name
+    if isinstance(teams, list):
+        teams = {t.get("team_id", "").lower(): t for t in teams}
+
     team_id = me.get("team_id", "Blue").lower()
     won = teams.get(team_id, {}).get("won", False)
     red = teams.get("red", {})

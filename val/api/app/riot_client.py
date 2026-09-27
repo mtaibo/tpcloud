@@ -6,6 +6,7 @@ import secrets
 import time
 
 import httpx
+from curl_cffi.requests import AsyncSession
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -84,16 +85,39 @@ async def _finish_auth(client: httpx.AsyncClient, access_token: str, client_vers
     }
 
 
+async def _finish_auth_cffi(session: AsyncSession, access_token: str, client_version: str) -> dict:
+    ua = _ua(client_version)
+    ent_resp = await session.post(
+        "https://entitlements.auth.riotgames.com/api/token/v1",
+        json={},
+        headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua, "Content-Type": "application/json"},
+    )
+    entitlements_token = ent_resp.json().get("entitlements_token", "")
+
+    user_resp = await session.get(
+        "https://auth.riotgames.com/userinfo",
+        headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua},
+    )
+    puuid = user_resp.json().get("sub", "")
+
+    return {
+        "access_token": access_token,
+        "entitlements_token": entitlements_token,
+        "puuid": puuid,
+        "client_version": client_version,
+    }
+
+
 async def start_auth(user_email: str, username: str, password: str) -> dict:
     """
     Returns tokens dict on success, or {"requires_mfa": True} if MFA is needed.
     Raises HTTPException on bad credentials.
     """
     client_version = await _get_client_version()
-    headers = _auth_headers(client_version)
+    headers = {**_auth_headers(client_version), "Accept": "application/json", "Accept-Language": "en-US,en;q=0.9"}
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        await client.post(
+    async with AsyncSession(impersonate="chrome120", timeout=15) as session:
+        await session.post(
             "https://auth.riotgames.com/api/v1/authorization",
             json={
                 "client_id": "riot-client",
@@ -101,12 +125,11 @@ async def start_auth(user_email: str, username: str, password: str) -> dict:
                 "redirect_uri": "http://localhost/redirect",
                 "response_type": "token id_token",
                 "scope": "openid link ban lol_region account",
-                "acr_values": "urn:riot:bronze",
             },
-            headers={**headers, "Accept": "application/json", "Accept-Language": "en-US,en;q=0.9"},
+            headers=headers,
         )
 
-        resp = await client.put(
+        resp = await session.put(
             "https://auth.riotgames.com/api/v1/authorization",
             json={
                 "type": "auth",
@@ -115,7 +138,7 @@ async def start_auth(user_email: str, username: str, password: str) -> dict:
                 "remember": False,
                 "language": "en_US",
             },
-            headers={**headers, "Accept": "application/json", "Accept-Language": "en-US,en;q=0.9"},
+            headers=headers,
         )
         data = resp.json()
 
@@ -125,7 +148,7 @@ async def start_auth(user_email: str, username: str, password: str) -> dict:
             raise HTTPException(status_code=401, detail="Invalid Riot credentials")
 
         if data.get("type") == "multifactor" or "multifactor" in data:
-            cookies = {k: v for k, v in client.cookies.items()}
+            cookies = {k: v for k, v in session.cookies.items()}
             _pending_mfa[user_email] = (cookies, client_version, time.monotonic() + 300)
             return {"requires_mfa": True}
 
@@ -136,7 +159,7 @@ async def start_auth(user_email: str, username: str, password: str) -> dict:
             )
 
         access_token = _extract_access_token(data)
-        return await _finish_auth(client, access_token, client_version)
+        return await _finish_auth_cffi(session, access_token, client_version)
 
 
 async def complete_mfa(user_email: str, code: str) -> dict:
@@ -150,13 +173,13 @@ async def complete_mfa(user_email: str, code: str) -> dict:
         _pending_mfa.pop(user_email, None)
         raise HTTPException(status_code=400, detail="MFA session expired — re-enter credentials")
 
-    headers = _auth_headers(client_version)
+    headers = {**_auth_headers(client_version), "Accept": "application/json", "Accept-Language": "en-US,en;q=0.9"}
 
-    async with httpx.AsyncClient(timeout=15.0, cookies=cookies) as client:
-        resp = await client.put(
+    async with AsyncSession(impersonate="chrome120", timeout=15, cookies=cookies) as session:
+        resp = await session.put(
             "https://auth.riotgames.com/api/v1/authorization",
             json={"type": "multifactor", "code": code.strip(), "rememberDevice": False},
-            headers={**headers, "Accept": "application/json", "Accept-Language": "en-US,en;q=0.9"},
+            headers=headers,
         )
         data = resp.json()
 
@@ -165,7 +188,7 @@ async def complete_mfa(user_email: str, code: str) -> dict:
 
         _pending_mfa.pop(user_email, None)
         access_token = _extract_access_token(data)
-        return await _finish_auth(client, access_token, client_version)
+        return await _finish_auth_cffi(session, access_token, client_version)
 
 
 async def get_tokens(user_email: str, username: str, password: str) -> dict:
