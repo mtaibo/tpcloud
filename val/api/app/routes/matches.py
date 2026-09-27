@@ -17,8 +17,12 @@ async def _get_linked(user_email: str, db: Session) -> LinkedAccount:
 
 
 def _format_match(match: dict, puuid: str) -> dict:
+    if not isinstance(match, dict):
+        return {}
     metadata = match.get("metadata", {})
-    players = match.get("players", {}).get("all_players", [])
+    players_raw = match.get("players", [])
+    # Henrik v4: players is a flat list; v3: players is {"all_players": [...]}
+    players = players_raw if isinstance(players_raw, list) else players_raw.get("all_players", [])
     teams = match.get("teams", {})
 
     me = next((p for p in players if p.get("puuid") == puuid), None)

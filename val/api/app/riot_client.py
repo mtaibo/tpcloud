@@ -119,7 +119,7 @@ async def start_auth(user_email: str, username: str, password: str) -> dict:
 
         logger.warning("Riot auth response type=%r keys=%s", data.get("type"), list(data.keys()))
 
-        if data.get("type") == "error":
+        if data.get("type") == "error" or data.get("error") == "auth_failure":
             raise HTTPException(status_code=401, detail="Invalid Riot credentials")
 
         if data.get("type") == "multifactor" or "multifactor" in data:
