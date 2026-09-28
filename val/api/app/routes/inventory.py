@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session, select
@@ -7,6 +8,8 @@ from app.auth import get_current_user
 from app.database import get_session
 from app.models import LinkedAccount, RiotCredentials
 from app import crypto, riot_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/val/inventory", tags=["inventory"])
 
@@ -47,9 +50,11 @@ async def get_inventory(
         raise HTTPException(status_code=400, detail="PUUID not available")
 
     raw_items = await riot_client.get_inventory(tokens, puuid, region=acc.region)
+    logger.info("Inventory raw_items count=%d, sample=%s", len(raw_items), raw_items[:2])
 
     # Enrich with names and images (concurrent but rate-limited)
     skin_uuids = [item.get("ItemID", "") for item in raw_items if item.get("ItemID")]
+    logger.info("Skin UUIDs to enrich: %s", skin_uuids[:3])
     sem = asyncio.Semaphore(5)
 
     async def fetch_one(uuid: str) -> dict:
