@@ -207,12 +207,14 @@ def _riot_headers(tokens: dict) -> dict:
 
 async def get_store(tokens: dict, puuid: str, region: str = REGION) -> dict:
     async with httpx.AsyncClient(timeout=15.0) as client:
-        r = await client.post(
+        r = await client.get(
             f"https://pd.{region}.a.pvp.net/store/v3/storefront/{puuid}",
             headers=_riot_headers(tokens),
         )
         if r.status_code == 403:
             raise HTTPException(status_code=403, detail="Riot token rejected — re-enter credentials")
+        if not r.is_success:
+            logger.error("Riot storefront %s: %s", r.status_code, r.text[:500])
         r.raise_for_status()
         return r.json()
 
