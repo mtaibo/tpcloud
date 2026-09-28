@@ -13,15 +13,14 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 def init_db():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     SQLModel.metadata.create_all(engine)
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         conn.execute(text("PRAGMA journal_mode=WAL"))
         conn.execute(text("PRAGMA synchronous=NORMAL"))
-        _migrate(conn)
-        conn.commit()
+    _migrate()
 
 
-def _migrate(conn):
-    """Additive-only migrations: ALTER TABLE ADD COLUMN when missing."""
+def _migrate():
+    """Additive-only migrations. Each ALTER runs in its own tx so following statements see the new column."""
     additions = {
         "riot_credentials": [
             ("encrypted_cookies", "TEXT"),
@@ -32,15 +31,21 @@ def _migrate(conn):
             ("extension_version", "TEXT"),
         ],
     }
-    conn.execute(text(
-        "CREATE UNIQUE INDEX IF NOT EXISTS ix_riot_credentials_pair_token "
-        "ON riot_credentials(pair_token) WHERE pair_token IS NOT NULL"
-    ))
     for table, cols in additions.items():
-        existing = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
+        with engine.begin() as conn:
+            existing = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
         for name, ddl in cols:
             if name not in existing:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+    with engine.begin() as conn:
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(riot_credentials)"))}
+        if "pair_token" in existing:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_riot_credentials_pair_token "
+                "ON riot_credentials(pair_token) WHERE pair_token IS NOT NULL"
+            ))
 
 
 def get_session():
