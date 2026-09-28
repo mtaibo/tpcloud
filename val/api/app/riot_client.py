@@ -207,7 +207,7 @@ def _riot_headers(tokens: dict) -> dict:
 
 async def get_store(tokens: dict, puuid: str, region: str = REGION) -> dict:
     async with httpx.AsyncClient(timeout=15.0) as client:
-        r = await client.get(
+        r = await client.post(
             f"https://pd.{region}.a.pvp.net/store/v3/storefront/{puuid}",
             headers=_riot_headers(tokens),
         )
