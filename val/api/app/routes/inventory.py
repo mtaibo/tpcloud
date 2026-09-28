@@ -50,11 +50,8 @@ async def get_inventory(
         raise HTTPException(status_code=400, detail="PUUID not available")
 
     raw_items = await riot_client.get_inventory(tokens, puuid, region=acc.region)
-    logger.warning("Inventory raw_items count=%d, sample=%s", len(raw_items), raw_items[:2])
-
     # Enrich with names and images (concurrent but rate-limited)
     skin_uuids = [item.get("ItemID", "") for item in raw_items if item.get("ItemID")]
-    logger.warning("Skin UUIDs to enrich: %s", skin_uuids[:3])
     sem = asyncio.Semaphore(5)
 
     async def fetch_one(uuid: str) -> dict:
