@@ -97,6 +97,7 @@ async def _cookie_reauth(session: AsyncSession, client_version: str) -> dict | N
             allow_redirects=False,
         )
         location = resp.headers.get("location", "")
+        logger.warning("cookie_reauth status=%s location=%s", resp.status_code, location[:200])
         m = re.search(r"access_token=([^&]+)", location)
         if not m:
             return None
