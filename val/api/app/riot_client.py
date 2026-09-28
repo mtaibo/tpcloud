@@ -134,7 +134,15 @@ async def auth_with_access_token(user_email: str, access_token: str) -> dict:
         )
         puuid = user_resp.json().get("sub", "")
 
-    logger.info("Token auth SUCCESS for %s, puuid=%s", user_email, puuid)
+    try:
+        import json as _json
+        payload = access_token.split(".")[1]
+        payload += "=" * (4 - len(payload) % 4)
+        decoded = _json.loads(base64.b64decode(payload))
+        logger.warning("access_token claims: client_id=%s aud=%s scope=%s", decoded.get("client_id"), decoded.get("aud"), decoded.get("scope", "")[:80])
+    except Exception:
+        pass
+    logger.warning("Token auth SUCCESS for %s, puuid=%s", user_email, puuid)
     return {
         "access_token": access_token,
         "entitlements_token": entitlements_token,
