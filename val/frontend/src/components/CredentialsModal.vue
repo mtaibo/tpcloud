@@ -4,14 +4,28 @@ import BaseModal from './BaseModal.vue'
 
 const emit = defineEmits(['close', 'saved'])
 
-const step = ref(1) // 1 = instructions, 2 = paste
+const step = ref(1) // 1 = login, 2 = copy cookie, 3 = paste
 const ssid = ref('')
 const loading = ref(false)
 const error = ref('')
 
-function openRiot() {
-  window.open('https://auth.riotgames.com', '_blank')
+const OAUTH_URL =
+  'https://auth.riotgames.com/authorize' +
+  '?client_id=play-valorant-web-prod' +
+  '&nonce=1' +
+  '&redirect_uri=https%3A%2F%2Fplayvalorant.com%2Fopt_in' +
+  '&response_type=token%20id_token' +
+  '&scope=openid' +
+  '&language=en_US'
+
+function openLogin() {
+  window.open(OAUTH_URL, '_blank', 'width=500,height=700')
   step.value = 2
+}
+
+function openAuthCookies() {
+  window.open('https://auth.riotgames.com', '_blank')
+  step.value = 3
 }
 
 async function save() {
@@ -39,36 +53,36 @@ async function save() {
   <BaseModal width="360px" @close="emit('close')">
     <div class="modal">
 
-      <!-- Step 1: instructions -->
+      <!-- Step 1: log in with Riot -->
       <template v-if="step === 1">
         <p class="title">Conectar Riot</p>
-        <p class="sub">Solo tienes que hacer esto una vez. Da acceso a tu tienda e inventario.</p>
-
+        <p class="sub">Una vez configurado da acceso a tu tienda e inventario. No vuelves a hacerlo hasta que cambies la contraseña.</p>
         <div class="steps">
-          <div class="step-row">
-            <span class="num">1</span>
-            <span>Pulsa el botón de abajo — se abre <strong>auth.riotgames.com</strong></span>
-          </div>
-          <div class="step-row">
-            <span class="num">2</span>
-            <span>Inicia sesión con tu cuenta de Riot si aún no lo has hecho</span>
-          </div>
-          <div class="step-row">
-            <span class="num">3</span>
-            <span>Pulsa <kbd>F12</kbd> → <strong>Application</strong> → <strong>Cookies</strong> → <code>auth.riotgames.com</code> → copia el valor de <strong>ssid</strong></span>
-          </div>
+          <div class="step-row"><span class="num">1</span><span>Inicia sesión con Riot en la ventana que se abre</span></div>
+          <div class="step-row"><span class="num">2</span><span>Verás una página de error — es normal, ciérrala</span></div>
+          <div class="step-row"><span class="num">3</span><span>Vuelve aquí y pulsa <strong>Siguiente</strong></span></div>
         </div>
-
-        <button class="btn-primary" @click="openRiot">Abrir Riot Auth →</button>
-        <button class="btn-ghost" @click="step = 2">Ya tengo el ssid</button>
+        <button class="btn-primary" @click="openLogin">Abrir login de Riot →</button>
+        <button class="btn-ghost" @click="step = 2">Ya he iniciado sesión antes</button>
       </template>
 
-      <!-- Step 2: paste -->
-      <template v-else>
+      <!-- Step 2: go get cookie -->
+      <template v-else-if="step === 2">
         <button class="back" @click="step = 1">← Volver</button>
-        <p class="title">Pega el valor de ssid</p>
-        <p class="sub">Lo encuentras en <strong>F12 → Application → Cookies → auth.riotgames.com</strong></p>
+        <p class="title">Ahora copia la cookie</p>
+        <div class="steps">
+          <div class="step-row"><span class="num">1</span><span>Pulsa el botón — abre <code>auth.riotgames.com</code></span></div>
+          <div class="step-row"><span class="num">2</span><span><kbd>F12</kbd> → <strong>Application</strong> → <strong>Cookies</strong> → <code>auth.riotgames.com</code></span></div>
+          <div class="step-row"><span class="num">3</span><span>Copia el valor de la cookie <strong>ssid</strong></span></div>
+        </div>
+        <button class="btn-primary" @click="openAuthCookies">Abrir auth.riotgames.com →</button>
+        <button class="btn-ghost" @click="step = 3">Ya lo tengo copiado</button>
+      </template>
 
+      <!-- Step 3: paste -->
+      <template v-else>
+        <button class="back" @click="step = 2">← Volver</button>
+        <p class="title">Pega el valor de ssid</p>
         <textarea
           v-model="ssid"
           class="input"
@@ -78,9 +92,7 @@ async function save() {
           autocomplete="off"
           autofocus
         />
-
         <p v-if="error" class="error">{{ error }}</p>
-
         <div class="footer">
           <button class="btn-cancel" @click="emit('close')">Cancelar</button>
           <button class="btn-primary" :disabled="loading || !ssid.trim()" @click="save">
@@ -100,19 +112,8 @@ async function save() {
   gap: 12px;
   padding: 20px;
 }
-
-.title {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: #fff;
-}
-
-.sub {
-  font-size: 0.73rem;
-  color: #636366;
-  line-height: 1.5;
-}
-.sub strong { color: #8E8E93; }
+.title { font-size: 0.9rem; font-weight: 700; color: #fff; }
+.sub { font-size: 0.73rem; color: #636366; line-height: 1.5; }
 
 .steps {
   display: flex;
@@ -123,7 +124,6 @@ async function save() {
   border-radius: 10px;
   padding: 14px;
 }
-
 .step-row {
   display: flex;
   align-items: flex-start;
@@ -216,11 +216,7 @@ kbd, code {
 
 .error { font-size: 0.73rem; color: #ff453a; }
 
-.footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
+.footer { display: flex; justify-content: flex-end; gap: 8px; }
 
 .btn-cancel {
   padding: 8px 14px;
