@@ -117,8 +117,8 @@ async def auth_with_access_token(user_email: str, access_token: str) -> dict:
     """Complete auth using a browser-obtained access_token. Calls entitlements + userinfo."""
     client_version = await _get_client_version()
     ua = _ua(client_version)
-    async with httpx.AsyncClient(timeout=15.0) as c:
-        ent_resp = await c.post(
+    async with AsyncSession(impersonate="chrome120", timeout=15) as session:
+        ent_resp = await session.post(
             "https://entitlements.auth.riotgames.com/api/token/v1",
             json={},
             headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua, "Content-Type": "application/json"},
@@ -128,7 +128,7 @@ async def auth_with_access_token(user_email: str, access_token: str) -> dict:
             raise HTTPException(status_code=401, detail="Invalid access token — get a fresh one from the Riot login flow")
         entitlements_token = ent_resp.json().get("entitlements_token", "")
 
-        user_resp = await c.get(
+        user_resp = await session.get(
             "https://auth.riotgames.com/userinfo",
             headers={"Authorization": f"Bearer {access_token}", "User-Agent": ua},
         )
