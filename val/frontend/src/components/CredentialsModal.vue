@@ -19,7 +19,7 @@ const OAUTH_URL =
   '&language=en_US'
 
 function openLogin() {
-  window.open(OAUTH_URL, '_blank', 'width=500,height=700')
+  window.open('https://account.riotgames.com', '_blank')
   step.value = 2
 }
 
@@ -58,11 +58,11 @@ async function save() {
         <p class="title">Conectar Riot</p>
         <p class="sub">Una vez configurado da acceso a tu tienda e inventario. No vuelves a hacerlo hasta que cambies la contraseña.</p>
         <div class="steps">
-          <div class="step-row"><span class="num">1</span><span>Inicia sesión con Riot en la ventana que se abre</span></div>
-          <div class="step-row"><span class="num">2</span><span>Verás una página de error — es normal, ciérrala</span></div>
+          <div class="step-row"><span class="num">1</span><span>Abre <strong>account.riotgames.com</strong> con el botón de abajo</span></div>
+          <div class="step-row"><span class="num">2</span><span>Inicia sesión con tu cuenta de Riot si te lo pide</span></div>
           <div class="step-row"><span class="num">3</span><span>Vuelve aquí y pulsa <strong>Siguiente</strong></span></div>
         </div>
-        <button class="btn-primary" @click="openLogin">Abrir login de Riot →</button>
+        <button class="btn-primary" @click="openLogin">Abrir account.riotgames.com →</button>
         <button class="btn-ghost" @click="step = 2">Ya he iniciado sesión antes</button>
       </template>
 
