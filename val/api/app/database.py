@@ -21,6 +21,20 @@ def init_db():
 
 def _migrate():
     """Additive-only migrations. Each ALTER runs in its own tx so following statements see the new column."""
+    deprecated = {
+        "riot_credentials": ["encrypted_username", "encrypted_password"],
+    }
+    for table, cols in deprecated.items():
+        with engine.begin() as conn:
+            existing = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
+        for name in cols:
+            if name in existing:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {name}"))
+                except Exception:
+                    pass
+
     additions = {
         "riot_credentials": [
             ("encrypted_cookies", "TEXT"),
