@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { Shield, ChevronRight } from 'lucide-vue-next'
-import CredentialsModal from './CredentialsModal.vue'
+import ExtensionSetupModal from './ExtensionSetupModal.vue'
 
 const emit = defineEmits(['linked', 'close'])
 
@@ -128,7 +128,7 @@ function onCredentialsSaved() {
 
     </div>
 
-    <CredentialsModal
+    <ExtensionSetupModal
       v-if="showCredentials"
       @close="showCredentials = false"
       @saved="onCredentialsSaved"

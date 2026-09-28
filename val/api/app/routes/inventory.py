@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 from app.auth import get_current_user
 from app.database import get_session
 from app.models import LinkedAccount, RiotCredentials
-from app import crypto, riot_client
+from app import riot_client
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +35,10 @@ async def get_inventory(
     if not acc:
         raise HTTPException(status_code=404, detail="No linked Riot account")
 
-    # Fast path: in-memory cached tokens (e.g. from browser OAuth login)
-    tokens = riot_client.get_cached_tokens(user["email"])
+    creds = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
+    tokens = await riot_client.resolve_tokens_from_credentials(user["email"], creds)
     if tokens is None:
-        creds = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
-        if not creds or not creds.encrypted_ssid:
-            return {"requires_credentials": True}
-
-        ssid = crypto.decrypt(creds.encrypted_ssid)
-        tokens = await riot_client.get_tokens(user["email"], ssid=ssid)
+        return {"requires_credentials": True}
 
     puuid = tokens.get("puuid") or acc.puuid
     if not puuid:

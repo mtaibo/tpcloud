@@ -86,8 +86,17 @@ http://share.migueltaibo.com {
 }
 
 http://val.migueltaibo.com {
+    @extension_sync {
+        method POST
+        path /api/val/account/extension/sync
+    }
+
     handle /auth/* {
         reverse_proxy auth:8000
+    }
+    handle @extension_sync {
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        reverse_proxy val-api:8000
     }
     handle /api/* {
         import protected

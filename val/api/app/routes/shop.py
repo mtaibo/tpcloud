@@ -6,8 +6,8 @@ from sqlmodel import Session, select
 
 from app.auth import get_current_user
 from app.database import get_session
-from app.models import LinkedAccount, RiotCredentials, ShopCache
-from app import crypto, riot_client
+from app.models import LinkedAccount, RiotCredentials, ShopCache, ShopHistoryEntry
+from app import riot_client
 
 router = APIRouter(prefix="/api/val/shop", tags=["shop"])
 
@@ -47,15 +47,10 @@ async def get_shop(request: Request, db: Session = Depends(get_session)):
     if not acc:
         raise HTTPException(status_code=404, detail="No linked Riot account")
 
-    # Fast path: in-memory cached tokens (e.g. from browser OAuth login)
-    tokens = riot_client.get_cached_tokens(user["email"])
+    creds = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
+    tokens = await riot_client.resolve_tokens_from_credentials(user["email"], creds)
     if tokens is None:
-        creds = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
-        if not creds or not creds.encrypted_ssid:
-            return {"requires_credentials": True}
-
-        ssid = crypto.decrypt(creds.encrypted_ssid)
-        tokens = await riot_client.get_tokens(user["email"], ssid=ssid)
+        return {"requires_credentials": True}
 
     # Check shop cache
     cached = db.exec(select(ShopCache).where(ShopCache.user_email == user["email"])).first()
@@ -102,6 +97,21 @@ async def get_shop(request: Request, db: Session = Depends(get_session)):
             offers_json=offers_json,
             bundle_json=bundle_json,
             expires_at=expires_at,
+        ))
+
+    shop_date = now.strftime("%Y-%m-%d")
+    existing_history = db.exec(
+        select(ShopHistoryEntry).where(
+            ShopHistoryEntry.user_email == user["email"],
+            ShopHistoryEntry.shop_date == shop_date,
+        )
+    ).first()
+    if not existing_history:
+        db.add(ShopHistoryEntry(
+            user_email=user["email"],
+            shop_date=shop_date,
+            offers_json=offers_json,
+            bundle_json=bundle_json,
         ))
     db.commit()
 

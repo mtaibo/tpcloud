@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>TPVal Sync</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="card">
+    <header>
+      <div class="logo">V</div>
+      <div class="title">
+        <strong>TPVal Sync</strong>
+        <span class="version" id="version"></span>
+      </div>
+    </header>
+
+    <section class="status" id="status">
+      <span class="dot" id="dot"></span>
+      <span id="statusText">Cargando…</span>
+    </section>
+
+    <section class="cookies" id="cookies">
+      <p class="label">Cookies detectadas</p>
+      <ul id="cookieList"></ul>
+    </section>
+
+    <section class="config">
+      <label>
+        <span>Backend</span>
+        <input type="text" id="backendUrl" placeholder="https://val.migueltaibo.com" />
+      </label>
+      <label>
+        <span>Pair token</span>
+        <input type="password" id="pairToken" placeholder="Pega aquí el pair token" />
+      </label>
+      <button class="btn-ghost" id="saveConfig">Guardar configuración</button>
+    </section>
+
+    <button class="btn-primary" id="syncNow">Sync now</button>
+
+    <p class="hint" id="hint"></p>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

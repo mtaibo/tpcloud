@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Lock } from 'lucide-vue-next'
 import SkinCard from '../components/SkinCard.vue'
-import CredentialsModal from '../components/CredentialsModal.vue'
+import ExtensionSetupModal from '../components/ExtensionSetupModal.vue'
 
 defineProps({ player: Object, linkedAccount: Object, isOwnAccount: Boolean, user: Object })
 
@@ -85,7 +85,7 @@ onMounted(() => load())
       <p v-if="error" class="error-banner">{{ error }}</p>
     </template>
 
-    <CredentialsModal v-if="showCredentials" @close="showCredentials = false" @saved="onCredentialsSaved" />
+    <ExtensionSetupModal v-if="showCredentials" @close="showCredentials = false" @saved="onCredentialsSaved" />
   </div>
 </template>
 

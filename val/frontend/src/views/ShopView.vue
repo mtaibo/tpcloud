@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ShoppingBag, RefreshCw, Lock } from 'lucide-vue-next'
-import CredentialsModal from '../components/CredentialsModal.vue'
+import ExtensionSetupModal from '../components/ExtensionSetupModal.vue'
 
 defineProps({ player: Object, linkedAccount: Object, isOwnAccount: Boolean, user: Object })
 
@@ -128,7 +128,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
       </div>
     </section>
 
-    <CredentialsModal v-if="showCredentials" @close="showCredentials = false" @saved="onCredentialsSaved" />
+    <ExtensionSetupModal v-if="showCredentials" @close="showCredentials = false" @saved="onCredentialsSaved" />
   </div>
 </template>
 

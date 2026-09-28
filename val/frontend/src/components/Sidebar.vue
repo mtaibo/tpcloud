@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { LayoutDashboard, TrendingUp, ShoppingBag, Layers, Trophy, User, LogOut, Cloud, Search, Link } from 'lucide-vue-next'
+import { LayoutDashboard, TrendingUp, ShoppingBag, Layers, Trophy, User, LogOut, Cloud, Search, Link, Wallet, Moon, Heart, History, Sword, Award, LineChart } from 'lucide-vue-next'
+import SessionStatus from './SessionStatus.vue'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -13,7 +14,7 @@ const props = defineProps({
   searchLoading: Boolean,
   searchError: String,
 })
-const emit = defineEmits(['navigate', 'search', 'open-account-setup', 'go-home'])
+const emit = defineEmits(['navigate', 'search', 'open-account-setup', 'go-home', 'open-extension-setup'])
 
 const menuOpen = ref(false)
 const cardRef = ref(null)
@@ -22,8 +23,15 @@ const searchInput = ref('')
 const allNavItems = [
   { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, requiresOwn: false },
   { id: 'stats', label: 'Stats', icon: TrendingUp, requiresOwn: false },
+  { id: 'rank-chart', label: 'Rank Chart', icon: LineChart, requiresOwn: true },
   { id: 'shop', label: 'Daily Shop', icon: ShoppingBag, requiresOwn: true },
+  { id: 'night-market', label: 'Night Market', icon: Moon, requiresOwn: true },
+  { id: 'wallet', label: 'Wallet', icon: Wallet, requiresOwn: true },
   { id: 'inventory', label: 'Inventory', icon: Layers, requiresOwn: true },
+  { id: 'loadout', label: 'Loadout Builder', icon: Sword, requiresOwn: true },
+  { id: 'wishlist', label: 'Wishlist', icon: Heart, requiresOwn: true },
+  { id: 'shop-history', label: 'Shop History', icon: History, requiresOwn: true },
+  { id: 'battle-pass', label: 'Battle Pass', icon: Award, requiresOwn: true },
   { id: 'esports', label: 'Esports', icon: Trophy, requiresOwn: false },
 ]
 
@@ -128,6 +136,10 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         <Link class="nav-icon" />
         <span>Link Riot Account</span>
       </button>
+
+      <div v-if="linkedAccount" class="session-wrap">
+        <SessionStatus @reconnect="emit('open-extension-setup')" />
+      </div>
     </nav>
 
     <footer class="sidebar-footer">
@@ -359,6 +371,8 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
 .link-btn { color: #636366; }
 .link-btn:hover { color: #fff; }
+
+.session-wrap { padding: 8px 4px 0; }
 
 /* Footer */
 .sidebar-footer { padding: 0.5rem 1rem 1.5rem; flex-shrink: 0; }

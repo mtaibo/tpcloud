@@ -145,21 +145,32 @@ async def auth_with_access_token(user_email: str, access_token: str) -> dict:
     }
 
 
-async def auth_with_ssid(user_email: str, ssid: str) -> dict:
-    """Authenticate using browser ssid cookie. Bypasses password auth and captcha entirely."""
+async def auth_with_cookies(user_email: str, cookies: dict) -> dict:
+    """Authenticate using a dict of browser cookies (ssid + optionally sub/csid/clid/tdid).
+    Returns tokens including the refreshed cookies (as _cookies) for future re-auth."""
     client_version = await _get_client_version()
-    async with AsyncSession(impersonate="chrome120", timeout=15, cookies={"ssid": ssid}) as session:
+    async with AsyncSession(impersonate="chrome120", timeout=15, cookies=cookies) as session:
         tokens = await _cookie_reauth(session, client_version)
         if not tokens:
             raise HTTPException(
                 status_code=401,
-                detail="Invalid or expired ssid cookie — log in again in your browser and copy a fresh ssid",
+                detail="Invalid or expired cookies — sync again from the browser extension",
             )
         logger.info("Cookie auth SUCCESS for %s, puuid=%s", user_email, tokens.get("puuid"))
         return tokens
 
 
-async def get_tokens(user_email: str, *, ssid: str | None = None) -> dict:
+async def auth_with_ssid(user_email: str, ssid: str) -> dict:
+    """Legacy wrapper — prefer auth_with_cookies with the full cookie dict."""
+    return await auth_with_cookies(user_email, {"ssid": ssid})
+
+
+async def get_tokens(
+    user_email: str,
+    *,
+    ssid: str | None = None,
+    cookies: dict | None = None,
+) -> dict:
     now = time.monotonic()
     cached = _token_cache.get(user_email)
     if cached and cached[1] > now:
@@ -172,6 +183,14 @@ async def get_tokens(user_email: str, *, ssid: str | None = None) -> dict:
         async with AsyncSession(impersonate="chrome120", timeout=15, cookies=old_cookies) as session:
             tokens = await _cookie_reauth(session, client_version)
             if tokens:
+                cache_tokens(user_email, tokens)
+                return _token_cache[user_email][0]
+
+    if cookies:
+        async with AsyncSession(impersonate="chrome120", timeout=15, cookies=cookies) as session:
+            tokens = await _cookie_reauth(session, client_version)
+            if tokens:
+                logger.info("cookies reauth SUCCESS for %s", user_email)
                 cache_tokens(user_email, tokens)
                 return _token_cache[user_email][0]
 
@@ -190,6 +209,40 @@ def cache_tokens(user_email: str, tokens: dict):
     cookies = tokens.get("_cookies", {})
     clean = {k: v for k, v in tokens.items() if k != "_cookies"}
     _token_cache[user_email] = (clean, time.monotonic() + 3300, cookies)
+
+
+async def resolve_tokens_from_credentials(user_email: str, creds) -> dict | None:
+    """Return valid tokens using stored credentials (encrypted_cookies preferred, encrypted_ssid legacy).
+    Returns None if the user has no credentials configured. Raises HTTPException on auth failure."""
+    if creds is None:
+        return None
+
+    from app import crypto
+
+    cached = get_cached_tokens(user_email)
+    if cached:
+        return cached
+
+    cookies_dict: dict | None = None
+    if getattr(creds, "encrypted_cookies", None):
+        try:
+            cookies_dict = json.loads(crypto.decrypt(creds.encrypted_cookies))
+        except Exception:
+            logger.warning("Failed to decrypt cookies for %s", user_email)
+            cookies_dict = None
+
+    ssid: str | None = None
+    if getattr(creds, "encrypted_ssid", None):
+        try:
+            ssid = crypto.decrypt(creds.encrypted_ssid)
+        except Exception:
+            logger.warning("Failed to decrypt ssid for %s", user_email)
+            ssid = None
+
+    if not cookies_dict and not ssid:
+        return None
+
+    return await get_tokens(user_email, ssid=ssid, cookies=cookies_dict)
 
 
 def invalidate_tokens(user_email: str):
@@ -243,3 +296,67 @@ async def get_skin_info(skin_uuid: str) -> dict:
     except Exception:
         pass
     return {}
+
+
+VP_CURRENCY = "85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741"
+RP_CURRENCY = "e59aa87c-4cbf-517a-5983-6e81511be9b7"
+KC_CURRENCY = "85ca954a-41f2-ce94-9b45-8ca3dd39a00d"
+
+
+async def get_contracts(tokens: dict, puuid: str, region: str = REGION) -> dict:
+    async with AsyncSession(impersonate="chrome120", timeout=15) as session:
+        r = await session.get(
+            f"https://pd.{region}.a.pvp.net/contracts/v1/contracts/{puuid}",
+            headers=_riot_headers(tokens),
+        )
+        if r.status_code == 403:
+            raise HTTPException(status_code=403, detail="Riot token rejected — resync your extension")
+        if r.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Riot contracts error {r.status_code}")
+        return r.json()
+
+
+async def get_loadout(tokens: dict, puuid: str, region: str = REGION) -> dict:
+    async with AsyncSession(impersonate="chrome120", timeout=15) as session:
+        r = await session.get(
+            f"https://pd.{region}.a.pvp.net/personalization/v2/players/{puuid}/playerloadout",
+            headers=_riot_headers(tokens),
+        )
+        if r.status_code == 403:
+            raise HTTPException(status_code=403, detail="Riot token rejected — resync your extension")
+        if r.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Riot loadout error {r.status_code}")
+        return r.json()
+
+
+async def set_loadout(tokens: dict, puuid: str, payload: dict, region: str = REGION) -> dict:
+    async with AsyncSession(impersonate="chrome120", timeout=15) as session:
+        r = await session.put(
+            f"https://pd.{region}.a.pvp.net/personalization/v2/players/{puuid}/playerloadout",
+            json=payload,
+            headers=_riot_headers(tokens),
+        )
+        if r.status_code == 403:
+            raise HTTPException(status_code=403, detail="Riot token rejected — resync your extension")
+        if r.status_code >= 400:
+            logger.error("set_loadout %s: %s", r.status_code, r.text[:400])
+            raise HTTPException(status_code=502, detail=f"Riot set-loadout error {r.status_code}")
+        return r.json()
+
+
+async def get_wallet(tokens: dict, puuid: str, region: str = REGION) -> dict:
+    async with AsyncSession(impersonate="chrome120", timeout=15) as session:
+        r = await session.get(
+            f"https://pd.{region}.a.pvp.net/store/v1/wallet/{puuid}",
+            headers=_riot_headers(tokens),
+        )
+        if r.status_code == 403:
+            raise HTTPException(status_code=403, detail="Riot token rejected — resync your extension")
+        if r.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Riot wallet error {r.status_code}")
+        balances = r.json().get("Balances", {})
+        return {
+            "vp": balances.get(VP_CURRENCY, 0),
+            "rp": balances.get(RP_CURRENCY, 0),
+            "kc": balances.get(KC_CURRENCY, 0),
+        }

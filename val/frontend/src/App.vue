@@ -2,11 +2,19 @@
 import { ref, computed, onMounted } from 'vue'
 import Sidebar from './components/Sidebar.vue'
 import AccountSetupModal from './components/AccountSetupModal.vue'
+import ExtensionSetupModal from './components/ExtensionSetupModal.vue'
 import DashboardView from './views/DashboardView.vue'
 import StatsView from './views/StatsView.vue'
 import ShopView from './views/ShopView.vue'
 import InventoryView from './views/InventoryView.vue'
 import EsportsView from './views/EsportsView.vue'
+import WalletView from './views/WalletView.vue'
+import NightMarketView from './views/NightMarketView.vue'
+import WishlistView from './views/WishlistView.vue'
+import ShopHistoryView from './views/ShopHistoryView.vue'
+import LoadoutBuilderView from './views/LoadoutBuilderView.vue'
+import BattlePassView from './views/BattlePassView.vue'
+import RankChartView from './views/RankChartView.vue'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -16,6 +24,7 @@ const linkedAccount = ref(null)     // user's own linked account
 const activePlayer = ref(null)      // player currently being viewed
 const currentView = ref('dashboard')
 const showAccountSetup = ref(false)
+const showExtensionSetup = ref(false)
 const searchLoading = ref(false)
 const searchError = ref('')
 
@@ -31,6 +40,13 @@ const viewComponent = computed(() => {
     case 'shop': return ShopView
     case 'inventory': return InventoryView
     case 'esports': return EsportsView
+    case 'wallet': return WalletView
+    case 'night-market': return NightMarketView
+    case 'wishlist': return WishlistView
+    case 'shop-history': return ShopHistoryView
+    case 'loadout': return LoadoutBuilderView
+    case 'battle-pass': return BattlePassView
+    case 'rank-chart': return RankChartView
     default: return DashboardView
   }
 })
@@ -105,6 +121,12 @@ onMounted(async () => {
     @close="showAccountSetup = false"
   />
 
+  <ExtensionSetupModal
+    v-if="showExtensionSetup"
+    @saved="showExtensionSetup = false"
+    @close="showExtensionSetup = false"
+  />
+
   <div v-if="appReady && user" class="app">
     <Sidebar
       :user="user"
@@ -117,6 +139,7 @@ onMounted(async () => {
       @navigate="currentView = $event"
       @search="onSearch"
       @open-account-setup="showAccountSetup = true"
+      @open-extension-setup="showExtensionSetup = true"
       @go-home="activePlayer = linkedAccount ? { riot_name: linkedAccount.riot_name, riot_tag: linkedAccount.riot_tag, region: linkedAccount.region, puuid: linkedAccount.puuid } : null"
     />
     <main class="main-content">

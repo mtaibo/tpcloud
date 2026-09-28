@@ -35,7 +35,7 @@ async def get_account(request: Request, db: Session = Depends(get_session)):
     creds = db.exec(select(RiotCredentials).where(RiotCredentials.user_email == user["email"])).first()
     has_credentials = (
         riot_client.get_cached_tokens(user["email"]) is not None
-        or (creds is not None and bool(creds.encrypted_ssid))
+        or (creds is not None and bool(creds.encrypted_cookies or creds.encrypted_ssid))
     )
     return {
         "riot_name": acc.riot_name,
