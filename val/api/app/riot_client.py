@@ -207,8 +207,9 @@ def _riot_headers(tokens: dict) -> dict:
 
 async def get_store(tokens: dict, puuid: str, region: str = REGION) -> dict:
     async with AsyncSession(impersonate="chrome120", timeout=15) as session:
-        r = await session.get(
+        r = await session.post(
             f"https://pd.{region}.a.pvp.net/store/v3/storefront/{puuid}",
+            json={},
             headers=_riot_headers(tokens),
         )
         if r.status_code == 403:
