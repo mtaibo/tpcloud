@@ -1,243 +1,147 @@
 <script setup>
-import { ref } from 'vue'
-import { Lock, ExternalLink, CheckCircle, ChevronDown } from 'lucide-vue-next'
+import { ref, onUnmounted } from 'vue'
+import { Lock, ExternalLink } from 'lucide-vue-next'
 import BaseModal from './BaseModal.vue'
 
 const emit = defineEmits(['close', 'saved'])
 
-const tab = ref('ssid') // 'ssid' | 'token'
-
-// ssid flow
-const ssid = ref('')
-const loadingCookie = ref(false)
-const errorCookie = ref('')
-
-// token flow
-const popupOpened = ref(false)
-const accessToken = ref('')
-const loading = ref(false)
-const error = ref('')
-
-const RIOT_OAUTH_URL =
+const OAUTH_URL =
   'https://auth.riotgames.com/authorize' +
   '?client_id=play-valorant-web-prod' +
   '&nonce=1' +
-  '&redirect_uri=https%3A%2F%2Fplayvalorant.com%2Fopt_in' +
+  '&redirect_uri=https%3A%2F%2Fval.migueltaibo.com%2Fauth%2Fcallback' +
   '&response_type=token%20id_token' +
   '&scope=openid' +
   '&language=en_US'
 
-function openRiotLogin() {
-  window.open(RIOT_OAUTH_URL, '_blank', 'width=500,height=700,noopener')
-  popupOpened.value = true
+const state = ref('idle') // idle | waiting | error
+const errorMsg = ref('')
+
+let popup = null
+let pollInterval = null
+let messageHandler = null
+
+function cleanup() {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
+  if (messageHandler) { window.removeEventListener('message', messageHandler); messageHandler = null }
+  if (popup && !popup.closed) popup.close()
+  popup = null
 }
 
-function extractToken(raw) {
-  const trimmed = raw.trim()
-  if (trimmed.includes('access_token=')) {
-    const m = trimmed.match(/[#&]access_token=([^&]+)/)
-    return m ? m[1] : ''
-  }
-  if (trimmed.startsWith('eyJ')) return trimmed
-  return ''
-}
+onUnmounted(cleanup)
 
-async function saveCookie() {
-  errorCookie.value = ''
-  if (!ssid.value.trim()) { errorCookie.value = 'Pega el valor del ssid'; return }
-  loadingCookie.value = true
-  try {
-    const r = await fetch('/api/val/account/credentials/cookie', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ssid: ssid.value.trim() }),
-    })
-    const data = await r.json()
-    if (!r.ok) { errorCookie.value = data.detail || 'ssid inválido o expirado'; return }
-    emit('saved')
-  } catch {
-    errorCookie.value = 'Error de red'
-  } finally {
-    loadingCookie.value = false
-  }
-}
+function startLogin() {
+  cleanup()
+  errorMsg.value = ''
+  state.value = 'waiting'
 
-async function saveToken() {
-  error.value = ''
-  const token = extractToken(accessToken.value)
-  if (!token) {
-    error.value = 'Pega la URL completa de la barra de direcciones'
-    return
-  }
-  loading.value = true
-  try {
-    const r = await fetch('/api/val/account/credentials/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ access_token: token }),
-    })
-    const data = await r.json()
-    if (!r.ok) {
-      error.value = data.detail || 'Token inválido — abre un nuevo login de Riot'
-      return
+  popup = window.open(OAUTH_URL, 'riot-auth', 'width=500,height=700')
+
+  messageHandler = (event) => {
+    if (!event.data || event.data.type !== 'riot-auth') return
+    cleanup()
+    if (event.data.success) {
+      emit('saved')
+    } else {
+      state.value = 'error'
+      errorMsg.value = event.data.error === 'no_token'
+        ? 'No se recibió token — asegúrate de completar el login'
+        : (event.data.error || 'Error de autenticación')
     }
-    emit('saved')
-  } catch {
-    error.value = 'Error de red'
-  } finally {
-    loading.value = false
   }
+  window.addEventListener('message', messageHandler)
+
+  pollInterval = setInterval(() => {
+    if (popup && popup.closed) {
+      cleanup()
+      if (state.value === 'waiting') {
+        state.value = 'error'
+        errorMsg.value = 'Ventana cerrada antes de completar el login'
+      }
+    }
+  }, 500)
 }
 </script>
 
 <template>
-  <BaseModal width="420px" @close="emit('close')">
+  <BaseModal width="380px" @close="emit('close')">
 
     <div class="modal-header">
       <Lock :size="18" color="#FF4655" style="flex-shrink:0" />
       <div>
         <p class="modal-title">Conectar Riot</p>
-        <span class="modal-subtitle">Necesario para tienda e inventario</span>
+        <span class="modal-subtitle">Necesario para ver tu tienda e inventario</span>
       </div>
-    </div>
-
-    <!-- Tab switcher -->
-    <div class="tab-bar">
-      <button :class="['tab', { active: tab === 'ssid' }]" @click="tab = 'ssid'">
-        Acceso completo
-      </button>
-      <button :class="['tab', { active: tab === 'token' }]" @click="tab = 'token'">
-        Solo tienda
-      </button>
     </div>
 
     <div class="modal-body">
 
-      <!-- SSID tab (full access) -->
-      <template v-if="tab === 'ssid'">
-        <p class="info-text">El cookie <strong>ssid</strong> da acceso a tienda e inventario. Se guarda de forma segura y renueva automáticamente.</p>
-        <div class="instructions-box">
-          <p class="inst-title">Cómo obtener el ssid:</p>
-          <ol class="inst-list">
-            <li>Ve a <strong>auth.riotgames.com</strong> en Chrome e inicia sesión con tu cuenta Riot</li>
-            <li>Pulsa <kbd>F12</kbd> → Application → Cookies → <code>auth.riotgames.com</code></li>
-            <li>Copia el valor de la cookie <strong>ssid</strong></li>
-          </ol>
-        </div>
-        <div class="form-group">
-          <textarea
-            v-model="ssid"
-            class="modal-input token-input"
-            placeholder="Valor de ssid…"
-            rows="2"
-            spellcheck="false"
-            autocomplete="off"
-          />
-        </div>
-        <p v-if="errorCookie" class="form-error">{{ errorCookie }}</p>
+      <template v-if="state === 'idle'">
+        <p class="info-text">Inicia sesión con tu cuenta de Riot para acceder a tu tienda diaria y tu inventario de skins.</p>
+        <button class="btn-riot" @click="startLogin">
+          <ExternalLink :size="14" />
+          Iniciar sesión con Riot
+        </button>
       </template>
 
-      <!-- Token tab (shop only) -->
-      <template v-else>
-        <p class="info-text">Login rápido via OAuth. <strong>Solo da acceso a la tienda</strong>, no al inventario. Expira en ~1h.</p>
+      <template v-else-if="state === 'waiting'">
+        <div class="waiting-state">
+          <div class="spinner" />
+          <p class="waiting-title">Esperando autenticación de Riot…</p>
+          <p class="waiting-sub">Completa el login en la ventana que se ha abierto</p>
+        </div>
+        <button class="btn-secondary" @click="cleanup(); state = 'idle'">Cancelar</button>
+      </template>
 
-        <template v-if="!popupOpened">
-          <div class="instructions-box">
-            <ol class="inst-list">
-              <li>Pulsa el botón de abajo</li>
-              <li>Inicia sesión con Riot (incluye tu 2FA)</li>
-              <li>Verás una página de error — <strong>es normal</strong></li>
-              <li>Copia la URL de la barra de direcciones y vuelve aquí</li>
-            </ol>
-          </div>
-          <button class="btn-riot-login" @click="openRiotLogin">
-            <ExternalLink :size="14" />
-            Abrir Login de Riot
-          </button>
-        </template>
-
-        <template v-else>
-          <div class="step-done">
-            <CheckCircle :size="14" color="#30d158" />
-            <span>Ventana de Riot abierta</span>
-          </div>
-          <div class="instructions-box">
-            <p class="inst-title">Tras iniciar sesión, en la barra de direcciones verás:</p>
-            <code class="url-example">playvalorant.com/opt_in#access_token=eyJ...</code>
-            <p class="inst-subtitle">Copia esa URL completa y pégala aquí:</p>
-          </div>
-          <div class="form-group" style="margin-top:10px">
-            <textarea
-              v-model="accessToken"
-              class="modal-input token-input"
-              placeholder="https://playvalorant.com/opt_in#access_token=eyJ…"
-              rows="3"
-              spellcheck="false"
-              autocomplete="off"
-            />
-          </div>
-          <p v-if="error" class="form-error">{{ error }}</p>
-        </template>
+      <template v-else-if="state === 'error'">
+        <div class="error-box">
+          <p class="error-msg">{{ errorMsg }}</p>
+        </div>
+        <button class="btn-riot" @click="startLogin">
+          <ExternalLink :size="14" />
+          Intentar de nuevo
+        </button>
       </template>
 
     </div>
 
     <div class="modal-footer">
-      <button class="btn-cancel" @click="emit('close')">Cancelar</button>
-
-      <!-- ssid tab footer -->
-      <button
-        v-if="tab === 'ssid'"
-        class="btn-primary"
-        :disabled="loadingCookie || !ssid.trim()"
-        @click="saveCookie"
-      >
-        {{ loadingCookie ? 'Verificando…' : 'Guardar' }}
-      </button>
-
-      <!-- token tab footer -->
-      <template v-else>
-        <button v-if="!popupOpened" class="btn-primary" @click="openRiotLogin">
-          <ExternalLink :size="13" />
-          Abrir Login de Riot
-        </button>
-        <button
-          v-else
-          class="btn-primary"
-          :disabled="loading || !accessToken.trim()"
-          @click="saveToken"
-        >
-          {{ loading ? 'Verificando…' : 'Confirmar' }}
-        </button>
-      </template>
+      <button class="btn-cancel" @click="emit('close')">Cerrar</button>
     </div>
 
   </BaseModal>
 </template>
 
 <style scoped>
-.tab-bar {
+.modal-header {
   display: flex;
-  border-bottom: 0.5px solid rgba(255,255,255,0.08);
-  padding: 0 16px;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 16px 0;
 }
-.tab {
-  flex: 1;
-  padding: 8px 0;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #525252;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-  margin-bottom: -0.5px;
-}
-.tab.active { color: #FF4655; border-bottom-color: #FF4655; }
-.tab:hover:not(.active) { color: #8E8E93; }
+.modal-title { font-size: 0.875rem; font-weight: 600; }
+.modal-subtitle { font-size: 0.7rem; color: #636366; }
 
-.btn-riot-login {
+.modal-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-footer {
+  padding: 0 16px 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.info-text {
+  font-size: 0.78rem;
+  color: #636366;
+  line-height: 1.55;
+}
+
+.btn-riot {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -251,80 +155,60 @@ async function saveToken() {
   font-size: 0.85rem;
   font-weight: 700;
   cursor: pointer;
-  margin-top: 12px;
   transition: opacity 0.15s;
 }
-.btn-riot-login:hover { opacity: 0.9; }
+.btn-riot:hover { opacity: 0.88; }
 
-.step-done {
+.waiting-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: #30d158;
-  margin-bottom: 12px;
+  gap: 12px;
+  padding: 16px 0 8px;
+  text-align: center;
 }
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid rgba(255,255,255,0.1);
+  border-top-color: #FF4655;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.waiting-title { font-size: 0.85rem; font-weight: 600; }
+.waiting-sub { font-size: 0.75rem; color: #636366; }
 
-.instructions-box {
-  background: rgba(255, 255, 255, 0.04);
-  border: 0.5px solid rgba(255, 255, 255, 0.08);
+.btn-secondary {
+  width: 100%;
+  padding: 8px;
   border-radius: 8px;
+  background: transparent;
+  border: 0.5px solid rgba(255,255,255,0.1);
+  color: #525252;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.btn-secondary:hover { color: #8E8E93; }
+
+.error-box {
   padding: 10px 12px;
+  background: rgba(255, 69, 58, 0.08);
+  border: 0.5px solid rgba(255, 69, 58, 0.2);
+  border-radius: 8px;
 }
-.inst-title {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: #d1d1d6;
-  margin-bottom: 6px;
-}
-.inst-subtitle {
-  font-size: 0.7rem;
-  color: #8E8E93;
-  margin-top: 8px;
-  margin-bottom: 0;
-}
-.inst-list {
-  font-size: 0.72rem;
-  color: #8E8E93;
-  line-height: 1.75;
-  padding-left: 16px;
-  margin: 0;
-}
-.inst-list strong { color: #d1d1d6; }
-.inst-list code, kbd {
-  background: rgba(255,255,255,0.08);
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 0.68rem;
-  color: #d1d1d6;
-}
+.error-msg { font-size: 0.78rem; color: #ff453a; line-height: 1.4; }
 
-.url-example {
-  display: block;
-  font-size: 0.68rem;
-  color: #636366;
-  background: rgba(0,0,0,0.3);
-  padding: 4px 6px;
-  border-radius: 4px;
-  word-break: break-all;
-  margin-top: 4px;
+.btn-cancel {
+  padding: 7px 16px;
+  border-radius: 8px;
+  background: transparent;
+  border: 0.5px solid rgba(255,255,255,0.1);
+  color: #525252;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: color 0.15s;
 }
-
-.token-input {
-  font-family: monospace;
-  font-size: 0.68rem;
-  resize: none;
-  word-break: break-all;
-}
-
-.info-text {
-  font-size: 0.72rem;
-  color: #636366;
-  line-height: 1.5;
-  margin-bottom: 12px;
-}
-.info-text strong { color: #8E8E93; }
-
-.form-group { margin-bottom: 10px; margin-top: 10px; }
-.form-error { font-size: 0.75rem; color: #ff453a; margin-top: 8px; }
+.btn-cancel:hover { color: #8E8E93; }
 </style>
