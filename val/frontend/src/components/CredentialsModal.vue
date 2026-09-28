@@ -1,212 +1,234 @@
 <script setup>
-import { ref, onUnmounted } from 'vue'
-import { Lock, ExternalLink } from 'lucide-vue-next'
+import { ref } from 'vue'
 import BaseModal from './BaseModal.vue'
 
 const emit = defineEmits(['close', 'saved'])
 
-const OAUTH_URL =
-  'https://auth.riotgames.com/authorize' +
-  '?client_id=play-valorant-web-prod' +
-  '&nonce=1' +
-  '&redirect_uri=https%3A%2F%2Fval.migueltaibo.com%2Fauth%2Fcallback' +
-  '&response_type=token%20id_token' +
-  '&scope=openid' +
-  '&language=en_US'
+const step = ref(1) // 1 = instructions, 2 = paste
+const ssid = ref('')
+const loading = ref(false)
+const error = ref('')
 
-const state = ref('idle') // idle | waiting | error
-const errorMsg = ref('')
-
-let popup = null
-let pollInterval = null
-let messageHandler = null
-
-function cleanup() {
-  if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
-  if (messageHandler) { window.removeEventListener('message', messageHandler); messageHandler = null }
-  if (popup && !popup.closed) popup.close()
-  popup = null
+function openRiot() {
+  window.open('https://auth.riotgames.com', '_blank')
+  step.value = 2
 }
 
-onUnmounted(cleanup)
-
-function startLogin() {
-  cleanup()
-  errorMsg.value = ''
-  state.value = 'waiting'
-
-  popup = window.open(OAUTH_URL, 'riot-auth', 'width=500,height=700')
-
-  messageHandler = (event) => {
-    if (!event.data || event.data.type !== 'riot-auth') return
-    cleanup()
-    if (event.data.success) {
-      emit('saved')
-    } else {
-      state.value = 'error'
-      errorMsg.value = event.data.error === 'no_token'
-        ? 'No se recibió token — asegúrate de completar el login'
-        : (event.data.error || 'Error de autenticación')
-    }
+async function save() {
+  error.value = ''
+  if (!ssid.value.trim()) return
+  loading.value = true
+  try {
+    const r = await fetch('/api/val/account/credentials/cookie', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssid: ssid.value.trim() }),
+    })
+    const data = await r.json()
+    if (!r.ok) { error.value = data.detail || 'Cookie inválida o expirada'; return }
+    emit('saved')
+  } catch {
+    error.value = 'Error de red'
+  } finally {
+    loading.value = false
   }
-  window.addEventListener('message', messageHandler)
-
-  pollInterval = setInterval(() => {
-    if (popup && popup.closed) {
-      cleanup()
-      if (state.value === 'waiting') {
-        state.value = 'error'
-        errorMsg.value = 'Ventana cerrada antes de completar el login'
-      }
-    }
-  }, 500)
 }
 </script>
 
 <template>
-  <BaseModal width="380px" @close="emit('close')">
+  <BaseModal width="360px" @close="emit('close')">
+    <div class="modal">
 
-    <div class="modal-header">
-      <Lock :size="18" color="#FF4655" style="flex-shrink:0" />
-      <div>
-        <p class="modal-title">Conectar Riot</p>
-        <span class="modal-subtitle">Necesario para ver tu tienda e inventario</span>
-      </div>
-    </div>
+      <!-- Step 1: instructions -->
+      <template v-if="step === 1">
+        <p class="title">Conectar Riot</p>
+        <p class="sub">Solo tienes que hacer esto una vez. Da acceso a tu tienda e inventario.</p>
 
-    <div class="modal-body">
-
-      <template v-if="state === 'idle'">
-        <p class="info-text">Inicia sesión con tu cuenta de Riot para acceder a tu tienda diaria y tu inventario de skins.</p>
-        <button class="btn-riot" @click="startLogin">
-          <ExternalLink :size="14" />
-          Iniciar sesión con Riot
-        </button>
-      </template>
-
-      <template v-else-if="state === 'waiting'">
-        <div class="waiting-state">
-          <div class="spinner" />
-          <p class="waiting-title">Esperando autenticación de Riot…</p>
-          <p class="waiting-sub">Completa el login en la ventana que se ha abierto</p>
+        <div class="steps">
+          <div class="step-row">
+            <span class="num">1</span>
+            <span>Pulsa el botón de abajo — se abre <strong>auth.riotgames.com</strong></span>
+          </div>
+          <div class="step-row">
+            <span class="num">2</span>
+            <span>Inicia sesión con tu cuenta de Riot si aún no lo has hecho</span>
+          </div>
+          <div class="step-row">
+            <span class="num">3</span>
+            <span>Pulsa <kbd>F12</kbd> → <strong>Application</strong> → <strong>Cookies</strong> → <code>auth.riotgames.com</code> → copia el valor de <strong>ssid</strong></span>
+          </div>
         </div>
-        <button class="btn-secondary" @click="cleanup(); state = 'idle'">Cancelar</button>
+
+        <button class="btn-primary" @click="openRiot">Abrir Riot Auth →</button>
+        <button class="btn-ghost" @click="step = 2">Ya tengo el ssid</button>
       </template>
 
-      <template v-else-if="state === 'error'">
-        <div class="error-box">
-          <p class="error-msg">{{ errorMsg }}</p>
+      <!-- Step 2: paste -->
+      <template v-else>
+        <button class="back" @click="step = 1">← Volver</button>
+        <p class="title">Pega el valor de ssid</p>
+        <p class="sub">Lo encuentras en <strong>F12 → Application → Cookies → auth.riotgames.com</strong></p>
+
+        <textarea
+          v-model="ssid"
+          class="input"
+          placeholder="Pega aquí el valor de ssid…"
+          rows="3"
+          spellcheck="false"
+          autocomplete="off"
+          autofocus
+        />
+
+        <p v-if="error" class="error">{{ error }}</p>
+
+        <div class="footer">
+          <button class="btn-cancel" @click="emit('close')">Cancelar</button>
+          <button class="btn-primary" :disabled="loading || !ssid.trim()" @click="save">
+            {{ loading ? 'Verificando…' : 'Guardar' }}
+          </button>
         </div>
-        <button class="btn-riot" @click="startLogin">
-          <ExternalLink :size="14" />
-          Intentar de nuevo
-        </button>
       </template>
 
     </div>
-
-    <div class="modal-footer">
-      <button class="btn-cancel" @click="emit('close')">Cerrar</button>
-    </div>
-
   </BaseModal>
 </template>
 
 <style scoped>
-.modal-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 16px 0;
-}
-.modal-title { font-size: 0.875rem; font-weight: 600; }
-.modal-subtitle { font-size: 0.7rem; color: #636366; }
-
-.modal-body {
-  padding: 16px;
+.modal {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 20px;
 }
 
-.modal-footer {
-  padding: 0 16px 16px;
-  display: flex;
-  justify-content: flex-end;
+.title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
 }
 
-.info-text {
-  font-size: 0.78rem;
+.sub {
+  font-size: 0.73rem;
   color: #636366;
-  line-height: 1.55;
+  line-height: 1.5;
+}
+.sub strong { color: #8E8E93; }
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 0.5px solid rgba(255,255,255,0.07);
+  border-radius: 10px;
+  padding: 14px;
 }
 
-.btn-riot {
+.step-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.76rem;
+  color: #8E8E93;
+  line-height: 1.5;
+}
+.step-row strong { color: #d1d1d6; }
+
+.num {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background: rgba(255,70,85,0.15);
+  border: 0.5px solid rgba(255,70,85,0.3);
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #FF4655;
+  margin-top: 1px;
+}
+
+kbd, code {
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 0.7rem;
+  color: #d1d1d6;
+  font-family: monospace;
+}
+
+.btn-primary {
   width: 100%;
-  padding: 12px;
-  border-radius: 10px;
+  padding: 11px;
+  border-radius: 9px;
   background: #FF4655;
   border: none;
   color: #fff;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 700;
   cursor: pointer;
   transition: opacity 0.15s;
 }
-.btn-riot:hover { opacity: 0.88; }
+.btn-primary:hover:not(:disabled) { opacity: 0.88; }
+.btn-primary:disabled { opacity: 0.4; cursor: default; }
 
-.waiting-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 0 8px;
-  text-align: center;
-}
-.spinner {
-  width: 28px;
-  height: 28px;
-  border: 2.5px solid rgba(255,255,255,0.1);
-  border-top-color: #FF4655;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.waiting-title { font-size: 0.85rem; font-weight: 600; }
-.waiting-sub { font-size: 0.75rem; color: #636366; }
-
-.btn-secondary {
+.btn-ghost {
   width: 100%;
   padding: 8px;
-  border-radius: 8px;
+  border-radius: 9px;
   background: transparent;
   border: 0.5px solid rgba(255,255,255,0.1);
   color: #525252;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   cursor: pointer;
   transition: color 0.15s;
 }
-.btn-secondary:hover { color: #8E8E93; }
+.btn-ghost:hover { color: #8E8E93; }
 
-.error-box {
-  padding: 10px 12px;
-  background: rgba(255, 69, 58, 0.08);
-  border: 0.5px solid rgba(255, 69, 58, 0.2);
-  border-radius: 8px;
+.back {
+  background: none;
+  border: none;
+  color: #525252;
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  transition: color 0.15s;
 }
-.error-msg { font-size: 0.78rem; color: #ff453a; line-height: 1.4; }
+.back:hover { color: #8E8E93; }
+
+.input {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 0.5px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: #fff;
+  font-family: monospace;
+  font-size: 0.7rem;
+  padding: 10px;
+  resize: none;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input:focus { border-color: rgba(255,70,85,0.4); }
+
+.error { font-size: 0.73rem; color: #ff453a; }
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 
 .btn-cancel {
-  padding: 7px 16px;
+  padding: 8px 14px;
   border-radius: 8px;
   background: transparent;
   border: 0.5px solid rgba(255,255,255,0.1);
   color: #525252;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   cursor: pointer;
   transition: color 0.15s;
 }
