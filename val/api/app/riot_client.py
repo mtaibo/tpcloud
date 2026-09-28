@@ -221,14 +221,16 @@ async def get_store(tokens: dict, puuid: str, region: str = REGION) -> dict:
 
 
 async def get_inventory(tokens: dict, puuid: str, region: str = REGION) -> list:
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        r = await client.get(
+    async with AsyncSession(impersonate="chrome120", timeout=15) as session:
+        r = await session.get(
             f"https://pd.{region}.a.pvp.net/store/v1/entitlements/{puuid}/{WEAPON_SKIN_ITEM_TYPE}",
             headers=_riot_headers(tokens),
         )
         if r.status_code == 403:
             raise HTTPException(status_code=403, detail="Riot token rejected — re-enter credentials")
-        r.raise_for_status()
+        logger.warning("Inventory response %s: %s", r.status_code, r.text[:300])
+        if r.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Riot inventory error {r.status_code}")
         return r.json().get("Entitlements", [])
 
 
