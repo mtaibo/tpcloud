@@ -17,8 +17,6 @@ accounts/node_modules/
 accounts/dist/
 store/frontend/node_modules/
 store/frontend/dist/
-val/frontend/node_modules/
-val/frontend/dist/
 package-lock.json
 
 .claude/

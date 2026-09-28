@@ -84,33 +84,6 @@ services:
       - gateway
     restart: unless-stopped
 
-  val-api:
-    build: ./val/api
-    container_name: tpval-api
-    environment:
-      - AUTH_SERVICE_URL=http://auth:8000
-      - HENRIK_API_KEY=${HENRIK_API_KEY}
-      - RIOT_CRED_KEY=${RIOT_CRED_KEY}
-    volumes:
-      - ./data:/app/data
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-    depends_on:
-      - auth
-    networks:
-      - gateway
-    restart: unless-stopped
-
-  val-frontend:
-    build: ./val/frontend
-    container_name: tpval-frontend
-    depends_on:
-      - val-api
-    networks:
-      - gateway
-    restart: unless-stopped
-
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared

@@ -1,7 +1,0 @@
-fastapi
-uvicorn[standard]
-httpx
-sqlmodel
-cryptography
-curl_cffi
-apscheduler
