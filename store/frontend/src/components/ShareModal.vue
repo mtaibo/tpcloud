@@ -163,7 +163,7 @@ async function copyUrl() {
           />
         </div>
 
-        <label class="toggle-row">
+        <label v-if="entry.type === 'directory'" class="toggle-row">
           <input v-model="editable" type="checkbox" class="toggle-cb" />
           <span class="field-label" style="margin:0">Allow editing</span>
         </label>

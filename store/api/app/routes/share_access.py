@@ -89,6 +89,13 @@ def _share_resolve(share: ShareLink, subpath: str) -> Path:
     return resolve_path(share_root, subpath)
 
 
+def _share_is_file(share: ShareLink) -> bool:
+    try:
+        return _share_resolve(share, "").is_file()
+    except HTTPException:
+        return False
+
+
 # ── Metadata & auth ──────────────────────────────────────────────────────────
 
 @router.get("")
@@ -100,6 +107,7 @@ def list_public_shares(db: Session = Depends(get_session)):
             "label": s.path.split("/")[-1] or s.token,
             "has_password": s.password_hash is not None,
             "url": f"https://share.migueltaibo.com/{s.token}",
+            "is_file": _share_is_file(s),
         }
         for s in shares
     ]
@@ -108,11 +116,17 @@ def list_public_shares(db: Session = Depends(get_session)):
 @router.get("/{token}")
 def get_share_info(token: str, db: Session = Depends(get_session)):
     share = _get_share(token, db)
+    is_file = _share_is_file(share)
+    content_type = None
+    if is_file:
+        content_type, _ = mimetypes.guess_type(share.path)
     return {
         "token": share.token,
         "label": share.path.split("/")[-1] or share.token,
         "has_password": share.password_hash is not None,
         "editable": share.editable,
+        "is_file": is_file,
+        "content_type": content_type,
     }
 
 
@@ -219,7 +233,7 @@ def list_files(
 def view_file(
     token: str,
     request: Request,
-    path: str = Query(...),
+    path: str = Query(default=""),
     db: Session = Depends(get_session),
 ):
     share = _get_share(token, db)
@@ -238,7 +252,7 @@ def view_file(
 async def share_thumbnail(
     token: str,
     request: Request,
-    path: str = Query(...),
+    path: str = Query(default=""),
     size: int = Query(default=160),
     db: Session = Depends(get_session),
 ):
@@ -279,7 +293,7 @@ async def share_thumbnail(
 def download_file(
     token: str,
     request: Request,
-    path: str = Query(...),
+    path: str = Query(default=""),
     db: Session = Depends(get_session),
 ):
     share = _get_share(token, db)

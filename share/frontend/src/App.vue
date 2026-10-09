@@ -52,6 +52,13 @@ onMounted(async () => {
 
 const needsPassword = computed(() => shareInfo.value?.has_password && !sessionToken.value)
 
+const shareFileUrl = computed(() => {
+  const params = new URLSearchParams()
+  if (sessionToken.value) params.set('session', sessionToken.value)
+  const qs = params.toString()
+  return `/api/share/${token}/files/view${qs ? `?${qs}` : ''}`
+})
+
 function onAuthenticated(st) {
   sessionToken.value = st
 }
@@ -69,6 +76,12 @@ function onAuthenticated(st) {
   <div v-else-if="error" class="center-msg err">{{ error }}</div>
   <template v-else-if="shareInfo">
     <PasswordWall v-if="needsPassword" :token="token" @authenticated="onAuthenticated" />
+    <FileViewer
+      v-else-if="shareInfo.is_file"
+      :filename="shareInfo.label"
+      :content-type="shareInfo.content_type"
+      :file-url="shareFileUrl"
+    />
     <ShareBrowser v-else :token="token" :share-info="shareInfo" :session-token="sessionToken" />
   </template>
 </template>

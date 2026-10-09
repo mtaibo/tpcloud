@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from app.auth import get_current_user
 from app.database import get_session
 from app.models import ShareLink
-from app.routes.share_access import _invalidate_share_cache
+from app.routes.share_access import _invalidate_share_cache, _share_is_file
 from app.utils import check_access
 
 router = APIRouter(prefix="/api/shares", tags=["shares"])
@@ -33,6 +33,7 @@ def _serialize(share: ShareLink) -> dict:
         "editable": share.editable,
         "public": share.public,
         "created_at": share.created_at.isoformat(),
+        "is_file": _share_is_file(share),
     }
 
 

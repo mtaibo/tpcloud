@@ -396,6 +396,10 @@ async function deleteItem(entry) {
 
 async function viewItem(entry) {
   if (entry.type === 'share-link') {
+    if (entry.share?.is_file) {
+      window.open(entry.url, '_blank')
+      return
+    }
     shareMode.value = {
       token: entry.token,
       label: entry.share?.label || entry.name,
@@ -1046,7 +1050,7 @@ function onDrop(e) {
               <Star class="ctx-icon" />
               <span>Add to Favorites</span>
             </button>
-            <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="shareActiveItem">
+            <button class="ctx-item" @click="shareActiveItem">
               <Share2 class="ctx-icon" />
               <span>Share…</span>
             </button>
