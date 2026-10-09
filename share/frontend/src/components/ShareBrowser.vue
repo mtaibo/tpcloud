@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, MoreHorizontal, LayoutGrid, List, FolderDown
 import ShareFileRow from './ShareFileRow.vue'
 import ShareGalleryThumb from './ShareGalleryThumb.vue'
 import ImageViewer from './ImageViewer.vue'
-import { getFileIcon, getIconColor, IMAGE_EXTS } from '../fileTypes.js'
+import { getFileIcon, getIconColor, IMAGE_EXTS, VIDEO_EXTS } from '../fileTypes.js'
 
 const props = defineProps({
   token: String,
@@ -37,6 +37,7 @@ const imageViewSrc = computed(() => {
   if (props.sessionToken) params.set('session', props.sessionToken)
   return `/api/share/${props.token}/files/view?${params}`
 })
+const imageViewIsVideo = computed(() => imageViewEntry.value && entryIsVideo(imageViewEntry.value))
 
 const breadcrumbs = computed(() => currentPath.value.split('/').filter(Boolean))
 const rootLabel = computed(() => props.shareInfo?.label || props.token)
@@ -58,6 +59,14 @@ function toggleGallery() {
 
 function entryIsImage(entry) {
   return IMAGE_EXTS.has(entry.name.split('.').pop()?.toLowerCase() ?? '')
+}
+
+function entryIsVideo(entry) {
+  return VIDEO_EXTS.has(entry.name.split('.').pop()?.toLowerCase() ?? '')
+}
+
+function entryIsMedia(entry) {
+  return entryIsImage(entry) || entryIsVideo(entry)
 }
 
 function thumbSrc(entry) {
@@ -195,7 +204,7 @@ function showMoreMenu() {
 
 function onFileActivate(entry) {
   const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-  if (IMAGE_EXTS.has(ext)) {
+  if (IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext)) {
     imageViewEntry.value = entry
   } else {
     openInTab(entry)
@@ -323,9 +332,10 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         >
           <div class="gallery-thumb">
             <ShareGalleryThumb
-              v-if="entry.type === 'file' && entryIsImage(entry)"
+              v-if="entry.type === 'file' && entryIsMedia(entry)"
               :src="thumbSrc(entry)"
               :alt="entry.name"
+              :type="entryIsVideo(entry) ? 'video' : 'image'"
             />
             <component
               v-else
@@ -413,6 +423,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
       v-if="imageViewEntry"
       :src="imageViewSrc"
       :name="imageViewEntry.name"
+      :is-video="imageViewIsVideo"
       @close="imageViewEntry = null"
     />
 

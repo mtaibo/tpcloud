@@ -15,7 +15,7 @@ import GalleryThumb from './GalleryThumb.vue'
 import { useFavourites } from '../useFavourites.js'
 import { useTransfers, formatBytes } from '../useTransfers.js'
 import { useCompression } from '../useCompression.js'
-import { IMAGE_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
+import { IMAGE_EXTS, VIDEO_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
 
 const props = defineProps({
   user: Object,
@@ -115,6 +115,15 @@ function entryIsImage(entry) {
   return IMAGE_EXTS.has(ext)
 }
 
+function entryIsVideo(entry) {
+  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
+  return VIDEO_EXTS.has(ext)
+}
+
+function entryIsMedia(entry) {
+  return entryIsImage(entry) || entryIsVideo(entry)
+}
+
 function galleryThumbSrc(entry) {
   if (shareMode.value) {
     const path = joinPath(shareMode.value.path, entry.name)
@@ -138,6 +147,8 @@ const imageViewSrc = computed(() => {
   const params = new URLSearchParams({ path, location: props.location })
   return `/api/files/view?${params}`
 })
+
+const imageViewIsVideo = computed(() => imageViewEntry.value && entryIsVideo(imageViewEntry.value))
 
 const { add: addFav, updateIconName: updateFavIconName } = useFavourites()
 
@@ -202,7 +213,7 @@ function onDocKeydown(e) {
     const navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'a', 'A', 'd', 'D', 'w', 'W', 's', 'S']
     if (navKeys.includes(e.key)) {
       e.preventDefault()
-      const images = displayEntries.value.filter(entryIsImage)
+      const images = displayEntries.value.filter(entryIsMedia)
       const idx = images.findIndex(img => img.name === imageViewEntry.value.name)
       const prev = ['ArrowLeft', 'ArrowUp', 'a', 'A', 'w', 'W']
       const next = ['ArrowRight', 'ArrowDown', 'd', 'D', 's', 'S']
@@ -398,7 +409,7 @@ async function viewItem(entry) {
   if (shareMode.value) {
     const entryPath = joinPath(shareMode.value.path, entry.name)
     const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-    if (IMAGE_EXTS.has(ext)) {
+    if (IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext)) {
       imageViewEntry.value = entry
       return
     }
@@ -407,7 +418,7 @@ async function viewItem(entry) {
   }
   const path = joinPath(props.currentPath, entry.name)
   const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-  if (IMAGE_EXTS.has(ext)) {
+  if (IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext)) {
     imageViewEntry.value = entry
     return
   }
@@ -884,9 +895,10 @@ function onDrop(e) {
         >
           <div class="gallery-thumb">
             <GalleryThumb
-              v-if="entry.type === 'file' && entryIsImage(entry)"
+              v-if="entry.type === 'file' && entryIsMedia(entry)"
               :src="galleryThumbSrc(entry)"
               :alt="entry.name"
+              :type="entryIsVideo(entry) ? 'video' : 'image'"
             />
             <component
               v-else
@@ -1161,6 +1173,7 @@ function onDrop(e) {
       v-if="imageViewEntry"
       :src="imageViewSrc"
       :name="imageViewEntry.name"
+      :is-video="imageViewIsVideo"
       @close="imageViewEntry = null"
     />
 

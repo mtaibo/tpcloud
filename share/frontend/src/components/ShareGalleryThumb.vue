@@ -1,13 +1,19 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { Play } from 'lucide-vue-next'
 
-const props = defineProps({ src: String, alt: String })
+const props = defineProps({ src: String, alt: String, type: { type: String, default: 'image' } })
 
 const wrapRef = ref(null)
 const imgRef = ref(null)
 const activeSrc = ref('')
 const loaded = ref(false)
 let retryTimer = null
+
+function onVideoMeta() {
+  const el = imgRef.value
+  if (el) el.currentTime = Math.min(0.5, (el.duration || 0) / 2)
+}
 
 let observer = null
 
@@ -48,8 +54,21 @@ function onError() {
 
 <template>
   <div ref="wrapRef" class="thumb-wrap">
+    <video
+      v-if="activeSrc && type === 'video'"
+      ref="imgRef"
+      :src="activeSrc"
+      class="thumb-img"
+      :class="{ loaded }"
+      muted
+      preload="metadata"
+      playsinline
+      @loadedmetadata="onVideoMeta"
+      @seeked="loaded = true"
+      @error="onError"
+    />
     <img
-      v-if="activeSrc"
+      v-else-if="activeSrc"
       ref="imgRef"
       :src="activeSrc"
       :alt="alt"
@@ -59,11 +78,13 @@ function onError() {
       @load="loaded = true"
       @error="onError"
     />
+    <Play v-if="activeSrc && type === 'video'" class="thumb-play-icon" />
   </div>
 </template>
 
 <style scoped>
 .thumb-wrap {
+  position: relative;
   width: 100%;
   height: 100%;
 }
@@ -77,5 +98,17 @@ function onError() {
 }
 .thumb-img.loaded {
   opacity: 1;
+}
+.thumb-play-icon {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  padding: 3px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  pointer-events: none;
 }
 </style>

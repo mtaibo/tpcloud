@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted } from 'vue'
 import { X } from 'lucide-vue-next'
 
-const props = defineProps({ src: String, name: String })
+const props = defineProps({ src: String, name: String, isVideo: { type: Boolean, default: false } })
 const emit = defineEmits(['close'])
 
 function onKeydown(e) {
@@ -20,7 +20,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         <button class="viewer-close" @click="emit('close')" title="Close">
           <X class="close-icon" />
         </button>
-        <img class="viewer-img" :src="src" :alt="name" />
+        <video v-if="isVideo" class="viewer-img" :src="src" controls autoplay playsinline />
+        <img v-else class="viewer-img" :src="src" :alt="name" />
         <span class="viewer-name">{{ name }}</span>
       </div>
     </Transition>
