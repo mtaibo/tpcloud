@@ -1,0 +1,99 @@
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import PasswordWall from './components/PasswordWall.vue'
+import ShareBrowser from './components/ShareBrowser.vue'
+import ShareLanding from './components/ShareLanding.vue'
+import FileViewer from './components/FileViewer.vue'
+
+const token = window.location.pathname.replace(/^\/+/, '').split('/')[0]
+
+const shareInfo = ref(null)
+const sessionToken = ref(null)
+const fileInfo = ref(null)
+const error = ref('')
+const loading = ref(true)
+
+onMounted(async () => {
+  if (!token) {
+    loading.value = false
+    return
+  }
+  sessionToken.value = localStorage.getItem(`share-session-${token}`)
+  try {
+    const res = await fetch(`/api/share/${token}`)
+    if (res.status === 404) {
+      try {
+        const openRes = await fetch(`/api/open/${token}/info`)
+        if (openRes.ok) {
+          const ct = openRes.headers.get('content-type') || ''
+          if (ct.includes('application/json')) {
+            fileInfo.value = await openRes.json()
+            loading.value = false
+            return
+          }
+        }
+      } catch {}
+      error.value = 'This link does not exist.'
+      loading.value = false
+      return
+    }
+    if (!res.ok) {
+      error.value = 'Failed to load share'
+      loading.value = false
+      return
+    }
+    shareInfo.value = await res.json()
+  } catch {
+    error.value = 'Connection error'
+  } finally {
+    loading.value = false
+  }
+})
+
+const needsPassword = computed(() => shareInfo.value?.has_password && !sessionToken.value)
+
+const shareFileUrl = computed(() => {
+  const params = new URLSearchParams()
+  if (sessionToken.value) params.set('session', sessionToken.value)
+  const qs = params.toString()
+  return `/api/share/${token}/files/view${qs ? `?${qs}` : ''}`
+})
+
+function onAuthenticated(st) {
+  sessionToken.value = st
+}
+</script>
+
+<template>
+  <FileViewer
+    v-if="!loading && fileInfo"
+    :filename="fileInfo.filename"
+    :content-type="fileInfo.content_type"
+    :file-url="`/api/open/${token}`"
+  />
+  <ShareLanding v-else-if="!loading && !token" />
+  <div v-else-if="loading" class="center-msg">Loading…</div>
+  <div v-else-if="error" class="center-msg err">{{ error }}</div>
+  <template v-else-if="shareInfo">
+    <PasswordWall v-if="needsPassword" :token="token" @authenticated="onAuthenticated" />
+    <FileViewer
+      v-else-if="shareInfo.is_file"
+      :filename="shareInfo.label"
+      :content-type="shareInfo.content_type"
+      :file-url="shareFileUrl"
+    />
+    <ShareBrowser v-else :token="token" :share-info="shareInfo" :session-token="sessionToken" />
+  </template>
+</template>
+
+<style scoped>
+.center-msg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  font-size: 0.9rem;
+  color: #636366;
+}
+.err { color: #ff453a; }
+</style>

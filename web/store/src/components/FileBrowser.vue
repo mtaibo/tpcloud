@@ -1,0 +1,1627 @@
+<script setup>
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star, Share2, LayoutGrid, List, Folder, Palette } from 'lucide-vue-next'
+import Breadcrumb from './Breadcrumb.vue'
+import FileRow from './FileRow.vue'
+import MoveModal from './MoveModal.vue'
+import RenameModal from './RenameModal.vue'
+import DeleteModal from './DeleteModal.vue'
+import CreateModal from './CreateModal.vue'
+import ShareModal from './ShareModal.vue'
+import SharePropertiesModal from './SharePropertiesModal.vue'
+import FolderIconPicker from './FolderIconPicker.vue'
+import ImageViewer from './ImageViewer.vue'
+import GalleryThumb from './GalleryThumb.vue'
+import { useFavourites } from '../useFavourites.js'
+import { useTransfers, formatBytes } from '../useTransfers.js'
+import { useCompression } from '../useCompression.js'
+import { IMAGE_EXTS, VIDEO_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
+
+const props = defineProps({
+  user: Object,
+  location: String,
+  currentPath: String,
+  canGoBack: Boolean,
+  canGoForward: Boolean,
+  viewAsAdmin: Boolean,
+})
+
+const emit = defineEmits(['navigate', 'go-back', 'go-forward', 'open-shares'])
+
+const entries = ref([])
+const loading = ref(false)
+const error = ref(null)
+const isDragOver = ref(false)
+const { startUpload, resumeUpload, cancelPendingUpload, uploads,
+        add: addTransfer, update: updateTransfer, setTotal: setTransferTotal,
+        complete: completeTransfer, fail: failTransfer } = useTransfers()
+const { startDecompress } = useCompression()
+
+// Merges server entries with real-time active upload progress,
+// and injects synthetic pending entries for uploads in this folder.
+const displayEntries = computed(() => {
+  const base = [...entries.value]
+  const existing = new Set(base.map(e => e.name))
+
+  for (const t of uploads.value) {
+    if (
+      t.status === 'active' &&
+      t.name &&
+      t.path === props.currentPath &&
+      t.location === props.location &&
+      !existing.has(t.name)
+    ) {
+      base.push({
+        name: t.name,
+        type: 'upload-pending',
+        size: t.totalSize,
+        modified: Date.now() / 1000,
+        upload_id: t.uploadId,
+        bytes_received: t.loaded,
+      })
+    }
+  }
+
+  const doneIds = new Set(
+    uploads.value.filter(t => t.status === 'done' && t.uploadId).map(t => t.uploadId)
+  )
+
+  return base
+    .filter(e => e.type !== 'upload-pending' || !doneIds.has(e.upload_id))
+    .map(e => {
+      if (e.type !== 'upload-pending') return e
+      const active = uploads.value.find(t => t.uploadId === e.upload_id)
+      return active ? { ...e, bytes_received: active.loaded } : e
+    })
+})
+const fileInput = ref(null)
+
+const contextMenu = ref(null)
+const moreBtn = ref(null)
+const menuVisible = ref(false)
+const menuPos = ref({ x: 0, y: 0 })
+const activeEntry = ref(null)
+
+const pickerEntry = ref(null)
+const pickerMode = ref('move')
+const renameEntry = ref(null)
+const deleteEntry = ref(null)
+const createMode = ref(null)
+const shareEntry = ref(null)
+const sharePropsEntry = ref(null)
+const imageViewEntry = ref(null)
+const iconPickerEntry = ref(null)
+const galleryMode = ref(localStorage.getItem('gallery-mode') === '1')
+const shareMode = ref(null) // { token, label, path, history, historyIndex } | null
+const diskInfo = ref(null)
+let _loadController = null
+
+function formatGB(bytes) {
+  const gb = bytes / (1024 * 1024 * 1024)
+  return gb.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' GB'
+}
+
+function joinPath(base, name) {
+  return base ? `${base}/${name}` : name
+}
+
+function toggleGallery() {
+  galleryMode.value = !galleryMode.value
+  localStorage.setItem('gallery-mode', galleryMode.value ? '1' : '0')
+}
+
+function entryIsImage(entry) {
+  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
+  return IMAGE_EXTS.has(ext)
+}
+
+function entryIsVideo(entry) {
+  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
+  return VIDEO_EXTS.has(ext)
+}
+
+function entryIsMedia(entry) {
+  return entryIsImage(entry) || entryIsVideo(entry)
+}
+
+function galleryThumbSrc(entry) {
+  if (shareMode.value) {
+    const path = joinPath(shareMode.value.path, entry.name)
+    return `/api/share/${shareMode.value.token}/files/thumbnail?path=${encodeURIComponent(path)}`
+  }
+  const path = joinPath(props.currentPath, entry.name)
+  const params = new URLSearchParams({ path, location: props.location })
+  return `/api/files/thumbnail?${params}`
+}
+
+function galleryEntryIcon(entry) { return getFileIcon(entry) }
+function galleryEntryColor(entry) { return getIconColor(entry) }
+
+const imageViewSrc = computed(() => {
+  if (!imageViewEntry.value) return ''
+  if (shareMode.value) {
+    const path = joinPath(shareMode.value.path, imageViewEntry.value.name)
+    return `/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(path)}`
+  }
+  const path = joinPath(props.currentPath, imageViewEntry.value.name)
+  const params = new URLSearchParams({ path, location: props.location })
+  return `/api/files/view?${params}`
+})
+
+const imageViewIsVideo = computed(() => imageViewEntry.value && entryIsVideo(imageViewEntry.value))
+
+const { add: addFav, updateIconName: updateFavIconName } = useFavourites()
+
+const activeIsZip = computed(() =>
+  activeEntry.value?.name?.toLowerCase().endsWith('.zip') ?? false
+)
+
+const mobileFolderName = computed(() => {
+  if (shareMode.value) {
+    const parts = shareMode.value.path.split('/').filter(Boolean)
+    return parts[parts.length - 1] || shareMode.value.label
+  }
+  if (!props.currentPath) return 'Files'
+  const parts = props.currentPath.split('/').filter(Boolean)
+  const last = parts[parts.length - 1]
+  if (props.currentPath === `users/${props.user.email}`) return 'Home'
+  if (last === 'shared') return 'Shared'
+  return last.charAt(0).toUpperCase() + last.slice(1)
+})
+
+const menuStyle = computed(() => ({
+  left: menuPos.value.x + 'px',
+  top: menuPos.value.y + 'px',
+}))
+
+function showMenu(e) {
+  e.preventDefault()
+  activeEntry.value = null
+  _openMenu(e)
+}
+
+function showMenuForEntry(entry, e) {
+  e.preventDefault()
+  activeEntry.value = entry
+  _openMenu(e)
+}
+
+function _openMenu(e) {
+  menuPos.value = { x: e.clientX, y: e.clientY }
+  menuVisible.value = true
+  nextTick(() => {
+    if (!contextMenu.value) return
+    const rect = contextMenu.value.getBoundingClientRect()
+    const x = Math.min(e.clientX, window.innerWidth - rect.width - 8)
+    const y = Math.min(e.clientY, window.innerHeight - rect.height - 8)
+    menuPos.value = { x, y }
+  })
+}
+
+function hideMenu() {
+  menuVisible.value = false
+}
+
+function onDocClick(e) {
+  if (menuVisible.value && contextMenu.value && !contextMenu.value.contains(e.target)) {
+    hideMenu()
+  }
+}
+
+function onDocKeydown(e) {
+  if (imageViewEntry.value) {
+    const navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'a', 'A', 'd', 'D', 'w', 'W', 's', 'S']
+    if (navKeys.includes(e.key)) {
+      e.preventDefault()
+      const images = displayEntries.value.filter(entryIsMedia)
+      const idx = images.findIndex(img => img.name === imageViewEntry.value.name)
+      const prev = ['ArrowLeft', 'ArrowUp', 'a', 'A', 'w', 'W']
+      const next = ['ArrowRight', 'ArrowDown', 'd', 'D', 's', 'S']
+      if (prev.includes(e.key) && idx > 0) imageViewEntry.value = images[idx - 1]
+      else if (next.includes(e.key) && idx < images.length - 1) imageViewEntry.value = images[idx + 1]
+      return
+    }
+  }
+  if (e.key === 'Escape') {
+    hideMenu()
+    pickerEntry.value = null
+    renameEntry.value = null
+    deleteEntry.value = null
+    createMode.value = null
+    shareEntry.value = null
+    sharePropsEntry.value = null
+    imageViewEntry.value = null
+    iconPickerEntry.value = null
+  }
+}
+
+function resumeActiveUpload() {
+  const entry = activeEntry.value
+  hideMenu()
+  resumeUpload({ ...entry, file_size: entry.size })
+}
+
+async function cancelActiveUpload() {
+  const entry = activeEntry.value
+  hideMenu()
+  await cancelPendingUpload(entry.upload_id)
+}
+
+onMounted(async () => {
+  document.addEventListener('click', onDocClick)
+  document.addEventListener('keydown', onDocKeydown)
+  window.addEventListener('tpstore:refresh-directory', loadDirectory)
+  try {
+    const res = await fetch('/api/files/disk')
+    if (res.ok) diskInfo.value = await res.json()
+  } catch {}
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  document.removeEventListener('keydown', onDocKeydown)
+  window.removeEventListener('tpstore:refresh-directory', loadDirectory)
+})
+
+async function loadDirectory() {
+  if (_loadController) _loadController.abort()
+  _loadController = new AbortController()
+  const { signal } = _loadController
+
+  if (shareMode.value) {
+    await loadShareDirectory()
+    return
+  }
+  entries.value = []
+  loading.value = true
+  error.value = null
+  try {
+    const params = new URLSearchParams({ path: props.currentPath, location: props.location })
+    const res = await fetch(`/api/files/list?${params}`, { signal })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.detail || `Error ${res.status}`)
+    }
+    const data = await res.json()
+    let real = data.entries
+
+    if (props.location === 'external' && props.currentPath === 'shared') {
+      let ownTokens = new Set()
+      const sres = await fetch('/api/shares', { signal })
+      if (sres.ok) {
+        const sdata = await sres.json()
+        ownTokens = new Set(sdata.map(s => s.token))
+        const virtual = sdata.map(s => ({
+          type: 'share-link',
+          name: s.path.split('/').filter(Boolean).at(-1) || s.token,
+          token: s.token,
+          url: s.url,
+          share: s,
+          size: null,
+          modified: null,
+        }))
+        real = [...virtual, ...real]
+      }
+      const pres = await fetch('/api/share', { signal })
+      if (pres.ok) {
+        const pdata = await pres.json()
+        const pubVirtual = pdata
+          .filter(s => !ownTokens.has(s.token))
+          .map(s => ({
+            type: 'share-link',
+            name: s.label,
+            token: s.token,
+            url: s.url,
+            share: { ...s, isOwn: false },
+            size: null,
+            modified: null,
+          }))
+        real = [...real, ...pubVirtual]
+      }
+    }
+
+    entries.value = real
+    real.forEach(e => {
+      if (e.type === 'directory') {
+        const id = `${props.location}:${joinPath(props.currentPath, e.name)}`
+        updateFavIconName(id, e.icon_name || null)
+      }
+    })
+  } catch (e) {
+    if (e.name === 'AbortError') return
+    error.value = e.message
+    entries.value = []
+  } finally {
+    if (!signal.aborted) loading.value = false
+  }
+}
+
+async function loadShareDirectory() {
+  loading.value = true
+  error.value = null
+  entries.value = []
+  try {
+    const params = new URLSearchParams({ path: shareMode.value.path })
+    const res = await fetch(`/api/share/${shareMode.value.token}/files/list?${params}`)
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.detail || `Error ${res.status}`)
+    }
+    const data = await res.json()
+    entries.value = data.entries
+  } catch (e) {
+    error.value = e.message
+    entries.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+watch([() => props.location, () => props.currentPath], () => {
+  if (shareMode.value) shareMode.value = null
+  loadDirectory()
+}, { immediate: true })
+
+function openItem(entry) {
+  if (shareMode.value) {
+    if (entry.type === 'directory') {
+      const newPath = joinPath(shareMode.value.path, entry.name)
+      shareMode.value.history = shareMode.value.history.slice(0, shareMode.value.historyIndex + 1)
+      shareMode.value.history.push(newPath)
+      shareMode.value.historyIndex++
+      shareMode.value.path = newPath
+      loadShareDirectory()
+    }
+    return
+  }
+  if (entry.type === 'share-link') {
+    viewItem(entry)
+    return
+  }
+  if (entry.type !== 'directory') return
+  emit('navigate', props.location, joinPath(props.currentPath, entry.name))
+}
+
+async function deleteItem(entry) {
+  const path = joinPath(props.currentPath, entry.name)
+  const params = new URLSearchParams({ path, location: props.location })
+  const res = await fetch(`/api/files?${params}`, { method: 'DELETE' })
+  if (res.ok) {
+    loadDirectory()
+  } else {
+    const data = await res.json().catch(() => ({}))
+    alert(data.detail || 'Error deleting item')
+  }
+}
+
+async function viewItem(entry) {
+  if (entry.type === 'share-link') {
+    if (entry.share?.is_file) {
+      window.open(entry.url, '_blank')
+      return
+    }
+    shareMode.value = {
+      token: entry.token,
+      label: entry.share?.label || entry.name,
+      path: '',
+      history: [''],
+      historyIndex: 0,
+    }
+    await loadShareDirectory()
+    return
+  }
+  if (shareMode.value) {
+    const entryPath = joinPath(shareMode.value.path, entry.name)
+    const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
+    if (IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext)) {
+      imageViewEntry.value = entry
+      return
+    }
+    window.open(`/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(entryPath)}`, '_blank')
+    return
+  }
+  const path = joinPath(props.currentPath, entry.name)
+  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
+  if (IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext)) {
+    imageViewEntry.value = entry
+    return
+  }
+  const res = await fetch('/api/files/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, location: props.location }),
+  })
+  const data = await res.json()
+  window.open(`/${data.token}`, '_blank')
+}
+
+function downloadItem(entry) {
+  if (shareMode.value) {
+    const entryPath = joinPath(shareMode.value.path, entry.name)
+    downloadWithProgress(`/api/share/${shareMode.value.token}/files/download?path=${encodeURIComponent(entryPath)}`, entry.name)
+    return
+  }
+  const path = joinPath(props.currentPath, entry.name)
+  const params = new URLSearchParams({ path, location: props.location })
+  downloadWithProgress(`/api/files/download?${params}`, entry.name)
+}
+
+function createFolder() {
+  hideMenu()
+  createMode.value = 'folder'
+}
+
+function createFile() {
+  hideMenu()
+  createMode.value = 'file'
+}
+
+async function onCreated(name) {
+  const mode = createMode.value
+  createMode.value = null
+  const path = joinPath(props.currentPath, name)
+  const endpoint = mode === 'folder' ? '/api/files/mkdir' : '/api/files/touch'
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, location: props.location }),
+  })
+  if (res.ok) {
+    loadDirectory()
+  } else {
+    const data = await res.json().catch(() => ({}))
+    alert(data.detail || `Error creating ${mode}`)
+  }
+}
+
+function renameItem() {
+  renameEntry.value = activeEntry.value
+  hideMenu()
+}
+
+async function onRenamed(newName) {
+  const entry = renameEntry.value
+  renameEntry.value = null
+  const path = joinPath(props.currentPath, entry.name)
+  const res = await fetch('/api/files/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, new_name: newName, location: props.location }),
+  })
+  if (res.ok) {
+    loadDirectory()
+  } else {
+    const data = await res.json().catch(() => ({}))
+    alert(data.detail || 'Error renaming')
+  }
+}
+
+function startMove() {
+  pickerEntry.value = activeEntry.value
+  pickerMode.value = 'move'
+  hideMenu()
+}
+
+function startCopy() {
+  pickerEntry.value = activeEntry.value
+  pickerMode.value = 'copy'
+  hideMenu()
+}
+
+async function duplicateItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  const path = joinPath(props.currentPath, entry.name)
+  const res = await fetch('/api/files/duplicate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, location: props.location }),
+  })
+  if (res.ok) {
+    loadDirectory()
+  } else {
+    const data = await res.json().catch(() => ({}))
+    alert(data.detail || 'Error duplicating')
+  }
+}
+
+function openActiveItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  viewItem(entry)
+}
+
+function downloadActiveItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  downloadItem(entry)
+}
+
+function downloadFolderAsZip() {
+  const entry = activeEntry.value
+  hideMenu()
+  const path = joinPath(props.currentPath, entry.name)
+  const params = new URLSearchParams({ path, location: props.location })
+  downloadWithProgress(`/api/files/download-zip?${params}`, `${entry.name}.zip`)
+}
+
+async function compressItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  const path = joinPath(props.currentPath, entry.name)
+  const res = await fetch('/api/files/compress', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, location: props.location }),
+  })
+  if (res.ok) {
+    loadDirectory()
+  } else {
+    const data = await res.json().catch(() => ({}))
+    alert(data.detail || 'Error compressing')
+  }
+}
+
+async function decompressItem() {
+  const entry = activeEntry.value
+  hideMenu()
+  const ok = await startDecompress(entry.name, props.currentPath, props.location)
+  if (!ok) alert('Error starting extraction')
+}
+
+function deleteActiveItem() {
+  deleteEntry.value = activeEntry.value
+  hideMenu()
+}
+
+function changeIcon() {
+  iconPickerEntry.value = activeEntry.value
+  hideMenu()
+}
+
+async function onIconPickerDone(iconName) {
+  const entry = iconPickerEntry.value
+  iconPickerEntry.value = null
+  const path = joinPath(props.currentPath, entry.name)
+  if (iconName) {
+    const res = await fetch('/api/files/icon', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, location: props.location, icon_name: iconName }),
+    })
+    if (res.ok) {
+      const idx = entries.value.findIndex(e => e.name === entry.name)
+      if (idx !== -1) entries.value[idx] = { ...entries.value[idx], icon_name: iconName }
+      updateFavIconName(`${props.location}:${path}`, iconName)
+    }
+  } else {
+    const params = new URLSearchParams({ path, location: props.location })
+    const res = await fetch(`/api/files/icon?${params}`, { method: 'DELETE' })
+    if (res.ok) {
+      const idx = entries.value.findIndex(e => e.name === entry.name)
+      if (idx !== -1) {
+        const updated = { ...entries.value[idx] }
+        delete updated.icon_name
+        entries.value[idx] = updated
+      }
+      updateFavIconName(`${props.location}:${path}`, null)
+    }
+  }
+}
+
+async function onDeleteConfirmed() {
+  const entry = deleteEntry.value
+  deleteEntry.value = null
+  await deleteItem(entry)
+}
+
+function showMoreMenu() {
+  activeEntry.value = null
+  menuPos.value = { x: -9999, y: -9999 }
+  menuVisible.value = true
+  nextTick(() => {
+    if (!contextMenu.value || !moreBtn.value) return
+    const btn = moreBtn.value.getBoundingClientRect()
+    const menu = contextMenu.value.getBoundingClientRect()
+    const x = Math.max(8, btn.right - menu.width)
+    const y = Math.min(btn.bottom + 8, window.innerHeight - menu.height - 8)
+    menuPos.value = { x, y }
+  })
+}
+
+function shareActiveItem() {
+  shareEntry.value = activeEntry.value
+  hideMenu()
+}
+
+function openShareInBrowser() {
+  window.open(activeEntry.value.url, '_blank')
+  hideMenu()
+}
+
+function copyShareLink() {
+  navigator.clipboard.writeText(activeEntry.value.url)
+  hideMenu()
+}
+
+function editShareProps() {
+  sharePropsEntry.value = activeEntry.value
+  hideMenu()
+}
+
+async function deleteShareEntry() {
+  const entry = activeEntry.value
+  hideMenu()
+  await fetch(`/api/shares/${entry.token}`, { method: 'DELETE' })
+  loadDirectory()
+}
+
+function openManageLinks() {
+  hideMenu()
+  emit('open-shares')
+}
+
+function addCurrentToFavourites() {
+  addFav(props.location, props.currentPath, props.user.email)
+  hideMenu()
+}
+
+function addEntryToFavourites() {
+  const entry = activeEntry.value
+  const path = joinPath(props.currentPath, entry.name)
+  addFav(props.location, path, props.user.email)
+  hideMenu()
+}
+
+function handleGoBack() {
+  if (shareMode.value) {
+    if (shareMode.value.historyIndex > 0) {
+      shareMode.value.historyIndex--
+      shareMode.value.path = shareMode.value.history[shareMode.value.historyIndex]
+      loadShareDirectory()
+    } else {
+      shareMode.value = null
+      loadDirectory()
+    }
+    return
+  }
+  emit('go-back')
+}
+
+function handleGoForward() {
+  if (shareMode.value) {
+    if (shareMode.value.historyIndex < shareMode.value.history.length - 1) {
+      shareMode.value.historyIndex++
+      shareMode.value.path = shareMode.value.history[shareMode.value.historyIndex]
+      loadShareDirectory()
+    }
+    return
+  }
+  emit('go-forward')
+}
+
+function navigateShareTo(path) {
+  if (!shareMode.value) return
+  shareMode.value.history = shareMode.value.history.slice(0, shareMode.value.historyIndex + 1)
+  shareMode.value.history.push(path)
+  shareMode.value.historyIndex++
+  shareMode.value.path = path
+  loadShareDirectory()
+}
+
+function exitShareMode() {
+  shareMode.value = null
+  loadDirectory()
+}
+
+function downloadActiveShareFolderAsZip() {
+  const entry = activeEntry.value
+  hideMenu()
+  const entryPath = joinPath(shareMode.value.path, entry.name)
+  downloadWithProgress(`/api/share/${shareMode.value.token}/files/download-zip?path=${encodeURIComponent(entryPath)}`, `${entry.name}.zip`)
+}
+
+function triggerUpload() {
+  hideMenu()
+  fileInput.value.click()
+}
+
+async function uploadFiles(files) {
+  if (!files || !files.length) return
+  for (const file of files) {
+    await startUpload(file, props.currentPath, props.location)
+  }
+}
+
+async function downloadWithProgress(url, filename) {
+  if ('showSaveFilePicker' in window) {
+    let handle
+    try {
+      handle = await window.showSaveFilePicker({ suggestedName: filename })
+    } catch {
+      return
+    }
+    const id = addTransfer('download', filename, 0)
+    try {
+      const res = await fetch(url)
+      if (!res.ok) { failTransfer(id, `Error ${res.status}`); return }
+      const cl = res.headers.get('Content-Length')
+      if (cl) setTransferTotal(id, parseInt(cl))
+      const writable = await handle.createWritable()
+      const reader = res.body.getReader()
+      let loaded = 0
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          await writable.write(value)
+          loaded += value.length
+          updateTransfer(id, loaded)
+        }
+        await writable.close()
+      } catch (e) {
+        await writable.abort()
+        throw e
+      }
+      completeTransfer(id)
+    } catch (e) {
+      failTransfer(id, e.message || 'Failed')
+    }
+  } else {
+    const id = addTransfer('download', filename, 0)
+    try {
+      const res = await fetch(url)
+      if (!res.ok) { failTransfer(id, `Error ${res.status}`); return }
+      const cl = res.headers.get('Content-Length')
+      if (cl) setTransferTotal(id, parseInt(cl))
+      const reader = res.body.getReader()
+      const chunks = []
+      let loaded = 0
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(value)
+        loaded += value.length
+        updateTransfer(id, loaded)
+      }
+      const blob = new Blob(chunks)
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+      completeTransfer(id)
+    } catch (e) {
+      failTransfer(id, e.message || 'Failed')
+    }
+  }
+}
+
+function onFileInputChange(e) {
+  uploadFiles(Array.from(e.target.files))
+  e.target.value = ''
+}
+
+function onDragOver(e) {
+  e.preventDefault()
+  isDragOver.value = true
+}
+
+function onDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    isDragOver.value = false
+  }
+}
+
+function onDrop(e) {
+  e.preventDefault()
+  isDragOver.value = false
+  uploadFiles(Array.from(e.dataTransfer.files))
+}
+</script>
+
+<template>
+  <div class="browser">
+    <input ref="fileInput" type="file" multiple style="display:none" @change="onFileInputChange" />
+
+    <!-- Navigation buttons -->
+    <div class="file-topbar">
+      <div class="nav-pill">
+        <button
+          class="nav-btn"
+          :disabled="!shareMode && !canGoBack"
+          @click="handleGoBack"
+          title="Back"
+        >
+          <ChevronLeft class="nav-icon" />
+        </button>
+        <div class="nav-divider" />
+        <button
+          class="nav-btn"
+          :disabled="shareMode ? shareMode.historyIndex >= shareMode.history.length - 1 : !canGoForward"
+          @click="handleGoForward"
+          title="Forward"
+        >
+          <ChevronRight class="nav-icon" />
+        </button>
+      </div>
+      <span class="mobile-folder-name">{{ mobileFolderName }}</span>
+      <div class="topbar-actions">
+        <button class="more-btn" :class="{ 'more-btn--active': galleryMode }" @click="toggleGallery" :title="galleryMode ? 'List view' : 'Gallery view'">
+          <LayoutGrid v-if="!galleryMode" class="more-icon" />
+          <List v-else class="more-icon" />
+        </button>
+        <button ref="moreBtn" class="more-btn" @click.stop="showMoreMenu">
+          <MoreHorizontal class="more-icon" />
+        </button>
+      </div>
+    </div>
+
+    <!-- File area -->
+    <div
+      class="file-area"
+      @contextmenu="showMenu"
+      @dragover="onDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop"
+    >
+      <!-- Drag overlay -->
+      <div v-if="isDragOver" class="drag-overlay">
+        <p>Drop files here</p>
+      </div>
+
+      <!-- Loading -->
+      <div v-if="loading" class="state-center">
+        <span class="state-text">Loading…</span>
+      </div>
+
+      <!-- Error -->
+      <div v-else-if="error" class="state-center">
+        <span class="state-text error">{{ error }}</span>
+      </div>
+
+      <!-- Empty -->
+      <div v-else-if="!displayEntries.length" class="state-center">
+        <span class="state-text">Empty folder</span>
+        <span class="state-hint">Right-click to upload or create files</span>
+      </div>
+
+      <!-- Gallery grid -->
+      <div v-else-if="galleryMode" class="gallery-grid">
+        <div
+          v-for="entry in displayEntries"
+          :key="entry.name"
+          class="gallery-card"
+          @click="(entry.type === 'directory' || entry.type === 'share-link') ? openItem(entry) : null"
+          @dblclick="entry.type === 'file' ? viewItem(entry) : null"
+          @contextmenu.stop="showMenuForEntry(entry, $event)"
+        >
+          <div class="gallery-thumb">
+            <GalleryThumb
+              v-if="entry.type === 'file' && entryIsMedia(entry)"
+              :src="galleryThumbSrc(entry)"
+              :alt="entry.name"
+              :type="entryIsVideo(entry) ? 'video' : 'image'"
+            />
+            <component
+              v-else
+              :is="galleryEntryIcon(entry)"
+              class="gallery-icon"
+              :style="{ color: galleryEntryColor(entry) }"
+            />
+          </div>
+          <span class="gallery-name">{{ entry.name }}</span>
+        </div>
+      </div>
+
+      <!-- File table -->
+      <table v-else class="file-table">
+        <thead>
+          <tr>
+            <th class="th-name">Name</th>
+            <th class="th-size">Size</th>
+            <th class="th-date">Modified</th>
+          </tr>
+        </thead>
+        <tbody>
+          <FileRow
+            v-for="entry in displayEntries"
+            :key="entry.name"
+            :entry="entry"
+            @open="openItem"
+            @view="viewItem"
+            @contextmenu="showMenuForEntry"
+          />
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="bottom-bar">
+      <div class="bottom-row">
+        <div v-if="shareMode" class="share-crumbs">
+          <button class="s-crumb s-crumb--root" @click="exitShareMode">
+            <Folder class="s-crumb-icon" />
+            <span>Share</span>
+          </button>
+          <span class="s-sep">›</span>
+          <button class="s-crumb" @click="navigateShareTo('')">
+            <Folder class="s-crumb-icon" />
+            <span>{{ shareMode.label }}</span>
+          </button>
+          <template v-for="(part, idx) in shareMode.path.split('/').filter(Boolean)" :key="idx">
+            <span class="s-sep">›</span>
+            <button
+              class="s-crumb"
+              :class="{ 's-crumb--active': idx === shareMode.path.split('/').filter(Boolean).length - 1 }"
+              @click="navigateShareTo(shareMode.path.split('/').filter(Boolean).slice(0, idx + 1).join('/'))"
+            >
+              <Folder class="s-crumb-icon" />
+              <span>{{ part }}</span>
+            </button>
+          </template>
+        </div>
+        <Breadcrumb
+          v-else
+          :user="user"
+          :location="location"
+          :path="currentPath"
+          :view-as-admin="viewAsAdmin"
+          @navigate="(loc, p) => emit('navigate', loc, p)"
+        />
+      </div>
+      <div v-if="diskInfo" class="storage-info">
+        {{ formatGB(diskInfo.used) }} occupied, {{ formatGB(diskInfo.free) }} available
+      </div>
+    </div>
+
+    <!-- Context menu -->
+    <Teleport to="body">
+      <Transition name="ctx">
+        <div
+          v-if="menuVisible"
+          ref="contextMenu"
+          class="ctx-menu"
+          :style="menuStyle"
+        >
+          <!-- Pending upload entry menu -->
+          <template v-if="activeEntry?.type === 'upload-pending'">
+            <button class="ctx-item" @click="resumeActiveUpload">
+              <Upload class="ctx-icon" />
+              <span>Resume Upload…</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item ctx-item--danger" @click="cancelActiveUpload">
+              <Trash2 class="ctx-icon" />
+              <span>Cancel Upload</span>
+            </button>
+          </template>
+
+          <!-- Share-link entry menu -->
+          <template v-else-if="activeEntry?.type === 'share-link'">
+            <button class="ctx-item" @click="openShareInBrowser">
+              <ExternalLink class="ctx-icon" />
+              <span>Open in Browser</span>
+            </button>
+            <button class="ctx-item" @click="copyShareLink">
+              <Copy class="ctx-icon" />
+              <span>Copy Link</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item" @click="editShareProps">
+              <Pencil class="ctx-icon" />
+              <span>Properties…</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item ctx-item--danger" @click="deleteShareEntry">
+              <Trash2 class="ctx-icon" />
+              <span>Delete</span>
+            </button>
+          </template>
+
+          <!-- Share browse mode entry menu -->
+          <template v-else-if="shareMode && activeEntry">
+            <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="openActiveItem">
+              <ExternalLink class="ctx-icon" />
+              <span>Open</span>
+            </button>
+            <button class="ctx-item" @click="activeEntry.type === 'directory' ? downloadActiveShareFolderAsZip() : downloadActiveItem()">
+              <Download class="ctx-icon" />
+              <span>{{ activeEntry.type === 'directory' ? 'Download as ZIP' : 'Download' }}</span>
+            </button>
+          </template>
+
+          <!-- Regular entry menu (right-click on a file/folder) -->
+          <template v-else-if="activeEntry">
+            <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="openActiveItem">
+              <ExternalLink class="ctx-icon" />
+              <span>Open</span>
+            </button>
+            <button class="ctx-item" @click="renameItem">
+              <Pencil class="ctx-icon" />
+              <span>Rename</span>
+            </button>
+            <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="changeIcon">
+              <Palette class="ctx-icon" />
+              <span>Change Icon…</span>
+            </button>
+            <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="addEntryToFavourites">
+              <Star class="ctx-icon" />
+              <span>Add to Favorites</span>
+            </button>
+            <button class="ctx-item" @click="shareActiveItem">
+              <Share2 class="ctx-icon" />
+              <span>Share…</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item" @click="startMove">
+              <FolderInput class="ctx-icon" />
+              <span>Move to…</span>
+            </button>
+            <button class="ctx-item" @click="startCopy">
+              <Copy class="ctx-icon" />
+              <span>Copy to…</span>
+            </button>
+            <button class="ctx-item" @click="duplicateItem">
+              <CopyPlus class="ctx-icon" />
+              <span>Duplicate</span>
+            </button>
+            <div class="ctx-sep" />
+            <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="downloadActiveItem">
+              <Download class="ctx-icon" />
+              <span>Download</span>
+            </button>
+            <button v-else class="ctx-item" @click="downloadFolderAsZip">
+              <Download class="ctx-icon" />
+              <span>Download as ZIP</span>
+            </button>
+            <button v-if="!activeIsZip" class="ctx-item" @click="compressItem">
+              <Archive class="ctx-icon" />
+              <span>Compress</span>
+            </button>
+            <button v-if="activeIsZip" class="ctx-item" @click="decompressItem">
+              <ArchiveRestore class="ctx-icon" />
+              <span>Decompress</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item ctx-item--danger" @click="deleteActiveItem">
+              <Trash2 class="ctx-icon" />
+              <span>Delete</span>
+            </button>
+          </template>
+
+          <!-- Share mode background menu -->
+          <template v-else-if="shareMode">
+            <button class="ctx-item" @click="exitShareMode">
+              <Folder class="ctx-icon" />
+              <span>Back to Share folder</span>
+            </button>
+          </template>
+
+          <!-- Background menu (right-click on empty area / ··· button) -->
+          <template v-else>
+            <button class="ctx-item" @click="triggerUpload">
+              <Upload class="ctx-icon" />
+              <span>Upload Files…</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item" @click="createFolder">
+              <FolderPlus class="ctx-icon" />
+              <span>New Folder</span>
+            </button>
+            <button class="ctx-item" @click="createFile">
+              <FilePlus class="ctx-icon" />
+              <span>New File</span>
+            </button>
+            <div class="ctx-sep" />
+            <button class="ctx-item" @click="addCurrentToFavourites">
+              <Star class="ctx-icon" />
+              <span>Add to Favorites</span>
+            </button>
+            <button class="ctx-item" @click="openManageLinks">
+              <Share2 class="ctx-icon" />
+              <span>Manage links</span>
+            </button>
+          </template>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Delete modal -->
+    <DeleteModal
+      v-if="deleteEntry"
+      :entry="deleteEntry"
+      @close="deleteEntry = null"
+      @confirmed="onDeleteConfirmed"
+    />
+
+    <!-- Create modal -->
+    <CreateModal
+      v-if="createMode"
+      :type="createMode"
+      @close="createMode = null"
+      @created="onCreated"
+    />
+
+    <!-- Rename modal -->
+    <RenameModal
+      v-if="renameEntry"
+      :entry="renameEntry"
+      @close="renameEntry = null"
+      @renamed="onRenamed"
+    />
+
+    <!-- Move / Copy modal -->
+    <MoveModal
+      v-if="pickerEntry"
+      :entry="pickerEntry"
+      :location="location"
+      :current-path="currentPath"
+      :mode="pickerMode"
+      @close="pickerEntry = null"
+      @moved="pickerEntry = null; loadDirectory()"
+    />
+
+    <!-- Share modal -->
+    <ShareModal
+      v-if="shareEntry"
+      :entry="shareEntry"
+      :location="location"
+      :current-path="currentPath"
+      @close="shareEntry = null"
+    />
+
+    <!-- Image viewer -->
+    <ImageViewer
+      v-if="imageViewEntry"
+      :src="imageViewSrc"
+      :name="imageViewEntry.name"
+      :is-video="imageViewIsVideo"
+      @close="imageViewEntry = null"
+    />
+
+    <!-- Share properties modal -->
+    <SharePropertiesModal
+      v-if="sharePropsEntry"
+      :share="sharePropsEntry.share"
+      @close="sharePropsEntry = null"
+      @updated="sharePropsEntry = null; loadDirectory()"
+      @deleted="sharePropsEntry = null; loadDirectory()"
+    />
+
+    <!-- Folder icon picker -->
+    <FolderIconPicker
+      v-if="iconPickerEntry"
+      :entry="iconPickerEntry"
+      @close="iconPickerEntry = null"
+      @done="onIconPickerDone"
+    />
+
+  </div>
+</template>
+
+<style scoped>
+.browser {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.file-topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 10px 1.25rem;
+}
+
+.nav-pill {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.07);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.nav-btn {
+  width: 40px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  transition: background 0.12s, color 0.12s;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.nav-btn:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.nav-btn:disabled {
+  color: rgba(255, 255, 255, 0.2);
+  cursor: default;
+}
+
+.nav-divider {
+  width: 0.5px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
+}
+
+.nav-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.5;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.file-area {
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+}
+
+.drag-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 10;
+  background: rgba(142, 142, 147, 0.07);
+  border: 2px dashed rgba(142, 142, 147, 0.5);
+}
+
+.drag-overlay p {
+  color: #8E8E93;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.state-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 10rem;
+  gap: 0.5rem;
+}
+
+.state-text { font-size: 0.875rem; color: #525252; }
+.state-text.error { color: #ff453a; }
+.state-hint { font-size: 0.75rem; color: #404040; }
+
+.file-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.file-table thead th {
+  padding: 0.65rem 1.25rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #525252;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.1);
+  user-select: none;
+}
+
+.th-name { text-align: left; width: 100%; }
+.th-size { text-align: right; white-space: nowrap; }
+.th-date { text-align: right; white-space: nowrap; }
+
+.bottom-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.65rem 1.25rem 0.5rem;
+  border-top: 0.5px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  gap: 0.3rem;
+}
+
+.bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.storage-info {
+  font-size: 0.7rem;
+  color: #3a3a3c;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+
+
+.share-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.s-crumb {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  color: #737373;
+  transition: color 0.15s;
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  padding: 0;
+}
+
+.s-crumb--root { flex-shrink: 0; }
+.s-crumb:hover { color: #fff; }
+.s-crumb--active { color: #525252; }
+.s-crumb-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.s-sep { color: #404040; flex-shrink: 0; padding: 0 0.1rem; font-size: 0.85rem; }
+
+.mobile-folder-name {
+  display: block;
+  font-size: 1rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.75);
+  margin-left: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  margin-left: auto;
+  background: rgba(255, 255, 255, 0.07);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+.more-btn:hover {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.more-btn:active {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.more-btn--active {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.more-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  padding: 16px 1.25rem;
+}
+
+.gallery-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px;
+  border-radius: 10px;
+  cursor: default;
+  transition: background 0.1s;
+  user-select: none;
+}
+
+.gallery-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gallery-thumb {
+  width: 110px;
+  height: 110px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.gallery-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gallery-icon {
+  width: 44px;
+  height: 44px;
+}
+
+.gallery-name {
+  font-size: 0.75rem;
+  color: #d1d1d6;
+  text-align: center;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+  max-width: 100%;
+}
+
+@media (max-width: 767px) {
+  .file-topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: calc(80px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .file-area {
+    padding-top: calc(80px + env(safe-area-inset-top));
+    padding-bottom: 110px;
+  }
+
+  .mobile-folder-name {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    font-size: 1.25rem;
+    margin-left: 1.5rem;
+  }
+
+  .nav-pill {
+    flex-shrink: 0;
+  }
+
+  .bottom-bar { display: none; }
+  .th-size, .th-date { display: none; }
+
+  .gallery-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 8px;
+    padding: 12px 1rem;
+  }
+
+  .gallery-thumb {
+    width: 88px;
+    height: 88px;
+  }
+}
+</style>
+
+<style>
+.ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 210px;
+  padding: 4px 0;
+  background: rgba(28, 28, 30, 0.9);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  box-shadow:
+    0 8px 40px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 8px);
+  margin: 0 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: #e4e4e7;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+  transition: background 0.08s, color 0.08s;
+  font-family: inherit;
+  letter-spacing: -0.01em;
+}
+
+.ctx-item:hover {
+  background: #8E8E93;
+  color: #fff;
+}
+
+.ctx-item:hover .ctx-icon {
+  opacity: 1;
+}
+
+.ctx-item--danger { color: #ff453a; }
+.ctx-item--danger:hover { background: rgba(255, 69, 58, 0.18); color: #ff453a; }
+
+.ctx-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.ctx-sep {
+  height: 0.5px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 3px 0;
+}
+
+.ctx-enter-active {
+  transition: opacity 0.1s ease, transform 0.1s ease;
+}
+.ctx-leave-active {
+  transition: opacity 0.08s ease, transform 0.08s ease;
+}
+.ctx-enter-from {
+  opacity: 0;
+  transform: scale(0.96) translateY(-4px);
+}
+.ctx-leave-to {
+  opacity: 0;
+  transform: scale(0.96) translateY(-4px);
+}
+
+@media (max-width: 767px) {
+  .ctx-menu {
+    min-width: 260px;
+    background: rgba(20, 20, 22, 0.97);
+    backdrop-filter: blur(60px) saturate(220%);
+    -webkit-backdrop-filter: blur(60px) saturate(220%);
+  }
+  .ctx-item { font-size: 15px; padding: 8px 12px; gap: 12px; }
+  .ctx-icon { width: 16px; height: 16px; }
+  .ctx-sep { margin: 4px 0; }
+}
+</style>

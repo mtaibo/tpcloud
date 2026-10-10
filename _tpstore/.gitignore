@@ -1,0 +1,59 @@
+# =============================================================================
+# Global
+# =============================================================================
+
+.env
+.DS_Store
+*.log
+
+# Database
+data/*
+!data/.gitkeep
+
+
+# =============================================================================
+# API  ·  Python / FastAPI
+# =============================================================================
+
+__pycache__/
+api/**/__pycache__/
+*.py[codz]
+*$py.class
+*.so
+
+*.egg-info/
+*.egg
+MANIFEST
+.Python
+build/
+
+.venv
+venv/
+env/
+ENV/
+
+.pytest_cache/
+.coverage
+.mypy_cache/
+.ruff_cache/
+
+
+# =============================================================================
+# Frontend  ·  Vue 3 / Node  (store + share)
+# =============================================================================
+
+frontend/node_modules/
+frontend/dist/
+share-frontend/node_modules/
+share-frontend/dist/
+
+frontend/.cache/
+frontend/.npm
+frontend/.eslintcache
+share-frontend/.cache/
+share-frontend/.npm
+share-frontend/.eslintcache
+
+package-lock.json
+
+.claude/

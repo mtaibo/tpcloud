@@ -1,0 +1,91 @@
+from datetime import datetime, timezone
+from typing import Optional
+
+from sqlmodel import SQLModel, Field
+
+
+class FileViewToken(SQLModel, table=True):
+    __tablename__ = "file_view_tokens"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token: str = Field(unique=True, index=True)
+    path: str
+    location: str
+    owner_email: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    first_accessed_at: Optional[datetime] = Field(default=None)
+
+
+class ShareLink(SQLModel, table=True):
+    __tablename__ = "share_links"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token: str = Field(unique=True, index=True)
+    location: str
+    path: str
+    owner_email: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    hidden: bool = Field(default=False)
+    password_hash: Optional[str] = Field(default=None)
+    editable: bool = Field(default=False)
+    public: bool = Field(default=False)
+
+
+class ShareSession(SQLModel, table=True):
+    __tablename__ = "share_sessions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_token: str = Field(unique=True, index=True)
+    share_token: str = Field(index=True)
+    expires_at: datetime
+
+
+class ShareFileToken(SQLModel, table=True):
+    __tablename__ = "share_file_tokens"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token: str = Field(unique=True, index=True)
+    share_token: str = Field(index=True)
+    path: str
+    session_token: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    first_accessed_at: Optional[datetime] = Field(default=None)
+
+
+class FolderIcon(SQLModel, table=True):
+    __tablename__ = "folder_icons"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_email: str = Field(index=True)
+    location: str
+    path: str
+    icon_name: str
+
+
+class CompressionJob(SQLModel, table=True):
+    __tablename__ = "compression_jobs"
+
+    job_id: str = Field(primary_key=True)
+    owner_email: str
+    filename: str
+    path: str
+    location: str
+    status: str = Field(default="active")  # active, done, error, cancelled
+    total_bytes: int = Field(default=0)
+    extracted_bytes: int = Field(default=0)
+    error: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PendingUpload(SQLModel, table=True):
+    __tablename__ = "pending_uploads"
+
+    upload_id: str = Field(primary_key=True)
+    filename: str
+    path: str
+    location: str
+    owner_email: str
+    file_size: int
+    bytes_received: int = Field(default=0)
+    total_chunks: int
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

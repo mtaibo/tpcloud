@@ -1,0 +1,463 @@
+<script setup>
+import { ref, onMounted, onUnmounted } from 'vue'
+import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Plus, X, Shield, ShieldCheck, Share2, Upload, Download, Archive } from 'lucide-vue-next'
+import { useFavourites } from '../useFavourites.js'
+import { useTransfers } from '../useTransfers.js'
+import { useCompression } from '../useCompression.js'
+import { getFileIcon } from '../fileTypes.js'
+import TransferPanel from './TransferPanel.vue'
+
+const LOGIN_URL = 'https://login.migueltaibo.com'
+
+const props = defineProps({
+  user: Object,
+  location: String,
+  currentPath: String,
+  viewAsAdmin: Boolean,
+})
+const emit = defineEmits(['navigate', 'toggle-admin-view'])
+
+const favouritesOpen = ref(true)
+const menuOpen = ref(false)
+const cardRef = ref(null)
+
+const { favourites, load, add, remove } = useFavourites()
+const { hasUploads, hasDownloads, uploads, downloads, uploadEta, downloadEta, fetchPendingUploads } = useTransfers()
+const { hasJobs, activeCount, init: initCompression } = useCompression()
+
+const panelOpen = ref(false)
+const transfersRef = ref(null)
+
+function togglePanel() {
+  panelOpen.value = !panelOpen.value
+}
+
+function onClickOutside(e) {
+  if (cardRef.value && !cardRef.value.contains(e.target)) menuOpen.value = false
+  if (transfersRef.value && !transfersRef.value.contains(e.target)) panelOpen.value = false
+}
+
+function addFavourite() {
+  add(props.location, props.currentPath, props.user.email)
+}
+
+function removeFavourite(id) {
+  remove(id)
+}
+
+function isActive(loc, path) {
+  return props.location === loc && props.currentPath === path
+}
+
+function go(loc, path) {
+  emit('navigate', loc, path)
+}
+
+async function logout() {
+  await fetch('/auth/passkey/logout', { method: 'POST' })
+  window.location.href = `${LOGIN_URL}/`
+}
+
+onMounted(() => {
+  document.addEventListener('click', onClickOutside)
+  load()
+  fetchPendingUploads()
+  initCompression()
+})
+onUnmounted(() => document.removeEventListener('click', onClickOutside))
+</script>
+
+<template>
+  <aside class="sidebar">
+
+    <div class="sidebar-brand" />
+
+    <nav class="sidebar-nav">
+
+      <!-- FAVORITES -->
+      <div class="separator-row separator-first separator-clickable" @click="favouritesOpen = !favouritesOpen">
+        <p class="section-label">Favorites</p>
+        <div class="section-actions">
+          <button class="add-btn" @click.stop="addFavourite" title="Add current folder">
+            <Plus class="add-icon" />
+          </button>
+          <ChevronRight class="chevron" :class="{ open: favouritesOpen }" />
+        </div>
+      </div>
+
+      <template v-if="favouritesOpen">
+        <p v-if="favourites.length === 0" class="empty-hint">No favourites yet</p>
+        <div v-for="fav in favourites" :key="fav.id" class="fav-row">
+          <button :class="['nav-item', { active: isActive(fav.location, fav.path) }]" @click="go(fav.location, fav.path)">
+            <span class="fav-icon-wrap">
+              <component :is="getFileIcon({ type: 'directory', icon_name: fav.icon_name })" class="nav-icon" />
+            </span>
+            <span>{{ fav.label }}</span>
+          </button>
+          <button class="remove-btn" @click="removeFavourite(fav.id)" title="Remove">
+            <X class="remove-icon" />
+          </button>
+        </div>
+      </template>
+
+      <!-- LOCATIONS -->
+      <div class="separator-row">
+        <p class="section-label">Locations</p>
+      </div>
+
+      <button :class="['nav-item', { active: isActive('external', 'shared') }]" @click="go('external', 'shared')">
+        <Share2 class="nav-icon" />
+        <span>Share</span>
+      </button>
+      <button :class="['nav-item', { active: isActive('external', `users/${user.email}`) }]" @click="go('external', `users/${user.email}`)">
+        <Home class="nav-icon" />
+        <span>Home</span>
+      </button>
+
+      <template v-if="user.is_admin && viewAsAdmin">
+        <button :class="['nav-item', { active: isActive('external', '') }]" @click="go('external', '')">
+          <HardDrive class="nav-icon" />
+          <span>Disk</span>
+        </button>
+        <button :class="['nav-item', { active: isActive('server', '') }]" @click="go('server', '')">
+          <Server class="nav-icon" />
+          <span>System</span>
+        </button>
+      </template>
+
+    </nav>
+
+    <div v-if="hasUploads || hasDownloads || hasJobs" ref="transfersRef" class="transfers-section">
+      <button v-if="hasUploads" :class="['nav-item', 'transfer-btn', { 'transfer-btn--active': panelOpen }]" @click="togglePanel">
+        <Upload class="nav-icon transfer-icon" />
+        <span>Uploads</span>
+        <span class="transfer-count">{{ uploads.length }}</span>
+        <span v-if="uploadEta" class="transfer-eta">{{ uploadEta }}</span>
+      </button>
+      <button v-if="hasDownloads" :class="['nav-item', 'transfer-btn', { 'transfer-btn--active': panelOpen }]" @click="togglePanel">
+        <Download class="nav-icon transfer-icon" />
+        <span>Downloads</span>
+        <span class="transfer-count">{{ downloads.length }}</span>
+        <span v-if="downloadEta" class="transfer-eta">{{ downloadEta }}</span>
+      </button>
+      <button v-if="hasJobs" :class="['nav-item', 'transfer-btn', { 'transfer-btn--active': panelOpen }]" @click="togglePanel">
+        <Archive class="nav-icon transfer-icon" />
+        <span>Extractions</span>
+        <span class="transfer-count">{{ activeCount }}</span>
+      </button>
+      <TransferPanel :show="panelOpen" />
+    </div>
+
+    <footer class="sidebar-footer">
+      <div ref="cardRef" class="user-card">
+
+        <Transition name="fade">
+          <div v-if="menuOpen" class="user-menu">
+            <a href="https://accounts.migueltaibo.com" class="user-menu-item">
+              <User class="menu-icon" />
+              Account
+            </a>
+            <a href="https://cloud.migueltaibo.com" class="user-menu-item">
+              <Cloud class="menu-icon" />
+              TPCloud
+            </a>
+            <button v-if="user.is_admin" class="user-menu-item admin-item" :class="{ 'admin-item--active': viewAsAdmin }" @click="emit('toggle-admin-view')">
+              <ShieldCheck v-if="viewAsAdmin" class="menu-icon" />
+              <Shield v-else class="menu-icon" />
+              {{ viewAsAdmin ? 'Exit Admin View' : 'Admin View' }}
+            </button>
+            <button class="user-menu-item logout-item" @click="logout">
+              <LogOut class="menu-icon" />
+              Log out
+            </button>
+          </div>
+        </Transition>
+
+        <button class="user-btn" @click="menuOpen = !menuOpen">
+          <div class="user-avatar">
+            <User class="avatar-icon" />
+          </div>
+          <span class="user-display-name">{{ user?.display_name ?? '…' }}</span>
+        </button>
+
+      </div>
+    </footer>
+
+  </aside>
+</template>
+
+<style scoped>
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #111113;
+  box-shadow: 1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-brand {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 0 1.25rem;
+  flex-shrink: 0;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 0.75rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.separator-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 0.5rem 0.25rem;
+}
+
+.separator-first { padding-top: 0.25rem; }
+.separator-clickable { cursor: default; }
+.separator-clickable:hover .chevron { opacity: 1; }
+
+.section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #636366;
+  user-select: none;
+}
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.chevron {
+  width: 14px;
+  height: 14px;
+  color: #636366;
+  opacity: 0;
+  transition: transform 0.2s, opacity 0.2s;
+}
+
+.chevron.open { transform: rotate(90deg); opacity: 1; }
+
+.add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: default;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.separator-clickable:hover .add-btn { opacity: 1; }
+
+.add-icon {
+  width: 12px;
+  height: 12px;
+  color: #636366;
+  transition: color 0.15s;
+}
+
+.add-btn:hover .add-icon { color: #fff; }
+
+.empty-hint {
+  padding: 0.2rem 1rem 0.25rem;
+  font-size: 0.75rem;
+  color: #3a3a3c;
+  user-select: none;
+}
+
+.fav-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.fav-row .nav-item { flex: 1; }
+
+.remove-btn {
+  position: absolute;
+  right: 0.375rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: default;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.fav-row:hover .remove-btn { opacity: 1; }
+
+.remove-icon {
+  width: 12px;
+  height: 12px;
+  color: #636366;
+  transition: color 0.15s;
+}
+
+.remove-btn:hover .remove-icon { color: #f87171; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.35rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  color: #fff;
+  background: transparent;
+  border: none;
+  cursor: default;
+  transition: background 0.2s;
+}
+
+.nav-item.active { background: #1c1c1e; font-weight: 700; }
+
+.nav-icon { width: 20px; height: 20px; flex-shrink: 0; color: #8E8E93; }
+
+.fav-icon-wrap { position: relative; width: 20px; height: 20px; flex-shrink: 0; }
+
+.fav-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -3px;
+  width: 11px;
+  height: 11px;
+  color: #FFD60A;
+  fill: #FFD60A;
+  stroke-width: 2;
+}
+
+.transfers-section {
+  padding: 0 0.75rem 0.5rem;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.transfer-btn {
+  position: relative;
+  justify-content: flex-start;
+}
+
+.transfer-btn--active { background: #1c1c1e; }
+
+.transfer-icon { color: #8E8E93; }
+
+.transfer-count {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #636366;
+  background: #2c2c2e;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.transfer-eta {
+  font-size: 0.7rem;
+  color: #636366;
+  white-space: nowrap;
+  margin-left: 0.25rem;
+}
+
+.sidebar-footer { padding: 0.5rem 1rem 1.5rem; flex-shrink: 0; }
+
+.user-card { position: relative; }
+
+.user-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 0.5rem;
+  background: #1c1c1e;
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.7);
+  background: none;
+  border: none;
+  cursor: default;
+  transition: background 0.15s, color 0.15s;
+  text-align: left;
+  text-decoration: none;
+}
+
+.logout-item:hover { color: #f87171; }
+.admin-item { color: rgba(255, 255, 255, 0.5); }
+.admin-item--active { color: #8E8E93; }
+.admin-item:hover { color: #8E8E93; }
+
+.menu-icon { width: 16px; height: 16px; flex-shrink: 0; }
+
+.user-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.625rem 1rem;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  cursor: default;
+  transition: background 0.15s;
+}
+
+.user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #1c1c1e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.avatar-icon { width: 15px; height: 15px; color: #8E8E93; }
+
+.user-display-name {
+  margin-left: 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-align: left;
+}
+
+@media (max-width: 767px) { .sidebar { display: none; } }
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.15s, transform 0.15s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(4px); }
+</style>
