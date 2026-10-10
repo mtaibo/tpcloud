@@ -4,7 +4,7 @@ services:
     build: ./api
     container_name: tpstore-api
     environment:
-      - EXTERNAL_DISK_PATH=${EXTERNAL_DISK_PATH:-/mnt/external}
+      - EXTERNAL_DISK_PATH=/mnt/external
       - AUTH_SERVICE_URL=${AUTH_SERVICE_URL:-http://auth:8000}
     volumes:
       - ${EXTERNAL_DISK_PATH:-/mnt/external}:/mnt/external
