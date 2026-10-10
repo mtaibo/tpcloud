@@ -17,7 +17,7 @@ def list_users(
     session: DBSession = Depends(get_session),
 ):
     users = session.exec(select(User)).all()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(timezone.utc)
     result = []
     for u in users:
         passkey_count = session.exec(
@@ -126,7 +126,7 @@ def list_sessions(
     admin: User = Depends(require_admin),
     session: DBSession = Depends(get_session),
 ):
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(timezone.utc)
     sessions = session.exec(
         select(SessionModel).where(SessionModel.expires_at > now)
     ).all()

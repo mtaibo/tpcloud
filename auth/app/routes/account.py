@@ -44,7 +44,7 @@ def get_profile(
     sessions = session.exec(
         select(SessionModel).where(
             SessionModel.user_id == user.id,
-            SessionModel.expires_at > datetime.now(timezone.utc).replace(tzinfo=None),
+            SessionModel.expires_at > datetime.now(timezone.utc),
         )
     ).all()
 
