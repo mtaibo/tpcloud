@@ -3,7 +3,7 @@ import base64
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from database import get_session
 from sqlmodel import Session as DBSession, select
@@ -18,7 +18,7 @@ from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor,
     UserVerificationRequirement,
 )
-from utils import get_client_ip, lookup_location, parse_device_info
+from utils import get_client_ip, parse_device_info, update_session_location
 
 
 def b64url_encode(data: bytes) -> str:
@@ -123,6 +123,7 @@ def login_complete(
     request_body: dict,
     email: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     session: DBSession = Depends(get_session),
 ):
     challenge = _pending_login_challenges.get(email)
@@ -169,10 +170,11 @@ def login_complete(
         totp_verified=True,
         auth_method="passkey",
         device_info=parse_device_info(ua_string),
-        location=lookup_location(ip),
+        location=ip,
     )
     session.add(new_session)
     session.commit()
+    background_tasks.add_task(update_session_location, new_session.session_id, ip)
     del _pending_login_challenges[email]
 
     response = Response(status_code=200)

@@ -39,3 +39,21 @@ def get_client_ip(request) -> str:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else ""
+
+
+def update_session_location(session_id: str, ip: str) -> None:
+    """Best-effort location backfill, run as a background task so a slow/unresponsive
+    geolocation lookup never blocks the login response itself."""
+    from database import engine
+    from models import Session as SessionModel
+    from sqlmodel import Session as DBSession, select
+
+    location = lookup_location(ip)
+    with DBSession(engine) as db:
+        db_session = db.exec(
+            select(SessionModel).where(SessionModel.session_id == session_id)
+        ).first()
+        if db_session:
+            db_session.location = location
+            db.add(db_session)
+            db.commit()

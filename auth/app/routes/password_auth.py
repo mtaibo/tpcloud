@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from sqlmodel import Session as DBSession, select
 
 from database import get_session
 from models import Session as SessionModel, User
-from utils import get_client_ip, lookup_location, parse_device_info
+from utils import get_client_ip, parse_device_info, update_session_location
 
 router = APIRouter(prefix="/auth/password")
 
@@ -17,6 +17,7 @@ SESSION_DURATION = timedelta(hours=1)
 def password_login(
     body: dict,
     request: Request,
+    background_tasks: BackgroundTasks,
     session: DBSession = Depends(get_session),
 ):
     email = body.get("email", "").strip().lower()
@@ -50,10 +51,11 @@ def password_login(
         totp_verified=not totp_needed,
         auth_method="password",
         device_info=parse_device_info(ua_string),
-        location=lookup_location(ip),
+        location=ip,
     )
     session.add(new_session)
     session.commit()
+    background_tasks.add_task(update_session_location, new_session.session_id, ip)
 
     response = Response(
         content=f'{{"totp_required": {str(totp_needed).lower()}}}',
