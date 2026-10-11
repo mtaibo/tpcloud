@@ -23,6 +23,7 @@ def init_db():
             "ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'passkey'",
             "ALTER TABLE sessions ADD COLUMN device_info TEXT",
             "ALTER TABLE sessions ADD COLUMN location TEXT",
+            "ALTER TABLE sessions ADD COLUMN client_type TEXT NOT NULL DEFAULT 'web'",
         ]:
             try:
                 conn.execute(text(sql))

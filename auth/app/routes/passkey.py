@@ -1,7 +1,7 @@
 import os
 import base64
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -18,7 +18,7 @@ from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor,
     UserVerificationRequirement,
 )
-from utils import get_client_ip, parse_device_info, update_session_location
+from utils import detect_client_type, get_client_ip, parse_device_info, session_duration_for, update_session_location
 
 
 def b64url_encode(data: bytes) -> str:
@@ -35,8 +35,6 @@ RP_ID = os.environ["RP_ID"]
 RP_NAME = os.environ["RP_NAME"]
 ORIGIN = os.environ["ORIGIN"]
 ACCOUNTS_ORIGIN = os.environ["ACCOUNTS_ORIGIN"]
-
-SESSION_DURATION = timedelta(hours=1)
 
 _pending_registration_challenges: dict[str, bytes] = {}
 _pending_login_challenges: dict[str, bytes] = {}
@@ -161,16 +159,19 @@ def login_complete(
 
     ip = get_client_ip(request)
     ua_string = request.headers.get("User-Agent", "")
+    client_type = detect_client_type(request)
+    duration = session_duration_for(client_type)
 
     new_session = SessionModel(
         user_id=user.id,
-        expires_at=datetime.now(timezone.utc) + SESSION_DURATION,
+        expires_at=datetime.now(timezone.utc) + duration,
         ip_address=ip,
         user_agent=ua_string,
         totp_verified=True,
         auth_method="passkey",
         device_info=parse_device_info(ua_string),
         location=ip,
+        client_type=client_type,
     )
     session.add(new_session)
     session.commit()
@@ -185,7 +186,7 @@ def login_complete(
         httponly=True,
         secure=True,
         samesite="lax",
-        max_age=int(SESSION_DURATION.total_seconds()),
+        max_age=int(duration.total_seconds()),
     )
     return response
 
@@ -258,11 +259,25 @@ def validate(request: Request, session: DBSession = Depends(get_session)):
         ):
             now = datetime.now(timezone.utc)
             expires = db_session.expires_at.replace(tzinfo=timezone.utc)
-            if expires - now < SESSION_DURATION / 2:
-                db_session.expires_at = now + SESSION_DURATION
+            duration = session_duration_for(db_session.client_type)
+            response = Response(status_code=200)
+            if expires - now < duration / 2:
+                db_session.expires_at = now + duration
                 session.add(db_session)
                 session.commit()
-            return Response(status_code=200)
+                # Refresh the cookie's own Max-Age too, otherwise the client drops it at its
+                # original expiry regardless of this server-side renewal. Caddy's forward_auth
+                # must have `copy_headers Set-Cookie` for this to actually reach the client.
+                response.set_cookie(
+                    key="session_id",
+                    value=db_session.session_id,
+                    domain=".migueltaibo.com",
+                    httponly=True,
+                    secure=True,
+                    samesite="lax",
+                    max_age=int(duration.total_seconds()),
+                )
+            return response
 
     original_host = request.headers.get("X-Forwarded-Host", "")
     original_uri = request.headers.get("X-Forwarded-Uri", "/")

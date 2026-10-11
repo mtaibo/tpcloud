@@ -54,3 +54,4 @@ class Session(SQLModel, table=True):
     auth_method: str = Field(default="passkey")
     device_info: Optional[str] = Field(default=None)
     location: Optional[str] = Field(default=None)
+    client_type: str = Field(default="web")

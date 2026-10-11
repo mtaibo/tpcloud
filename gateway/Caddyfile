@@ -6,6 +6,7 @@
 (protected) {
     forward_auth auth:8000 {
         uri /auth/passkey/validate
+        copy_headers Set-Cookie
     }
 }
 

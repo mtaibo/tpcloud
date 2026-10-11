@@ -1,5 +1,19 @@
+from datetime import timedelta
+
 import httpx
 import user_agents as ua_lib
+
+WEB_SESSION_DURATION = timedelta(hours=1)
+NATIVE_SESSION_DURATION = timedelta(hours=24)
+
+
+def detect_client_type(request) -> str:
+    """The native app (iOS/macOS) tags its requests with X-TP-Client; browsers never send it."""
+    return "native" if request.headers.get("X-TP-Client") else "web"
+
+
+def session_duration_for(client_type: str) -> timedelta:
+    return NATIVE_SESSION_DURATION if client_type == "native" else WEB_SESSION_DURATION
 
 
 def parse_device_info(ua_string: str) -> str:
