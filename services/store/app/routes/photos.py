@@ -1,5 +1,7 @@
+import asyncio
 import hashlib
 import mimetypes
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -11,7 +13,7 @@ from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 
 from app.auth import get_current_user
-from app.database import get_session
+from app.database import engine, get_session
 from app.models import Photo
 from app.utils import get_base, resolve_path
 
@@ -166,6 +168,41 @@ async def check_existing(
     return {"known_asset_ids": [r for r in rows if r]}
 
 
+class AssetMetadataBody(BaseModel):
+    source_asset_ids: List[str]
+
+
+@router.post("/metadata-by-asset")
+async def metadata_by_asset(
+    request: Request,
+    body: AssetMetadataBody,
+    db: Session = Depends(get_session),
+):
+    user = await get_current_user(request)
+    if not body.source_asset_ids:
+        return {"items": {}}
+    rows = db.exec(
+        select(Photo).where(
+            Photo.owner_email == user["email"],
+            Photo.source_asset_id.in_(body.source_asset_ids),
+        )
+    ).all()
+    return {
+        "items": {
+            row.source_asset_id: {
+                "checksum": row.checksum,
+                "taken_at": row.taken_at.isoformat() if row.taken_at else None,
+                "width": row.width,
+                "height": row.height,
+                "original_filename": row.original_filename,
+                "file_size": row.file_size,
+            }
+            for row in rows
+            if row.source_asset_id
+        }
+    }
+
+
 @router.get("")
 async def list_photos(
     request: Request,
@@ -309,13 +346,21 @@ def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
     if not dry_run:
         db.commit()
 
-    # 2. Walk legacy and current photo trees for files with no matching Photo row.
+    # 2. Walk legacy and current photo trees for files with no matching Photo row. Files already
+    # sitting at a known-canonical location were just accounted for in step 1 (either confirmed
+    # correctly placed or moved there) — skipping the hash for those turns every run after the
+    # first into an incremental one that only reads files it hasn't classified yet, instead of
+    # re-hashing the entire library (which is what made a large library's sanitize pass slow
+    # enough to blow past the app's HTTP request timeout).
+    canonical_paths = {p.resolve() for p in canonical_file_of.values()}
     legacy_roots = sorted((base / "users").glob("*/Photos")) if (base / "users").exists() else []
     current_roots = sorted((base / "photos").glob("*")) if (base / "photos").exists() else []
     for root in legacy_roots + current_roots:
         owner_email = root.parent.name if root.name == "Photos" else root.name
         for file_path in sorted(root.rglob("*")):
             if not file_path.is_file() or file_path.name.startswith("."):
+                continue
+            if file_path.resolve() in canonical_paths:
                 continue
             try:
                 checksum = _sha256_file(file_path)
@@ -392,18 +437,57 @@ def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
     return report
 
 
+def _run_sanitize_job(base: Path, dry_run: bool) -> dict:
+    # Runs on its own session rather than the request-scoped one from `get_session`, since that
+    # session's lifetime ends when the HTTP handler returns — which now happens immediately,
+    # well before this (possibly many-minutes-long) job finishes.
+    with Session(engine) as db:
+        return _run_sanitize(base, dry_run, db)
+
+
+# A full sanitize pass over a large library can take minutes (every not-yet-classified file is
+# SHA-256 hashed). Blocking the HTTP request for that long routinely exceeded the app's request
+# timeout while the pass kept running server-side regardless, silently mutating the DB in the
+# background with no way for the client to know. Sanitize now starts the pass in a background
+# task and returns immediately; `_sanitize_lock` stops a second tap from starting a redundant
+# concurrent pass, and `/sanitize/status` lets the app poll for the report.
+_sanitize_lock = threading.Lock()
+_sanitize_state: dict = {"running": False, "last_report": None}
+
+
 @router.post("/sanitize")
 async def sanitize_photos(
     request: Request,
     dry_run: bool = Query(default=True),
-    db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
     if not user["is_admin"]:
         raise HTTPException(403, "Admin access required")
 
+    if not _sanitize_lock.acquire(blocking=False):
+        return {"started": False, "already_running": True}
+
+    _sanitize_state["running"] = True
     base = get_base("external")
-    return await run_in_threadpool(_run_sanitize, base, dry_run, db)
+
+    async def runner():
+        try:
+            report = await run_in_threadpool(_run_sanitize_job, base, dry_run)
+            _sanitize_state["last_report"] = report
+        finally:
+            _sanitize_state["running"] = False
+            _sanitize_lock.release()
+
+    asyncio.create_task(runner())
+    return {"started": True, "already_running": False}
+
+
+@router.get("/sanitize/status")
+async def sanitize_status(request: Request):
+    user = await get_current_user(request)
+    if not user["is_admin"]:
+        raise HTTPException(403, "Admin access required")
+    return _sanitize_state
 
 
 @router.delete("/{photo_id}")
