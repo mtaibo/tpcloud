@@ -309,7 +309,14 @@ def _move_file(src: Path, dest: Path, dry_run: bool) -> None:
 
 
 def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
-    report = {"dry_run": dry_run, "moved": 0, "recovered_orphans": 0, "duplicates_removed": 0, "errors": []}
+    report = {
+        "dry_run": dry_run,
+        "moved": 0,
+        "recovered_orphans": 0,
+        "duplicates_removed": 0,
+        "removed_missing": 0,
+        "errors": [],
+    }
 
     photos = db.exec(select(Photo)).all()
     known_checksums: set[tuple[str, str]] = {(p.owner_email, p.checksum) for p in photos}
@@ -323,12 +330,20 @@ def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
             ext = Path(photo.path).suffix or ".jpg"
             canonical = _canonical_relative_path(photo.owner_email, photo.taken_at, photo.checksum, ext)
             key = (photo.owner_email, photo.checksum)
-            if photo.path == canonical:
-                canonical_file_of[key] = resolve_path(base, canonical)
-                continue
             src = resolve_path(base, photo.path)
+            # Checked unconditionally, even when photo.path already equals canonical — files
+            # removed directly from disk (outside the app) left their row's path untouched, so a
+            # path-equality fast path here would never notice the file was gone, and the row
+            # (plus its source_asset_id) would linger forever, permanently blocking a fresh
+            # backup/check from ever re-uploading it.
             if not src.exists():
-                report["errors"].append(f"missing file for photo {photo.id}: {photo.path}")
+                if not dry_run:
+                    db.delete(photo)
+                    known_checksums.discard(key)
+                report["removed_missing"] += 1
+                continue
+            if photo.path == canonical:
+                canonical_file_of[key] = src
                 continue
             dest = resolve_path(base, canonical)
             if dest.exists() and dest.resolve() != src.resolve():
