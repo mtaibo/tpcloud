@@ -1,4 +1,5 @@
 import hashlib
+import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -22,7 +23,7 @@ def _check_photo_access(location: str, path: str, email: str) -> None:
         raise HTTPException(403, "Access denied")
     clean = path.lstrip("/")
     parts = Path(clean).parts
-    if len(parts) < 2 or parts[0] != "users" or parts[1] != email:
+    if len(parts) < 2 or parts[0] != "photos" or parts[1] != email:
         raise HTTPException(403, "Access denied")
 
 
@@ -243,6 +244,166 @@ async def get_photo(
     if not photo or photo.owner_email != user["email"]:
         raise HTTPException(404, "Photo not found")
     return _serialize(photo)
+
+
+def _canonical_relative_path(owner_email: str, taken_at: Optional[datetime], checksum: str, ext: str) -> str:
+    date = taken_at or datetime.now(timezone.utc)
+    return f"photos/{owner_email}/{date.year}/{date.month:02d}/{checksum}{ext}"
+
+
+def _exif_taken_at(file_path: Path) -> Optional[datetime]:
+    try:
+        from PIL import Image
+        with Image.open(file_path) as img:
+            exif = img.getexif()
+            raw = exif.get(0x9003) or exif.get(0x0132)  # DateTimeOriginal, else DateTime
+        if raw:
+            return datetime.strptime(raw, "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    except Exception:
+        pass
+    return None
+
+
+def _move_file(src: Path, dest: Path, dry_run: bool) -> None:
+    if dry_run:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    src.rename(dest)
+
+
+def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
+    report = {"dry_run": dry_run, "moved": 0, "recovered_orphans": 0, "duplicates_removed": 0, "errors": []}
+
+    photos = db.exec(select(Photo)).all()
+    known_checksums: set[tuple[str, str]] = {(p.owner_email, p.checksum) for p in photos}
+    # Tracks the file each (owner, checksum) now lives at, so step 2 can tell a correctly
+    # placed registered photo apart from a stray duplicate copy left behind on disk.
+    canonical_file_of: dict[tuple[str, str], Path] = {}
+
+    # 1. Move every registered photo to its canonical photos/<email>/YYYY/MM path.
+    for photo in photos:
+        try:
+            ext = Path(photo.path).suffix or ".jpg"
+            canonical = _canonical_relative_path(photo.owner_email, photo.taken_at, photo.checksum, ext)
+            key = (photo.owner_email, photo.checksum)
+            if photo.path == canonical:
+                canonical_file_of[key] = resolve_path(base, canonical)
+                continue
+            src = resolve_path(base, photo.path)
+            if not src.exists():
+                report["errors"].append(f"missing file for photo {photo.id}: {photo.path}")
+                continue
+            dest = resolve_path(base, canonical)
+            if dest.exists() and dest.resolve() != src.resolve():
+                report["errors"].append(f"canonical path already occupied for photo {photo.id}: {canonical}")
+                continue
+            _move_file(src, dest, dry_run)
+            if not dry_run:
+                photo.path = canonical
+                db.add(photo)
+            canonical_file_of[key] = dest if not dry_run else src
+            report["moved"] += 1
+        except Exception as exc:
+            report["errors"].append(f"photo {photo.id}: {exc}")
+
+    if not dry_run:
+        db.commit()
+
+    # 2. Walk legacy and current photo trees for files with no matching Photo row.
+    legacy_roots = sorted((base / "users").glob("*/Photos")) if (base / "users").exists() else []
+    current_roots = sorted((base / "photos").glob("*")) if (base / "photos").exists() else []
+    for root in legacy_roots + current_roots:
+        owner_email = root.parent.name if root.name == "Photos" else root.name
+        for file_path in sorted(root.rglob("*")):
+            if not file_path.is_file() or file_path.name.startswith("."):
+                continue
+            try:
+                checksum = _sha256_file(file_path)
+                key = (owner_email, checksum)
+                if key in known_checksums:
+                    canonical = canonical_file_of.get(key)
+                    if canonical is None or file_path.resolve() != canonical.resolve():
+                        # The registered copy of this photo already lives elsewhere (or this
+                        # scan hasn't recorded its canonical location yet, e.g. a leftover
+                        # from a previous partial run) — this on-disk copy is a stray duplicate.
+                        if not dry_run:
+                            file_path.unlink()
+                        report["duplicates_removed"] += 1
+                    continue
+
+                taken_at = _exif_taken_at(file_path) or datetime.fromtimestamp(
+                    file_path.stat().st_mtime, tz=timezone.utc
+                )
+                ext = file_path.suffix or ".jpg"
+                canonical_rel = _canonical_relative_path(owner_email, taken_at, checksum, ext)
+                dest = resolve_path(base, canonical_rel)
+
+                if not dry_run:
+                    mime_type, _ = mimetypes.guess_type(str(file_path))
+                    width = height = None
+                    try:
+                        from PIL import Image
+                        with Image.open(file_path) as img:
+                            width, height = img.size
+                    except Exception:
+                        pass
+                    _move_file(file_path, dest, dry_run=False)
+                    db.add(Photo(
+                        owner_email=owner_email,
+                        checksum=checksum,
+                        path=canonical_rel,
+                        original_filename=file_path.name,
+                        file_size=file_path.stat().st_size if file_path.exists() else dest.stat().st_size,
+                        mime_type=mime_type,
+                        width=width,
+                        height=height,
+                        taken_at=taken_at,
+                        source_type="recovered_orphan",
+                        status="verified",
+                        verified_at=datetime.now(timezone.utc),
+                    ))
+                    db.commit()
+                    known_checksums.add(key)
+                    # Without this, a root scanned later in this same run (e.g. `photos/<email>`
+                    # overlapping the directory this file was just moved into) would see the file
+                    # again, find no recorded canonical location for it, and delete it as a
+                    # supposed stray duplicate of the row we just created.
+                    canonical_file_of[key] = dest
+                report["recovered_orphans"] += 1
+            except Exception as exc:
+                report["errors"].append(f"{file_path}: {exc}")
+
+    # 3. Clean up now-empty legacy Photos/<year>/<month> directories (never touch users/<email> itself).
+    if not dry_run:
+        for root in legacy_roots:
+            if not root.exists():
+                continue
+            for dirpath in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+                if dirpath.is_dir():
+                    try:
+                        dirpath.rmdir()
+                    except OSError:
+                        pass
+            try:
+                root.rmdir()
+            except OSError:
+                pass
+
+    return report
+
+
+@router.post("/sanitize")
+async def sanitize_photos(
+    request: Request,
+    dry_run: bool = Query(default=True),
+    db: Session = Depends(get_session),
+):
+    user = await get_current_user(request)
+    if not user["is_admin"]:
+        raise HTTPException(403, "Admin access required")
+
+    base = get_base("external")
+    return await run_in_threadpool(_run_sanitize, base, dry_run, db)
 
 
 @router.delete("/{photo_id}")

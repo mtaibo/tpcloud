@@ -37,6 +37,8 @@ def check_access(location: str, path: str, email: str, is_admin: bool):
         return
     if first == "users" and len(parts) >= 2 and parts[1] == email:
         return
+    if first == "photos" and len(parts) >= 2 and parts[1] == email:
+        return
     raise HTTPException(403, "Access denied")
 
 
