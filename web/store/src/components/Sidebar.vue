@@ -1,11 +1,12 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Plus, X, Shield, ShieldCheck, Share2, Upload, Download, Archive } from 'lucide-vue-next'
+import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Plus, X, Shield, ShieldCheck, Share2, Upload, Download, Archive, DatabaseBackup } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
 import { useTransfers } from '../useTransfers.js'
 import { useCompression } from '../useCompression.js'
 import { getFileIcon } from '../fileTypes.js'
 import TransferPanel from './TransferPanel.vue'
+import BackupModal from './BackupModal.vue'
 
 const LOGIN_URL = 'https://login.migueltaibo.com'
 
@@ -27,6 +28,7 @@ const { hasJobs, activeCount, init: initCompression } = useCompression()
 
 const panelOpen = ref(false)
 const transfersRef = ref(null)
+const showBackup = ref(false)
 
 function togglePanel() {
   panelOpen.value = !panelOpen.value
@@ -166,6 +168,10 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
               <Shield v-else class="menu-icon" />
               {{ viewAsAdmin ? 'Exit Admin View' : 'Admin View' }}
             </button>
+            <button v-if="user.is_admin" class="user-menu-item admin-item" @click="showBackup = true; menuOpen = false">
+              <DatabaseBackup class="menu-icon" />
+              Backup
+            </button>
             <button class="user-menu-item logout-item" @click="logout">
               <LogOut class="menu-icon" />
               Log out
@@ -184,6 +190,8 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
     </footer>
 
   </aside>
+
+  <BackupModal v-if="showBackup" @close="showBackup = false" />
 </template>
 
 <style scoped>

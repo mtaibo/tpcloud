@@ -12,6 +12,7 @@ from app.routes.shares import router as shares_router
 from app.routes.share_access import router as share_access_router
 from app.routes.open import router as open_router
 from app.routes.compression import router as compression_router
+from app.routes.backup import router as backup_router
 
 
 @asynccontextmanager
@@ -48,3 +49,4 @@ app.include_router(shares_router)
 app.include_router(share_access_router)
 app.include_router(open_router)
 app.include_router(compression_router)
+app.include_router(backup_router)
