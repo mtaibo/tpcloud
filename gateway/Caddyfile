@@ -112,3 +112,17 @@ http://tphome.migueltaibo.com {
         reverse_proxy tphome-frontend:80
     }
 }
+
+http://admin.migueltaibo.com {
+    header Cache-Control "no-store, no-cache, must-revalidate"
+
+    handle /auth/* {
+        reverse_proxy auth:8000
+    }
+    # tpadmin runs on the host (it drives docker, git and tmux), listening only on this
+    # network's bridge IP; it also requires is_admin on every endpoint itself.
+    handle {
+        import protected
+        reverse_proxy 172.20.0.1:8100
+    }
+}
