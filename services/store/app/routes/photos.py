@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import mimetypes
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,7 +14,7 @@ from sqlmodel import Session, select
 from app.auth import get_current_user
 from app.database import engine, get_session
 from app.models import Photo
-from app.utils import get_base, resolve_path
+from app.utils import get_base, resolve_path, guess_media_type
 
 router = APIRouter(prefix="/api/photos", tags=["photos"])
 
@@ -90,6 +89,14 @@ class PhotoCreateBody(BaseModel):
     gps_lon: Optional[float] = None
 
 
+_SQLITE_IN_BATCH = 500
+
+
+def _batched(items: list, size: int):
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
 class CheckExistingBody(BaseModel):
     source_asset_ids: List[str]
 
@@ -120,7 +127,13 @@ async def register_photo(
         raise HTTPException(404, "File not found - upload it via /api/files/upload first")
 
     actual_checksum = await run_in_threadpool(_sha256_file, file_path)
-    verified = actual_checksum == body.checksum
+    if actual_checksum != body.checksum:
+        # Don't persist a Photo row under a checksum that doesn't match what's actually on disk:
+        # check-existing/metadata-by-asset key purely off source_asset_id, so a row like that
+        # would make the client believe this asset was backed up successfully forever, silently
+        # hiding a corrupted backup instead of letting the client detect and retry it.
+        await run_in_threadpool(file_path.unlink)
+        raise HTTPException(422, "Checksum mismatch - uploaded file is corrupt, re-upload it")
 
     photo = Photo(
         owner_email=email,
@@ -141,8 +154,8 @@ async def register_photo(
         camera_model=body.camera_model,
         gps_lat=body.gps_lat,
         gps_lon=body.gps_lon,
-        status="verified" if verified else "checksum_mismatch",
-        verified_at=datetime.now(timezone.utc) if verified else None,
+        status="verified",
+        verified_at=datetime.now(timezone.utc),
     )
     db.add(photo)
     db.commit()
@@ -159,13 +172,17 @@ async def check_existing(
     user = await get_current_user(request)
     if not body.source_asset_ids:
         return {"known_asset_ids": []}
-    rows = db.exec(
-        select(Photo.source_asset_id).where(
-            Photo.owner_email == user["email"],
-            Photo.source_asset_id.in_(body.source_asset_ids),
-        )
-    ).all()
-    return {"known_asset_ids": [r for r in rows if r]}
+    known: list[str] = []
+    for batch in _batched(body.source_asset_ids, _SQLITE_IN_BATCH):
+        rows = db.exec(
+            select(Photo.source_asset_id).where(
+                Photo.owner_email == user["email"],
+                Photo.status == "verified",
+                Photo.source_asset_id.in_(batch),
+            )
+        ).all()
+        known.extend(r for r in rows if r)
+    return {"known_asset_ids": known}
 
 
 class AssetMetadataBody(BaseModel):
@@ -181,15 +198,19 @@ async def metadata_by_asset(
     user = await get_current_user(request)
     if not body.source_asset_ids:
         return {"items": {}}
-    rows = db.exec(
-        select(Photo).where(
-            Photo.owner_email == user["email"],
-            Photo.source_asset_id.in_(body.source_asset_ids),
-        )
-    ).all()
-    return {
-        "items": {
-            row.source_asset_id: {
+    items: dict[str, dict] = {}
+    for batch in _batched(body.source_asset_ids, _SQLITE_IN_BATCH):
+        rows = db.exec(
+            select(Photo).where(
+                Photo.owner_email == user["email"],
+                Photo.status == "verified",
+                Photo.source_asset_id.in_(batch),
+            )
+        ).all()
+        for row in rows:
+            if not row.source_asset_id:
+                continue
+            items[row.source_asset_id] = {
                 "checksum": row.checksum,
                 "taken_at": row.taken_at.isoformat() if row.taken_at else None,
                 "width": row.width,
@@ -197,10 +218,7 @@ async def metadata_by_asset(
                 "original_filename": row.original_filename,
                 "file_size": row.file_size,
             }
-            for row in rows
-            if row.source_asset_id
-        }
-    }
+    return {"items": items}
 
 
 @router.get("")
@@ -399,7 +417,7 @@ def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
                 dest = resolve_path(base, canonical_rel)
 
                 if not dry_run:
-                    mime_type, _ = mimetypes.guess_type(str(file_path))
+                    mime_type = guess_media_type(file_path)
                     width = height = None
                     try:
                         from PIL import Image

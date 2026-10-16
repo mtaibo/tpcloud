@@ -1,10 +1,11 @@
 import asyncio
 import hashlib
 import io
-import mimetypes
+import json
 import os
 import secrets
 import shutil
+import threading
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,11 +21,36 @@ from sqlmodel import Session, select
 from app.auth import get_current_user
 from app.database import get_session, DATA_DIR
 from app.models import FileViewToken, FolderIcon, PendingUpload
-from app.utils import get_base as _base, resolve_path as _resolve, check_access as _check_access, list_directory_entries as _list_entries
+from app.utils import (
+    get_base as _base,
+    resolve_path as _resolve,
+    check_access as _check_access,
+    list_directory_entries as _list_entries,
+    guess_media_type as _guess_media_type,
+)
 
 _THUMB_DIR = DATA_DIR / "thumbs"
 _thumb_sem = asyncio.Semaphore(4)
-_building: set[str] = set()
+
+# Per-upload-id lock guarding the read-modify-write of PendingUpload.received_chunks, so two
+# chunks of the same upload landing concurrently (parallel connections, or a client retry racing
+# the original request) can't lose one or the other's update to the received-chunk set.
+_upload_locks_guard = threading.Lock()
+_upload_locks: dict[str, threading.Lock] = {}
+
+
+def _lock_for_upload(upload_id: str) -> threading.Lock:
+    with _upload_locks_guard:
+        lock = _upload_locks.get(upload_id)
+        if lock is None:
+            lock = threading.Lock()
+            _upload_locks[upload_id] = lock
+        return lock
+
+
+def _release_upload_lock(upload_id: str) -> None:
+    with _upload_locks_guard:
+        _upload_locks.pop(upload_id, None)
 
 
 def _thumb_cache_path(file_path: Path, size: int) -> Path:
@@ -49,20 +75,12 @@ def _build_thumbnail(file_path: Path, cache_path: Path, size: int) -> None:
         tmp.replace(cache_path)
 
 
-async def _build_thumb_bg(file_path: Path, cache_path: Path, size: int) -> None:
-    key = str(cache_path)
-    if key in _building:
+async def _ensure_thumbnail(file_path: Path, cache_path: Path, size: int) -> None:
+    if cache_path.exists():
         return
-    _building.add(key)
-    try:
+    async with _thumb_sem:
         if not cache_path.exists():
-            async with _thumb_sem:
-                if not cache_path.exists():
-                    await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
-    except Exception:
-        pass
-    finally:
-        _building.discard(key)
+            await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -158,8 +176,12 @@ async def upload_files(
     base = _base(location)
     dir_path = _resolve(base, path)
 
-    if not dir_path.exists() or not dir_path.is_dir():
-        raise HTTPException(404, "Directory not found")
+    # Auto-create the destination directory (within the caller's already-checked-access subtree)
+    # rather than 404-ing: a photo backup uploading into a fresh photos/<email>/YYYY/MM folder
+    # has no other way to create it first without an extra, redundant round trip.
+    dir_path.mkdir(parents=True, exist_ok=True)
+    if not dir_path.is_dir():
+        raise HTTPException(400, "Path is not a directory")
 
     uploaded = []
     for file in files:
@@ -177,12 +199,23 @@ async def upload_files(
     return {"uploaded": uploaded}
 
 
+def _write_chunk_at_offset(part_file: Path, offset: int, data: bytes) -> None:
+    # "r+b" requires the file to already exist; create it empty first if this is chunk 0 (or any
+    # chunk arriving before chunk 0, since chunks may arrive out of order over parallel connections).
+    if not part_file.exists():
+        part_file.touch()
+    with open(part_file, "r+b") as f:
+        f.seek(offset)
+        f.write(data)
+
+
 @router.post("/upload-chunk")
 async def upload_chunk(
     request: Request,
     upload_id: str = Query(...),
     chunk_index: int = Query(...),
     total_chunks: int = Query(...),
+    chunk_size: int = Query(...),
     filename: str = Query(...),
     file_size: int = Query(...),
     path: str = Query(default=""),
@@ -194,47 +227,76 @@ async def upload_chunk(
     base = _base(location)
     dir_path = _resolve(base, path)
 
-    if not dir_path.exists() or not dir_path.is_dir():
-        raise HTTPException(404, "Directory not found")
+    dir_path.mkdir(parents=True, exist_ok=True)
+    if not dir_path.is_dir():
+        raise HTTPException(400, "Path is not a directory")
 
     safe_name = Path(filename).name
     if not safe_name:
         raise HTTPException(400, "Invalid filename")
+    if chunk_index < 0 or chunk_index >= total_chunks or chunk_size <= 0:
+        raise HTTPException(400, "Invalid chunk parameters")
 
     dest = (dir_path / safe_name).resolve()
     if not str(dest).startswith(str(dir_path.resolve())):
         raise HTTPException(400, "Invalid path")
 
-    pending = db.get(PendingUpload, upload_id)
-    if not pending:
-        pending = PendingUpload(
-            upload_id=upload_id,
-            filename=safe_name,
-            path=path,
-            location=location,
-            owner_email=user["email"],
-            file_size=file_size,
-            total_chunks=total_chunks,
-        )
-        db.add(pending)
-        db.commit()
+    # Read the request body before taking the lock - streaming it in is the slow part and
+    # doesn't need to be serialized against other chunks of the same upload.
+    body = b"".join([chunk async for chunk in request.stream()])
+    if len(body) == 0:
+        raise HTTPException(400, "Empty chunk")
+
+    offset = chunk_index * chunk_size
+    if offset + len(body) > file_size:
+        raise HTTPException(400, "Chunk extends past declared file_size")
 
     part_file = dir_path / f".{upload_id}.part"
-    async with aiofiles.open(part_file, "ab") as f:
-        async for data in request.stream():
-            await f.write(data)
+    # Writing at an explicit offset makes a retried or out-of-order chunk idempotent (it
+    # overwrites the same bytes at the same place) instead of corrupting the file the way
+    # append-only writes did. Done outside the lock below since it's the slow part and doesn't
+    # touch any shared state the lock protects.
+    await run_in_threadpool(_write_chunk_at_offset, part_file, offset, body)
 
-    pending.bytes_received = part_file.stat().st_size
-    db.add(pending)
-    db.commit()
+    lock = _lock_for_upload(upload_id)
+    # The lock only wraps this fast, synchronous bookkeeping (no `await` inside it) - holding a
+    # plain threading.Lock across an `await` would block the whole asyncio event loop, not just
+    # the other task waiting on it.
+    with lock:
+        pending = db.get(PendingUpload, upload_id)
+        if pending is None:
+            pending = PendingUpload(
+                upload_id=upload_id,
+                filename=safe_name,
+                path=path,
+                location=location,
+                owner_email=user["email"],
+                file_size=file_size,
+                chunk_size=chunk_size,
+                total_chunks=total_chunks,
+            )
+        received = set(json.loads(pending.received_chunks)) if pending.received_chunks else set()
+        received.add(chunk_index)
+        pending.received_chunks = json.dumps(sorted(received))
+        pending.bytes_received = min(len(received) * chunk_size, file_size)
+        db.add(pending)
+        db.commit()
+        # Completion is driven by having every chunk index, not by "did we just see the last
+        # index" - chunks can legitimately arrive out of order (parallel connections, retries).
+        is_complete = len(received) >= total_chunks
 
-    if chunk_index == total_chunks - 1:
-        await run_in_threadpool(lambda: part_file.replace(dest))
+    if not is_complete:
+        return {"status": "ok", "received_chunks": len(received), "total_chunks": total_chunks}
+
+    actual_size = part_file.stat().st_size
+    if actual_size != file_size:
+        raise HTTPException(409, "Upload incomplete: assembled size does not match file_size")
+    await run_in_threadpool(lambda: part_file.replace(dest))
+    with lock:
         db.delete(pending)
         db.commit()
-        return {"status": "complete", "filename": safe_name}
-
-    return {"status": "ok"}
+    _release_upload_lock(upload_id)
+    return {"status": "complete", "filename": safe_name}
 
 
 @router.get("/pending-uploads")
@@ -270,6 +332,7 @@ async def cancel_upload(upload_id: str, request: Request, db: Session = Depends(
         await run_in_threadpool(part_file.unlink)
     db.delete(pending)
     db.commit()
+    _release_upload_lock(upload_id)
     return {"status": "cancelled"}
 
 
@@ -319,8 +382,7 @@ async def get_file_token_info(
     file_path = _resolve(base, file_token.path)
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(404, "File not found")
-    media_type, _ = mimetypes.guess_type(str(file_path))
-    return {"filename": file_path.name, "content_type": media_type or "application/octet-stream"}
+    return {"filename": file_path.name, "content_type": _guess_media_type(file_path)}
 
 
 @router.get("/open/{token}")
@@ -346,8 +408,7 @@ async def open_file_by_token(
     file_path = _resolve(base, file_token.path)
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(404, "File not found")
-    media_type, _ = mimetypes.guess_type(str(file_path))
-    media_type = media_type or "application/octet-stream"
+    media_type = _guess_media_type(file_path)
     return _inline_response(file_path, media_type)
 
 
@@ -366,28 +427,25 @@ async def thumbnail_file(
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(404, "File not found")
 
-    media_type, _ = mimetypes.guess_type(str(file_path))
-    if not media_type or not media_type.startswith("image/"):
-        return _inline_response(file_path, media_type or "application/octet-stream")
+    media_type = _guess_media_type(file_path)
+    if not media_type.startswith("image/"):
+        return _inline_response(file_path, media_type)
 
+    size = max(40, min(size, 400))
+    _THUMB_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = _thumb_cache_path(file_path, size)
     try:
-        size = max(40, min(size, 400))
-        _THUMB_DIR.mkdir(parents=True, exist_ok=True)
-        cache_path = _thumb_cache_path(file_path, size)
-        if not cache_path.exists():
-            asyncio.create_task(_build_thumb_bg(file_path, cache_path, size))
-            return FileResponse(
-                path=str(file_path),
-                media_type=media_type,
-                headers={"Cache-Control": "no-store", "Content-Disposition": "inline"},
-            )
+        # Always wait for (and serve) the actual resized thumbnail - never fall back to the full
+        # original, since that's precisely the multi-MB download per photo this endpoint exists
+        # to avoid for a device populating a gallery grid.
+        await _ensure_thumbnail(file_path, cache_path, size)
         return FileResponse(
             path=str(cache_path),
             media_type="image/jpeg",
             headers={"Cache-Control": "max-age=604800", "Content-Disposition": "inline"},
         )
     except Exception:
-        return _inline_response(file_path, media_type)
+        raise HTTPException(500, "Failed to build thumbnail")
 
 
 @router.get("/view")
@@ -404,8 +462,7 @@ async def view_file(
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(404, "File not found")
 
-    media_type, _ = mimetypes.guess_type(str(file_path))
-    media_type = media_type or "application/octet-stream"
+    media_type = _guess_media_type(file_path)
     return _inline_response(file_path, media_type)
 
 

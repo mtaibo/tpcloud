@@ -1,3 +1,4 @@
+import mimetypes
 import os
 from pathlib import Path
 
@@ -5,6 +6,32 @@ from fastapi import HTTPException
 
 EXTERNAL_BASE = Path(os.getenv("EXTERNAL_DISK_PATH", "/mnt/external"))
 SERVER_BASE = Path("/mnt/server")
+
+# mimetypes.guess_type() depends on mime.types files that may or may not be present on
+# the host/container (e.g. python:3.12-slim has none), so common photo formats like HEIC/HEIF
+# - the default capture format on iPhone - can silently fail to resolve there even though they
+# resolve fine on a dev machine that happens to have an old Apache mime.types lying around.
+# Keep the extensions this app actually needs to recognize as images independent of that.
+_IMAGE_EXTENSIONS = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+}
+
+
+def guess_media_type(path: Path) -> str:
+    media_type = _IMAGE_EXTENSIONS.get(path.suffix.lower())
+    if media_type:
+        return media_type
+    media_type, _ = mimetypes.guess_type(str(path))
+    return media_type or "application/octet-stream"
 
 
 def get_base(location: str) -> Path:

@@ -1,4 +1,3 @@
-import mimetypes
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -8,7 +7,7 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models import ShareFileToken, ShareLink
-from app.utils import get_base, resolve_path
+from app.utils import get_base, resolve_path, guess_media_type
 
 router = APIRouter(prefix="/api/open", tags=["open"])
 
@@ -47,8 +46,7 @@ def _resolve_token(token_str: str, db: Session):
 @router.get("/{token}/info")
 def get_share_file_info(token: str, db: Session = Depends(get_session)):
     _, file_path = _resolve_token(token, db)
-    media_type, _ = mimetypes.guess_type(str(file_path))
-    return {"filename": file_path.name, "content_type": media_type or "application/octet-stream"}
+    return {"filename": file_path.name, "content_type": guess_media_type(file_path)}
 
 
 @router.get("/{token}")
@@ -58,5 +56,4 @@ def open_share_file(token: str, db: Session = Depends(get_session)):
         rec.first_accessed_at = datetime.now(timezone.utc)
         db.add(rec)
         db.commit()
-    media_type, _ = mimetypes.guess_type(str(file_path))
-    return _inline_response(file_path, media_type or "application/octet-stream")
+    return _inline_response(file_path, guess_media_type(file_path))

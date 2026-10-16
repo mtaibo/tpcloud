@@ -87,8 +87,13 @@ class PendingUpload(SQLModel, table=True):
     location: str
     owner_email: str
     file_size: int
+    chunk_size: int = Field(default=0)
     bytes_received: int = Field(default=0)
     total_chunks: int
+    # JSON-encoded sorted list of chunk indices already written to disk - lets completion be
+    # driven by "every index has arrived" rather than "the chunk tagged as last arrived",
+    # since chunks can legitimately arrive out of order or be retried.
+    received_chunks: str = Field(default="")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

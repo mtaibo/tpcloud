@@ -1,6 +1,4 @@
-import asyncio
 import io
-import mimetypes
 import os
 import secrets
 import shutil
@@ -20,7 +18,7 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models import ShareLink, ShareSession, ShareFileToken, FolderIcon
-from app.utils import get_base, resolve_path, list_directory_entries as _list_entries
+from app.utils import get_base, resolve_path, list_directory_entries as _list_entries, guess_media_type as _guess_media_type
 
 router = APIRouter(prefix="/api/share", tags=["share-access"])
 
@@ -119,7 +117,7 @@ def get_share_info(token: str, db: Session = Depends(get_session)):
     is_file = _share_is_file(share)
     content_type = None
     if is_file:
-        content_type, _ = mimetypes.guess_type(share.path)
+        content_type = _guess_media_type(Path(share.path))
     return {
         "token": share.token,
         "label": share.path.split("/")[-1] or share.token,
@@ -243,8 +241,7 @@ def view_file(
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(404, "File not found")
 
-    media_type, _ = mimetypes.guess_type(str(file_path))
-    media_type = media_type or "application/octet-stream"
+    media_type = _guess_media_type(file_path)
     return _inline_response(file_path, media_type)
 
 
@@ -256,7 +253,7 @@ async def share_thumbnail(
     size: int = Query(default=160),
     db: Session = Depends(get_session),
 ):
-    from app.routes.files import _THUMB_DIR, _thumb_cache_path, _build_thumb_bg
+    from app.routes.files import _THUMB_DIR, _thumb_cache_path, _ensure_thumbnail
 
     share = _get_share(token, db)
     _verify_session(share, request, db)
@@ -265,28 +262,22 @@ async def share_thumbnail(
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(404, "File not found")
 
-    media_type, _ = mimetypes.guess_type(str(file_path))
-    if not media_type or not media_type.startswith("image/"):
-        return _inline_response(file_path, media_type or "application/octet-stream")
+    media_type = _guess_media_type(file_path)
+    if not media_type.startswith("image/"):
+        return _inline_response(file_path, media_type)
 
+    size = max(40, min(size, 400))
+    _THUMB_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = _thumb_cache_path(file_path, size)
     try:
-        size = max(40, min(size, 400))
-        _THUMB_DIR.mkdir(parents=True, exist_ok=True)
-        cache_path = _thumb_cache_path(file_path, size)
-        if not cache_path.exists():
-            asyncio.create_task(_build_thumb_bg(file_path, cache_path, size))
-            return FileResponse(
-                path=str(file_path),
-                media_type=media_type,
-                headers={"Cache-Control": "no-store", "Content-Disposition": "inline"},
-            )
+        await _ensure_thumbnail(file_path, cache_path, size)
         return FileResponse(
             path=str(cache_path),
             media_type="image/jpeg",
             headers={"Cache-Control": "max-age=604800", "Content-Disposition": "inline"},
         )
     except Exception:
-        return _inline_response(file_path, media_type)
+        raise HTTPException(500, "Failed to build thumbnail")
 
 
 @router.get("/{token}/files/download")

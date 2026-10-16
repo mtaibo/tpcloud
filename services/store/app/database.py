@@ -22,6 +22,14 @@ def init_db():
             conn.execute(text("ALTER TABLE share_links ADD COLUMN public INTEGER NOT NULL DEFAULT 0"))
             conn.commit()
 
+        upload_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(pending_uploads)")).fetchall()}
+        if "chunk_size" not in upload_cols:
+            conn.execute(text("ALTER TABLE pending_uploads ADD COLUMN chunk_size INTEGER NOT NULL DEFAULT 0"))
+            conn.commit()
+        if "received_chunks" not in upload_cols:
+            conn.execute(text("ALTER TABLE pending_uploads ADD COLUMN received_chunks TEXT NOT NULL DEFAULT ''"))
+            conn.commit()
+
 
 def get_session():
     with Session(engine) as session:
