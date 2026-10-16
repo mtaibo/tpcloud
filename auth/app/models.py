@@ -16,16 +16,6 @@ class User(SQLModel, table=True):
     totp_secret: Optional[str] = Field(default=None)
 
 
-class AllowedEmail(SQLModel, table=True):
-    __tablename__ = "allowed_emails"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    email: str = Field(unique=True, index=True)
-    invited_by: Optional[int] = Field(default=None, foreign_key="users.id")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    used: bool = Field(default=False)
-
-
 class PasskeyCredential(SQLModel, table=True):
     __tablename__ = "passkey_credentials"
 
