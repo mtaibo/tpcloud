@@ -263,13 +263,18 @@ async def list_photos(
         except ValueError:
             raise HTTPException(400, "Invalid cursor")
         if taken_at_str:
-            cursor_taken_at = _parse_iso(taken_at_str)
+            # The cursor's "+00:00" offset reaches us as " 00:00" when a client leaves "+" unescaped
+            # in the query string (form-decoding turns it into a space). Restore it rather than
+            # rejecting the cursor, which would silently cut every listing off after page one.
+            cursor_taken_at = _parse_iso(taken_at_str.replace(" ", "+"))
             if cursor_taken_at is None:
                 raise HTTPException(400, "Invalid cursor")
             stmt = stmt.where(
                 or_(
                     Photo.taken_at < cursor_taken_at,
                     and_(Photo.taken_at == cursor_taken_at, Photo.id < cursor_id),
+                    # NULLs sort last under DESC, so they come after every dated row.
+                    Photo.taken_at.is_(None),
                 )
             )
         else:
