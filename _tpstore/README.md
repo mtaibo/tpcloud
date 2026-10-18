@@ -91,7 +91,7 @@ The disk is split into areas, and the API enforces who can touch each one:
 | `users/<email>/` | Only that user — their personal files |
 | `photos/<email>/YYYY/MM/` | Only that user — their backed-up photos |
 | `shared/` | Every signed-in user |
-| Server filesystem | Admins only, to browse the host itself |
+| Server drives (`/mnt` on the host) | Admins only |
 
 ### Uploads
 
