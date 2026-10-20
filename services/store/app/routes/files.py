@@ -101,7 +101,7 @@ async def list_directory(
     db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
-    _check_access(location, path, user["email"], user["is_admin"])
+    _check_access(location, path, user["email"])
     base = _base(location)
     dir_path = _resolve(base, path)
 
@@ -172,7 +172,7 @@ async def upload_files(
     files: List[UploadFile] = File(...),
 ):
     user = await get_current_user(request)
-    _check_access(location, path, user["email"], user["is_admin"])
+    _check_access(location, path, user["email"], allow_photos=True)
     base = _base(location)
     dir_path = _resolve(base, path)
 
@@ -223,7 +223,7 @@ async def upload_chunk(
     db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
-    _check_access(location, path, user["email"], user["is_admin"])
+    _check_access(location, path, user["email"], allow_photos=True)
     base = _base(location)
     dir_path = _resolve(base, path)
 
@@ -348,7 +348,7 @@ async def create_file_token(
     db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
-    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    _check_access(body.location, body.path, user["email"])
     while True:
         token = secrets.token_urlsafe(8)
         if not db.exec(select(FileViewToken).where(FileViewToken.token == token)).first():
@@ -377,7 +377,7 @@ async def get_file_token_info(
         expiry = file_token.first_accessed_at.replace(tzinfo=timezone.utc) + timedelta(hours=24)
         if datetime.now(timezone.utc) > expiry:
             raise HTTPException(410, "Token expired")
-    _check_access(file_token.location, file_token.path, user["email"], user["is_admin"])
+    _check_access(file_token.location, file_token.path, user["email"])
     base = _base(file_token.location)
     file_path = _resolve(base, file_token.path)
     if not file_path.exists() or not file_path.is_file():
@@ -403,7 +403,7 @@ async def open_file_by_token(
         file_token.first_accessed_at = datetime.now(timezone.utc)
         db.add(file_token)
         db.commit()
-    _check_access(file_token.location, file_token.path, user["email"], user["is_admin"])
+    _check_access(file_token.location, file_token.path, user["email"])
     base = _base(file_token.location)
     file_path = _resolve(base, file_token.path)
     if not file_path.exists() or not file_path.is_file():
@@ -420,7 +420,7 @@ async def thumbnail_file(
     size: int = Query(default=160),
 ):
     user = await get_current_user(request)
-    _check_access(location, path, user["email"], user["is_admin"])
+    _check_access(location, path, user["email"], allow_photos=True)
     base = _base(location)
     file_path = _resolve(base, path)
 
@@ -455,7 +455,7 @@ async def view_file(
     location: str = Query(default="external"),
 ):
     user = await get_current_user(request)
-    _check_access(location, path, user["email"], user["is_admin"])
+    _check_access(location, path, user["email"], allow_photos=True)
     base = _base(location)
     file_path = _resolve(base, path)
 
@@ -487,7 +487,7 @@ async def set_folder_icon(
     db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
-    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    _check_access(body.location, body.path, user["email"])
     existing = db.exec(
         select(FolderIcon).where(
             FolderIcon.owner_email == user["email"],
@@ -537,7 +537,7 @@ async def download_file(
     location: str = Query(default="external"),
 ):
     user = await get_current_user(request)
-    _check_access(location, path, user["email"], user["is_admin"])
+    _check_access(location, path, user["email"])
     base = _base(location)
     file_path = _resolve(base, path)
 
@@ -558,7 +558,7 @@ async def delete_item(
     location: str = Query(default="external"),
 ):
     user = await get_current_user(request)
-    _check_access(location, path, user["email"], user["is_admin"])
+    _check_access(location, path, user["email"])
     base = _base(location)
     item_path = _resolve(base, path)
 
@@ -567,7 +567,7 @@ async def delete_item(
 
     clean = path.lstrip("/")
     parts = Path(clean).parts if clean else ()
-    if not user["is_admin"] and len(parts) == 1 and parts[0] == "shared":
+    if len(parts) == 1 and parts[0] == "shared":
         raise HTTPException(403, "Cannot delete the shared folder")
 
     if not item_path.exists():
@@ -589,7 +589,7 @@ class MkdirBody(BaseModel):
 @router.post("/mkdir")
 async def create_directory(request: Request, body: MkdirBody):
     user = await get_current_user(request)
-    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    _check_access(body.location, body.path, user["email"])
     base = _base(body.location)
     new_dir = _resolve(base, body.path)
 
@@ -612,7 +612,7 @@ class TouchBody(BaseModel):
 @router.post("/touch")
 async def create_file(request: Request, body: TouchBody):
     user = await get_current_user(request)
-    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    _check_access(body.location, body.path, user["email"])
     base = _base(body.location)
     file_path = _resolve(base, body.path)
 
@@ -636,7 +636,7 @@ class RenameBody(BaseModel):
 @router.post("/rename")
 async def rename_item(request: Request, body: RenameBody):
     user = await get_current_user(request)
-    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    _check_access(body.location, body.path, user["email"])
     base = _base(body.location)
     item = _resolve(base, body.path)
 
@@ -682,8 +682,8 @@ class CopyBody(BaseModel):
 @router.post("/copy")
 async def copy_item(request: Request, body: CopyBody):
     user = await get_current_user(request)
-    _check_access(body.location, body.path, user["email"], user["is_admin"])
-    _check_access(body.location, body.dest_dir, user["email"], user["is_admin"])
+    _check_access(body.location, body.path, user["email"])
+    _check_access(body.location, body.dest_dir, user["email"])
     base = _base(body.location)
     item = _resolve(base, body.path)
     dest_dir = _resolve(base, body.dest_dir)
@@ -716,7 +716,7 @@ class DuplicateBody(BaseModel):
 @router.post("/duplicate")
 async def duplicate_item(request: Request, body: DuplicateBody):
     user = await get_current_user(request)
-    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    _check_access(body.location, body.path, user["email"])
     base = _base(body.location)
     item = _resolve(base, body.path)
 
@@ -745,8 +745,8 @@ class MoveBody(BaseModel):
 @router.post("/move")
 async def move_item(request: Request, body: MoveBody):
     user = await get_current_user(request)
-    _check_access(body.location, body.path, user["email"], user["is_admin"])
-    _check_access(body.location, body.dest_dir, user["email"], user["is_admin"])
+    _check_access(body.location, body.path, user["email"])
+    _check_access(body.location, body.dest_dir, user["email"])
     base = _base(body.location)
     item = _resolve(base, body.path)
     dest_dir = _resolve(base, body.dest_dir)
@@ -778,7 +778,7 @@ async def download_folder_zip(
     location: str = Query(default="external"),
 ):
     user = await get_current_user(request)
-    _check_access(location, path, user["email"], user["is_admin"])
+    _check_access(location, path, user["email"])
     base = _base(location)
     dir_path = _resolve(base, path)
 
@@ -807,7 +807,7 @@ class CompressBody(BaseModel):
 @router.post("/compress")
 async def compress_item(request: Request, body: CompressBody):
     user = await get_current_user(request)
-    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    _check_access(body.location, body.path, user["email"])
     base = _base(body.location)
     item = _resolve(base, body.path)
 
@@ -840,7 +840,7 @@ class DecompressBody(BaseModel):
 @router.post("/decompress")
 async def decompress_item(request: Request, body: DecompressBody):
     user = await get_current_user(request)
-    _check_access(body.location, body.path, user["email"], user["is_admin"])
+    _check_access(body.location, body.path, user["email"])
     base = _base(body.location)
     file_path = _resolve(base, body.path)
 

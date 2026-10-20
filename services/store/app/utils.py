@@ -5,7 +5,6 @@ from pathlib import Path
 from fastapi import HTTPException
 
 EXTERNAL_BASE = Path(os.getenv("EXTERNAL_DISK_PATH", "/mnt/external"))
-SERVER_BASE = Path("/mnt/server")
 
 # mimetypes.guess_type() depends on mime.types files that may or may not be present on
 # the host/container (e.g. python:3.12-slim has none), so common photo formats like HEIC/HEIF
@@ -35,11 +34,10 @@ def guess_media_type(path: Path) -> str:
 
 
 def get_base(location: str) -> Path:
+    # The Pi's own filesystem ("server") used to be browsable here by admins; it no longer is.
     if location == "external":
         return EXTERNAL_BASE
-    if location == "server":
-        return SERVER_BASE
-    raise HTTPException(400, "Invalid location. Use 'external' or 'server'.")
+    raise HTTPException(400, "Invalid location. Use 'external'.")
 
 
 def resolve_path(base: Path, user_path: str) -> Path:
@@ -50,11 +48,13 @@ def resolve_path(base: Path, user_path: str) -> Path:
     return target
 
 
-def check_access(location: str, path: str, email: str, is_admin: bool):
-    if is_admin:
-        return
-    if location == "server":
-        raise HTTPException(403, "Admin access required")
+def check_access(location: str, path: str, email: str, allow_photos: bool = False):
+    """Everyone, admins included, gets only their own folder and the shared one: neither the
+    disk root nor the Pi's own filesystem can be browsed anymore. `photos/<email>` is reachable
+    only from the endpoints the Photos section needs (upload, thumbnail, view), never from the
+    file browser."""
+    if location != "external":
+        raise HTTPException(403, "Access denied")
     clean = path.lstrip("/")
     if not clean:
         raise HTTPException(403, "Access denied")
@@ -64,7 +64,7 @@ def check_access(location: str, path: str, email: str, is_admin: bool):
         return
     if first == "users" and len(parts) >= 2 and parts[1] == email:
         return
-    if first == "photos" and len(parts) >= 2 and parts[1] == email:
+    if allow_photos and first == "photos" and len(parts) >= 2 and parts[1] == email:
         return
     raise HTTPException(403, "Access denied")
 

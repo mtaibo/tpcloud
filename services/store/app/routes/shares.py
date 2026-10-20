@@ -75,7 +75,7 @@ async def create_share(
     db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
-    check_access(body.location, body.path, user["email"], user["is_admin"])
+    check_access(body.location, body.path, user["email"])
 
     if body.hidden or not body.slug:
         token = secrets.token_urlsafe(8)

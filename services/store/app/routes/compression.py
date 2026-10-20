@@ -92,7 +92,7 @@ async def start_decompress(
     db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
-    check_access(location, path, user["email"], user["is_admin"])
+    check_access(location, path, user["email"])
     base = get_base(location)
     dir_path = resolve_path(base, path)
     safe_name = Path(filename).name

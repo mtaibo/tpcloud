@@ -13,7 +13,6 @@ const user = ref(null)
 const appReady = ref(false)
 const location = ref('external')
 const currentPath = ref('')
-const viewAsAdmin = ref(false)
 
 const navHistory = ref([])
 const navIndex = ref(-1)
@@ -82,15 +81,6 @@ function onMobileNavigate(loc, path) {
   mobileTab.value = loc === 'external' && path.startsWith('shared') ? 'shared' : 'personal'
 }
 
-function toggleAdminView() {
-  viewAsAdmin.value = !viewAsAdmin.value
-  if (!viewAsAdmin.value) {
-    const isAdminOnly = location.value === 'server' ||
-      (location.value === 'external' && currentPath.value === '')
-    if (isAdminOnly) navigate('external', `users/${user.value.email}`)
-  }
-}
-
 onMounted(async () => {
   try {
     const res = await fetch('/auth/passkey/me')
@@ -135,7 +125,7 @@ onMounted(async () => {
     :file-url="`/api/files/open/${fileViewerToken}`"
   />
   <div v-else-if="appReady && user" class="app">
-    <Sidebar :user="user" :location="location" :current-path="currentPath" :view-as-admin="viewAsAdmin" @navigate="navigate" @toggle-admin-view="toggleAdminView" />
+    <Sidebar :user="user" :location="location" :current-path="currentPath" @navigate="navigate" />
     <MobileBrowse v-if="activeTab === 'browse'" class="mobile-only" :user="user" :can-go-back="canGoBack" :can-go-forward="canGoForward" @navigate="onMobileNavigate" @go-back="goBack" @go-forward="goForward" />
     <SharesPanel v-if="showShares" :class="activeTab === 'browse' ? 'mobile-hidden' : ''" @navigate="navigate" />
     <FileBrowser
@@ -146,7 +136,6 @@ onMounted(async () => {
       :current-path="currentPath"
       :can-go-back="canGoBack"
       :can-go-forward="canGoForward"
-      :view-as-admin="viewAsAdmin"
       @navigate="navigate"
       @go-back="goBack"
       @go-forward="goForward"

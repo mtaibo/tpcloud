@@ -84,14 +84,13 @@ tpstore isn't a standalone deployment. It joins tpcloud's `tpcloud_gateway` Dock
 
 ### Storage layout
 
-The disk is split into areas, and the API enforces who can touch each one:
+The disk is split into areas, and the API enforces who can touch each one. Admins get no wider access: nobody can browse the disk root or the server's own drives.
 
 | Path | Who can access it |
 |---|---|
 | `users/<email>/` | Only that user — their personal files |
-| `photos/<email>/YYYY/MM/` | Only that user — their backed-up photos |
+| `photos/<email>/YYYY/MM/` | Only that user, and only through the photo endpoints (upload, thumbnails, viewing), not the file browser |
 | `shared/` | Every signed-in user |
-| Server drives (`/mnt` on the host) | Admins only |
 
 ### Uploads
 

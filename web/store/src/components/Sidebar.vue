@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { HardDrive, Folder, Home, Server, ChevronRight, User, LogOut, Cloud, Plus, X, Shield, ShieldCheck, Share2, Upload, Download, Archive, DatabaseBackup } from 'lucide-vue-next'
+import { Folder, Home, ChevronRight, User, LogOut, Cloud, Plus, X, Share2, Upload, Download, Archive, DatabaseBackup } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
 import { useTransfers } from '../useTransfers.js'
 import { useCompression } from '../useCompression.js'
@@ -14,9 +14,8 @@ const props = defineProps({
   user: Object,
   location: String,
   currentPath: String,
-  viewAsAdmin: Boolean,
 })
-const emit = defineEmits(['navigate', 'toggle-admin-view'])
+const emit = defineEmits(['navigate'])
 
 const favouritesOpen = ref(true)
 const menuOpen = ref(false)
@@ -116,17 +115,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         <span>Home</span>
       </button>
 
-      <template v-if="user.is_admin && viewAsAdmin">
-        <button :class="['nav-item', { active: isActive('external', '') }]" @click="go('external', '')">
-          <HardDrive class="nav-icon" />
-          <span>Disk</span>
-        </button>
-        <button :class="['nav-item', { active: isActive('server', '') }]" @click="go('server', '')">
-          <Server class="nav-icon" />
-          <span>System</span>
-        </button>
-      </template>
-
     </nav>
 
     <div v-if="hasUploads || hasDownloads || hasJobs" ref="transfersRef" class="transfers-section">
@@ -163,11 +151,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
               <Cloud class="menu-icon" />
               TPCloud
             </a>
-            <button v-if="user.is_admin" class="user-menu-item admin-item" :class="{ 'admin-item--active': viewAsAdmin }" @click="emit('toggle-admin-view')">
-              <ShieldCheck v-if="viewAsAdmin" class="menu-icon" />
-              <Shield v-else class="menu-icon" />
-              {{ viewAsAdmin ? 'Exit Admin View' : 'Admin View' }}
-            </button>
             <button v-if="user.is_admin" class="user-menu-item admin-item" @click="showBackup = true; menuOpen = false">
               <DatabaseBackup class="menu-icon" />
               Backup
@@ -424,7 +407,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
 .logout-item:hover { color: #f87171; }
 .admin-item { color: rgba(255, 255, 255, 0.5); }
-.admin-item--active { color: #8E8E93; }
 .admin-item:hover { color: #8E8E93; }
 
 .menu-icon { width: 16px; height: 16px; flex-shrink: 0; }
