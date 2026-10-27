@@ -124,6 +124,7 @@ export function useTransfers() {
         upload_id: uploadId,
         chunk_index: i,
         total_chunks: totalChunks,
+        chunk_size: CHUNK_SIZE,
         filename: file.name,
         file_size: file.size,
         path,
