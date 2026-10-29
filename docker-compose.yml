@@ -6,6 +6,7 @@ services:
     volumes:
       - ./gateway/Caddyfile:/etc/caddy/Caddyfile
       - ./gateway/.well-known:/srv/.well-known
+      - ./game:/srv/game:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

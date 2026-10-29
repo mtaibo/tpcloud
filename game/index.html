@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Royal Bet · Casino y apuestas</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 rx=%2722%27 fill=%27%23f5c451%27/%3E%3Ctext x=%2750%27 y=%2772%27 font-size=%2765%27 text-anchor=%27middle%27%3E♛%3C/text%3E%3C/svg%3E">
+  <meta name="description" content="Demo frontend de casa de apuestas: ruleta, blackjack, póker, deportes e hípica con créditos ficticios.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'], display: ['"Playfair Display"', 'serif'] },
+          colors: {
+            ink: '#080a0f',
+            panel: '#11151d',
+            panel2: '#171c27',
+            line: '#242b3a',
+            gold: { DEFAULT: '#f5c451', dark: '#c9962b', light: '#ffe08a' },
+            felt: '#0b5d3b',
+          },
+          boxShadow: { glow: '0 0 40px -8px rgba(245,196,81,.35)' },
+        },
+      },
+    };
+  </script>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-ink text-slate-200 font-sans antialiased min-h-screen flex flex-col">
+
+  <!-- Cabecera -->
+  <header class="sticky top-0 z-40 bg-ink/90 backdrop-blur border-b border-line">
+    <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
+      <a href="#/lobby" class="flex items-center gap-2 shrink-0">
+        <span class="w-9 h-9 rounded-lg bg-gradient-to-br from-gold-light to-gold-dark grid place-items-center text-ink font-extrabold text-lg">♛</span>
+        <span class="font-display text-xl font-extrabold tracking-wide text-white">ROYAL<span class="text-gold">BET</span></span>
+      </a>
+
+      <nav class="hidden lg:flex items-center gap-1" id="nav-desktop" aria-label="Principal"></nav>
+
+      <div class="flex items-center gap-2 sm:gap-3">
+        <button id="btn-sound" class="btn !p-2.5 !rounded-full" title="Sonido" aria-label="Activar o silenciar sonido">🔊</button>
+        <div class="flex items-center gap-2 bg-panel border border-line rounded-full pl-4 pr-1 py-1">
+          <div class="leading-none text-right">
+            <div class="text-[10px] uppercase tracking-wider text-slate-500">Saldo</div>
+            <div class="font-bold text-gold tabular-nums" id="balance">0,00</div>
+          </div>
+          <button id="btn-reload" class="btn-gold !py-1.5 !px-3 text-xs" title="Añadir créditos de prueba">+ Recargar</button>
+        </div>
+      </div>
+    </div>
+    <!-- Navegación móvil -->
+    <nav class="lg:hidden flex gap-1 overflow-x-auto px-3 pb-2 no-scrollbar" id="nav-mobile" aria-label="Principal móvil"></nav>
+  </header>
+
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
+    <section id="view-lobby" class="view hidden"></section>
+    <section id="view-roulette" class="view hidden"></section>
+    <section id="view-blackjack" class="view hidden"></section>
+    <section id="view-poker" class="view hidden"></section>
+    <section id="view-sports" class="view hidden"></section>
+    <section id="view-horses" class="view hidden"></section>
+    <section id="view-mines" class="view hidden"></section>
+    <section id="view-chicken" class="view hidden"></section>
+    <section id="view-crash" class="view hidden"></section>
+    <section id="view-plinko" class="view hidden"></section>
+    <section id="view-dice" class="view hidden"></section>
+    <section id="view-slots" class="view hidden"></section>
+  </main>
+
+  <footer class="border-t border-line mt-10">
+    <div class="max-w-7xl mx-auto px-4 py-8 text-xs text-slate-500 space-y-2">
+      <p class="flex flex-wrap items-center gap-2">
+        <span class="inline-grid place-items-center w-6 h-6 rounded-full border border-slate-600 text-slate-300 font-bold text-[10px]">18+</span>
+        <span>Proyecto de demostración. Todos los juegos usan <strong class="text-slate-300">créditos ficticios</strong>, no hay dinero real, registros ni pagos.</span>
+      </p>
+      <p>El juego real puede crear adicción. Si necesitas ayuda, contacta con los servicios de atención de tu país (en España: 900 200 225).</p>
+      <p>© <span id="year"></span> Royal Bet · Frontend de ejemplo hecho con HTML, JavaScript y Tailwind CSS.</p>
+    </div>
+  </footer>
+
+  <div id="toasts" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end pointer-events-none"></div>
+
+  <script src="js/core.js"></script>
+  <script src="js/roulette.js"></script>
+  <script src="js/blackjack.js"></script>
+  <script src="js/poker.js"></script>
+  <script src="js/sports.js"></script>
+  <script src="js/horses.js"></script>
+  <script src="js/mines.js"></script>
+  <script src="js/chicken.js"></script>
+  <script src="js/crash.js"></script>
+  <script src="js/plinko.js"></script>
+  <script src="js/dice.js"></script>
+  <script src="js/slots.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -113,6 +113,12 @@ http://tphome.migueltaibo.com {
     }
 }
 
+http://game.migueltaibo.com {
+    root * /srv/game
+    file_server
+    encode gzip
+}
+
 http://admin.migueltaibo.com {
     header Cache-Control "no-store, no-cache, must-revalidate"
 
