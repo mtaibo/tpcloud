@@ -119,6 +119,13 @@ http://game.migueltaibo.com {
     encode gzip
 }
 
+# Grade's site (privacy policy and support for the App Store), from the grade repo's own
+# container on this network; public.
+http://grade.migueltaibo.com {
+    encode gzip
+    reverse_proxy grade-web:80
+}
+
 http://admin.migueltaibo.com {
     header Cache-Control "no-store, no-cache, must-revalidate"
 
