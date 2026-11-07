@@ -36,7 +36,7 @@ Four tabs, each backed by one of my services:
 <td width="50%" valign="top">
 
 ### 🗂️ Store
-Files-style browser for my storage on [tpstore](https://github.com/mtaibo/tpstore): my Home and Shared folders, uploads, rename, delete, ZIP download, favorites, custom folder icons and public share links. Folders load ahead of time so they open instantly, and anything can be dragged into another folder or out to another app.
+Files-style browser for my storage on [tpstore](https://github.com/mtaibo/tpstore): my Home and Shared folders, uploads from Files or the photo library with a progress bar that survives leaving the app, rename, delete, ZIP download, favorites, custom folder icons and public share links. Folders load ahead of time so they open instantly, and anything can be dragged into another folder or out to another app.
 
 **`TPStoreFeature`**
 

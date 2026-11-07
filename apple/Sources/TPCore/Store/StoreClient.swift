@@ -92,6 +92,115 @@ public struct StoreClient: Sendable {
         )
     }
 
+    /// Same size as the web frontend's chunks. Each one is its own request, so no request comes near
+    /// Cloudflare's 100 MB body limit, which a big video in a single `upload` request went over.
+    public static let uploadChunkSize = 32 * 1024 * 1024
+
+    /// Uploads a file from disk in chunks through `/upload-chunk`, reading one chunk at a time
+    /// instead of the whole file into memory, and retrying a chunk that fails on the way (the
+    /// server writes each one at its own offset, so sending it twice is harmless). `progress`
+    /// counts the file's bytes as they're sent.
+    @concurrent
+    public func uploadFile(
+        at fileURL: URL,
+        to path: String,
+        location: StoreLocation = .external,
+        filename: String,
+        progress: Progress? = nil
+    ) async throws {
+        let fileSize = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        // `/upload-chunk` turns down an empty body, so empty files go the plain way.
+        guard fileSize > 0 else {
+            try await upload(path: path, location: location, filename: filename, data: Data())
+            progress?.completedUnitCount = progress?.totalUnitCount ?? 0
+            return
+        }
+
+        let chunkSize = Self.uploadChunkSize
+        let totalChunks = (fileSize + chunkSize - 1) / chunkSize
+        let uploadID = UUID().uuidString
+        progress?.totalUnitCount = Int64(fileSize)
+
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+
+        do {
+            try await uploadChunks(from: handle, uploadID: uploadID, totalChunks: totalChunks, fileSize: fileSize,
+                                   to: path, location: location, filename: filename, progress: progress)
+        } catch {
+            // Chunks that did land would otherwise linger in the folder as an upload that never
+            // finishes. Detached, because a cancelled upload would cancel this request with it.
+            if totalChunks > 1 {
+                Task.detached { [client] in
+                    let _: [String: String]? = try? await client.delete("/api/files/cancel-upload/\(uploadID)")
+                }
+            }
+            throw error
+        }
+        progress?.completedUnitCount = Int64(fileSize)
+    }
+
+    private func uploadChunks(
+        from handle: FileHandle,
+        uploadID: String,
+        totalChunks: Int,
+        fileSize: Int,
+        to path: String,
+        location: StoreLocation,
+        filename: String,
+        progress: Progress?
+    ) async throws {
+        let chunkSize = Self.uploadChunkSize
+        for index in 0..<totalChunks {
+            try Task.checkCancellation()
+            try handle.seek(toOffset: UInt64(index * chunkSize))
+            guard let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty else {
+                throw APIError.transport("The file changed while it was being uploaded")
+            }
+            let query = [
+                "upload_id": uploadID,
+                "chunk_index": String(index),
+                "total_chunks": String(totalChunks),
+                "chunk_size": String(chunkSize),
+                "filename": filename,
+                "file_size": String(fileSize),
+                "path": path,
+                "location": location.rawValue
+            ]
+            let sentBefore = Int64(index * chunkSize)
+            let chunkProgress = Progress(totalUnitCount: Int64(chunk.count))
+            let observation = chunkProgress.observe(\.completedUnitCount) { [weak progress] chunkProgress, _ in
+                progress?.completedUnitCount = sentBefore + chunkProgress.completedUnitCount
+            }
+            defer { observation.invalidate() }
+            try await Self.retrying {
+                let _: ChunkResponse = try await client.postData("/api/files/upload-chunk", query: query, body: chunk, progress: chunkProgress)
+            }
+        }
+    }
+
+    /// Up to 4 tries with a growing pause in between, for the errors a flaky connection or a busy
+    /// server give; a refused request (4xx) or an expired session fails straight away.
+    private static func retrying(_ operation: () async throws -> Void) async throws {
+        var attempt = 0
+        while true {
+            do {
+                try await operation()
+                return
+            } catch let error as APIError {
+                attempt += 1
+                let isTransient: Bool
+                switch error {
+                case .transport: isTransient = true
+                case .server(let status, _): isTransient = status >= 500 || status == 408 || status == 429
+                default: isTransient = false
+                }
+                guard isTransient, attempt < 4 else { throw error }
+                try await Task.sleep(for: .seconds(1 << (attempt - 1)))
+            }
+        }
+    }
+
     // MARK: - Shares
 
     public func shares(path: String? = nil) async throws -> [ShareLink] {
@@ -139,6 +248,10 @@ public struct StoreClient: Sendable {
     public func deleteShare(_ token: String) async throws {
         let _: [String: String] = try await client.delete("/api/shares/\(token)")
     }
+}
+
+private struct ChunkResponse: Decodable {
+    let status: String
 }
 
 private struct PathBody: Encodable {

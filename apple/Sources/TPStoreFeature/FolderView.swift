@@ -1,4 +1,5 @@
 import Foundation
+import PhotosUI
 import QuickLook
 import SwiftUI
 import TPCore
@@ -17,6 +18,7 @@ struct FolderView: View {
     let folder: StoreFolder
     let storeClient: StoreClient
     let cache: StoreDirectoryCache
+    let uploads: StoreUploadQueue
     @ObservedObject var favorites: StoreFavoritesStore
     /// Pushes a folder onto the stack; used when a drag spring-loads one of this folder's subfolders.
     let openFolder: (StoreFolder) -> Void
@@ -28,8 +30,8 @@ struct FolderView: View {
     @State private var didAttemptLoad = false
     @State private var loadError: String?
     @State private var actionError: String?
-    /// Non-nil while a download/upload/open is in flight; shown as a spinner in the toolbar
-    /// rather than a full-screen dimming overlay that blocked the whole folder.
+    /// Non-nil while a download or open is in flight; shown as a spinner in the toolbar rather than
+    /// a full-screen dimming overlay that blocked the whole folder. Uploads have their own bar.
     @State private var activity: String?
 
     @State private var isCreatingFolder = false
@@ -41,6 +43,8 @@ struct FolderView: View {
     @State private var sharingEntry: FileEntry?
     @State private var iconPickerEntry: FileEntry?
     @State private var isImportingFiles = false
+    @State private var isPickingPhotos = false
+    @State private var pickedPhotos: [PhotosPickerItem] = []
     @State private var exportDocument: RawFileDocument?
     @State private var exportFilename = ""
     @State private var previewURL: URL?
@@ -95,9 +99,23 @@ struct FolderView: View {
             }
             .fileImporter(isPresented: $isImportingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                 switch result {
-                case .success(let urls): Task { await upload(urls) }
+                case .success(let urls): uploads.enqueue(files: urls, into: folder)
                 case .failure(let error): actionError = error.localizedDescription
                 }
+            }
+            // The shared library, so each pick comes with its asset id and goes up as the original
+            // file under its real name rather than a re-encoded copy.
+            .photosPicker(
+                isPresented: $isPickingPhotos,
+                selection: $pickedPhotos,
+                matching: .any(of: [.images, .videos]),
+                preferredItemEncoding: .current,
+                photoLibrary: .shared()
+            )
+            .onChange(of: pickedPhotos) { _, picked in
+                guard !picked.isEmpty else { return }
+                uploads.enqueue(photos: picked, into: folder)
+                pickedPhotos = []
             }
             .fileExporter(
                 isPresented: Binding(get: { exportDocument != nil }, set: { if !$0 { exportDocument = nil } }),
@@ -367,6 +385,9 @@ struct FolderView: View {
                         newFolderName = ""
                         isCreatingFolder = true
                     }
+                    Button("Upload Photos & Videos", systemImage: "photo.on.rectangle") {
+                        isPickingPhotos = true
+                    }
                     Button("Upload Files", systemImage: "square.and.arrow.up") {
                         isImportingFiles = true
                     }
@@ -496,29 +517,6 @@ struct FolderView: View {
     private func downloadToTempFile(_ entry: FileEntry) async throws -> URL {
         let data = try await storeClient.download(path: folder.entryPath(entry.name), location: folder.location)
         return try StoreDragging.writeTemporaryFile(data, named: entry.name)
-    }
-
-    private func upload(_ urls: [URL]) async {
-        for (index, url) in urls.enumerated() {
-            activity = urls.count > 1 ? "Uploading \(index + 1) of \(urls.count)" : "Uploading \(url.lastPathComponent)"
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            do {
-                let data = try Data(contentsOf: url)
-                let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-                try await storeClient.upload(
-                    path: folder.path,
-                    location: folder.location,
-                    filename: url.lastPathComponent,
-                    data: data,
-                    mimeType: mimeType
-                )
-            } catch {
-                actionError = apiErrorMessage(error)
-            }
-        }
-        activity = nil
-        await load()
     }
 }
 

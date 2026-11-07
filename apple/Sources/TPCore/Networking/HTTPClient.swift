@@ -48,6 +48,38 @@ private final class FileDownloadDelegate: NSObject, URLSessionTaskDelegate, @unc
     }
 }
 
+/// Blocks redirects like `RedirectBlockingDelegate`, and reports the bytes of an upload's body as
+/// they go out into a caller's `Progress` (whose total becomes the body size), so a progress bar
+/// can follow a big upload instead of jumping from 0 to done.
+private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let progress: Progress
+
+    init(progress: Progress) {
+        self.progress = progress
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        if totalBytesExpectedToSend > 0 { progress.totalUnitCount = totalBytesExpectedToSend }
+        progress.completedUnitCount = totalBytesSent
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+}
+
 public struct HTTPClient: Sendable {
     public let baseURL: URL
     private let session: URLSession
@@ -164,6 +196,33 @@ public struct HTTPClient: Sendable {
             contentType: "multipart/form-data; boundary=\(boundary)",
             body: body
         )
+        return try decode(data)
+    }
+
+    /// Raw binary POST (the body is the payload itself, not multipart), reporting how much of the
+    /// body has been sent into `progress`. Used for chunked uploads.
+    public func postData<Response: Decodable>(
+        _ path: String,
+        query: [String: String] = [:],
+        body: Data,
+        contentType: String = "application/octet-stream",
+        progress: Progress? = nil
+    ) async throws -> Response {
+        var request = makeRequest(path: path, method: "POST", query: query, contentType: contentType, body: nil)
+        request.timeoutInterval = 300
+        let data: Data
+        let response: URLResponse
+        do {
+            let delegate: URLSessionTaskDelegate = progress.map { UploadProgressDelegate(progress: $0) } ?? RedirectBlockingDelegate()
+            (data, response) = try await session.upload(for: request, from: body, delegate: delegate)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+        try Self.validate(response, data: { data })
         return try decode(data)
     }
 

@@ -30,6 +30,7 @@
 	<array>
 		<string>com.migueltaibo.tpapp.photobackup</string>
 		<string>com.migueltaibo.tpapp.photobackup.continued.*</string>
+		<string>com.migueltaibo.tpapp.storeupload.continued.*</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

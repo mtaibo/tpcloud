@@ -41,12 +41,15 @@ public struct StoreRootView: View {
 
     @StateObject private var favorites = StoreFavoritesStore()
     @State private var cache: StoreDirectoryCache
+    @State private var uploads: StoreUploadQueue
     @State private var path: [StoreFolder]
 
     public init(storeClient: StoreClient, rootPath: String) {
         self.storeClient = storeClient
         self.rootPath = rootPath
-        _cache = State(initialValue: StoreDirectoryCache(storeClient: storeClient))
+        let cache = StoreDirectoryCache(storeClient: storeClient)
+        _cache = State(initialValue: cache)
+        _uploads = State(initialValue: StoreUploadQueue(storeClient: storeClient, cache: cache))
         _path = State(initialValue: [.home(rootPath)])
     }
 
@@ -56,11 +59,19 @@ public struct StoreRootView: View {
                 path.append(folder)
             }
                 .navigationDestination(for: StoreFolder.self) { folder in
-                    FolderView(folder: folder, storeClient: storeClient, cache: cache, favorites: favorites) { child in
+                    FolderView(folder: folder, storeClient: storeClient, cache: cache, uploads: uploads, favorites: favorites) { child in
                         path.append(child)
                     }
                 }
         }
+        // Over every screen of the tab, so a batch's progress stays in sight while you browse.
+        .safeAreaInset(edge: .bottom) {
+            if !uploads.items.isEmpty {
+                StoreUploadBar(uploads: uploads)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.smooth, value: uploads.items.isEmpty)
     }
 }
 
