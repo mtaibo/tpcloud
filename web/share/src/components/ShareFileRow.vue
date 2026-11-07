@@ -12,12 +12,9 @@ const emit = defineEmits(['open', 'open-file', 'open-tab', 'download'])
 const fileIcon = computed(() => getFileIcon(props.entry))
 const iconColor = computed(() => getIconColor(props.entry))
 
+// One tap opens a file too: double-clicking was the only way before, which phones barely do.
 function onRowClick() {
-  if (props.entry.type === 'directory') emit('open', props.entry)
-}
-
-function onRowDblClick() {
-  if (props.entry.type === 'file') emit('open-file', props.entry)
+  emit(props.entry.type === 'directory' ? 'open' : 'open-file', props.entry)
 }
 
 function onRowAuxClick(e) {
@@ -26,7 +23,7 @@ function onRowAuxClick(e) {
 </script>
 
 <template>
-  <tr class="file-row" @click="onRowClick" @dblclick="onRowDblClick" @auxclick.prevent="onRowAuxClick">
+  <tr class="file-row" @click="onRowClick" @auxclick.prevent="onRowAuxClick">
     <td class="cell-name">
       <div class="name-btn">
         <component :is="fileIcon" class="file-icon" :style="{ color: iconColor }" />

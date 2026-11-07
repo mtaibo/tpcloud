@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app import media
 from app.database import get_session
 from app.models import ShareLink, ShareSession, ShareFileToken, FolderIcon
 from app.utils import get_base, resolve_path, list_directory_entries as _list_entries, guess_media_type as _guess_media_type
@@ -190,8 +191,12 @@ def create_share_file_token(
 
 # ── File access ───────────────────────────────────────────────────────────────
 
+# The gallery's tile sizes, warmed up ahead of the requests for them.
+_GALLERY_THUMB_SIZES = [320]
+
+
 @router.get("/{token}/files/list")
-def list_files(
+async def list_files(
     token: str,
     request: Request,
     path: str = Query(default=""),
@@ -225,6 +230,22 @@ def list_files(
                 full_path = f"{prefix}{e['name']}"
                 if full_path in icon_map:
                     e["icon_name"] = icon_map[full_path]
+
+    media_files = []
+    for e in entries:
+        if e["type"] != "file":
+            continue
+        file_path = dir_path / e["name"]
+        if media.is_video(file_path):
+            media_files.append(file_path)
+            info = media.cached_video_info(file_path)
+            if info:
+                e["duration"] = info["duration"]
+        elif media.is_image(file_path):
+            media_files.append(file_path)
+    # Thumbnails, posters, photo previews and the 720p videos start being made now, so they're
+    # ready (or close) by the time the page asks for them.
+    media.warm_up(media_files, _GALLERY_THUMB_SIZES)
 
     return {"path": path, "entries": entries}
 
@@ -265,21 +286,83 @@ async def share_thumbnail(
         raise HTTPException(404, "File not found")
 
     media_type = _guess_media_type(file_path)
-    if not media_type.startswith("image/"):
+    is_video = media.is_video(file_path)
+    if not media_type.startswith("image/") and not is_video:
         return _inline_response(file_path, media_type)
 
     size = max(40, min(size, 400))
     _THUMB_DIR.mkdir(parents=True, exist_ok=True)
-    cache_path = _thumb_cache_path(file_path, size)
     try:
-        await _ensure_thumbnail(file_path, cache_path, size)
+        # A video's thumbnail is cut from its poster frame, rather than the page loading the
+        # video itself into every tile.
+        source = await media.ensure_video_poster(file_path) if is_video else file_path
+        cache_path = _thumb_cache_path(source, size)
+        await _ensure_thumbnail(source, cache_path, size)
         return FileResponse(
             path=str(cache_path),
             media_type="image/jpeg",
-            headers={"Cache-Control": "max-age=604800", "Content-Disposition": "inline"},
+            headers={**media.cache_headers(share.password_hash is not None), "Content-Disposition": "inline"},
         )
     except Exception:
         raise HTTPException(500, "Failed to build thumbnail")
+
+
+@router.get("/{token}/files/poster")
+async def share_poster(
+    token: str,
+    request: Request,
+    path: str = Query(default=""),
+    db: Session = Depends(get_session),
+):
+    """A video's poster frame, shown while it starts playing."""
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    file_path = _share_resolve(share, path)
+    if not file_path.is_file() or not media.is_video(file_path):
+        raise HTTPException(404, "Video not found")
+    try:
+        poster = await media.ensure_video_poster(file_path)
+    except Exception:
+        raise HTTPException(500, "Failed to build poster")
+    return FileResponse(path=str(poster), media_type="image/jpeg", headers=media.cache_headers(share.password_hash is not None))
+
+
+@router.get("/{token}/files/preview")
+async def share_preview(
+    token: str,
+    request: Request,
+    path: str = Query(default=""),
+    db: Session = Depends(get_session),
+):
+    """What the viewer shows: a 2048 px JPEG of a photo, or a 720p MP4 of a video.
+
+    A video whose 720p version isn't ready yet gets the original, moved to the front of the
+    queue, and is sent without caching so the next visit picks up the light version.
+    """
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    file_path = _share_resolve(share, path)
+    if not file_path.is_file():
+        raise HTTPException(404, "File not found")
+    private = share.password_hash is not None
+
+    if media.is_video(file_path):
+        preview = media.ready_video_preview(file_path)
+        if preview:
+            return FileResponse(path=str(preview), media_type="video/mp4", headers=media.cache_headers(private))
+        media.queue_video_preview(file_path, first=True)
+        return FileResponse(
+            path=str(file_path),
+            media_type=_guess_media_type(file_path),
+            headers={"Cache-Control": "no-store"},
+        )
+    if media.is_image(file_path):
+        try:
+            preview = await media.ensure_image_preview(file_path)
+        except Exception:
+            raise HTTPException(500, "Failed to build preview")
+        return FileResponse(path=str(preview), media_type="image/jpeg", headers=media.cache_headers(private))
+    return _inline_response(file_path, _guess_media_type(file_path))
 
 
 @router.get("/{token}/files/download")

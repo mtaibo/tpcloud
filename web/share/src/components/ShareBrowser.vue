@@ -1,10 +1,12 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
-import { ChevronLeft, ChevronRight, MoreHorizontal, LayoutGrid, List, FolderDown, Download, ExternalLink } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, MoreHorizontal, LayoutGrid, List, FolderDown, Download, ExternalLink, ImageDown } from 'lucide-vue-next'
 import ShareFileRow from './ShareFileRow.vue'
 import ShareGalleryThumb from './ShareGalleryThumb.vue'
-import ImageViewer from './ImageViewer.vue'
-import { getFileIcon, getIconColor, IMAGE_EXTS, VIDEO_EXTS } from '../fileTypes.js'
+import MediaViewer from './MediaViewer.vue'
+import SaveToPhotos from './SaveToPhotos.vue'
+import { getFileIcon, getIconColor } from '../fileTypes.js'
+import { isMedia, isVideo, canSaveToPhotos, shareFileUrls, downloadLink } from '../media.js'
 
 const props = defineProps({
   token: String,
@@ -16,7 +18,10 @@ const currentPath = ref('')
 const entries = ref([])
 const loading = ref(false)
 const error = ref('')
-const galleryMode = ref(localStorage.getItem('share-gallery-mode') === '1')
+// Until the visitor picks a view, a folder that's mostly photos and videos opens as a gallery.
+const storedGalleryMode = localStorage.getItem('share-gallery-mode')
+const galleryMode = ref(storedGalleryMode === '1')
+const urls = shareFileUrls(props.token, props.sessionToken, () => currentPath.value)
 
 const navHistory = ref([''])
 const navIndex = ref(0)
@@ -29,15 +34,10 @@ const menuVisible = ref(false)
 const menuPos = ref({ x: 0, y: 0 })
 const activeEntry = ref(null)
 
-const imageViewEntry = ref(null)
-const imageViewSrc = computed(() => {
-  if (!imageViewEntry.value) return ''
-  const path = currentPath.value ? `${currentPath.value}/${imageViewEntry.value.name}` : imageViewEntry.value.name
-  const params = new URLSearchParams({ path })
-  if (props.sessionToken) params.set('session', props.sessionToken)
-  return `/api/share/${props.token}/files/view?${params}`
-})
-const imageViewIsVideo = computed(() => imageViewEntry.value && entryIsVideo(imageViewEntry.value))
+const mediaEntries = computed(() => entries.value.filter(isMedia))
+const viewerIndex = ref(null)
+// What the Save to Photos sheet is saving; null when it's closed.
+const saveItems = ref(null)
 
 const breadcrumbs = computed(() => currentPath.value.split('/').filter(Boolean))
 const rootLabel = computed(() => props.shareInfo?.label || props.token)
@@ -57,30 +57,10 @@ function toggleGallery() {
   localStorage.setItem('share-gallery-mode', galleryMode.value ? '1' : '0')
 }
 
-function entryIsImage(entry) {
-  return IMAGE_EXTS.has(entry.name.split('.').pop()?.toLowerCase() ?? '')
-}
-
-function entryIsVideo(entry) {
-  return VIDEO_EXTS.has(entry.name.split('.').pop()?.toLowerCase() ?? '')
-}
-
-function entryIsMedia(entry) {
-  return entryIsImage(entry) || entryIsVideo(entry)
-}
-
-function thumbSrc(entry) {
-  const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
+function zipUrl(path) {
   const params = new URLSearchParams({ path })
   if (props.sessionToken) params.set('session', props.sessionToken)
-  return `/api/share/${props.token}/files/thumbnail?${params}`
-}
-
-function viewSrc(entry) {
-  const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
-  const params = new URLSearchParams({ path })
-  if (props.sessionToken) params.set('session', props.sessionToken)
-  return `/api/share/${props.token}/files/view?${params}`
+  return `/api/share/${props.token}/files/download-zip?${params}`
 }
 
 async function loadDir(path) {
@@ -95,6 +75,9 @@ async function loadDir(path) {
     const data = await res.json()
     entries.value = data.entries
     currentPath.value = path
+    if (storedGalleryMode === null && data.entries.length) {
+      galleryMode.value = data.entries.filter(isMedia).length * 2 >= data.entries.length
+    }
   } catch {
     error.value = 'Connection error'
   } finally {
@@ -133,31 +116,31 @@ function navigateToCrumb(index) {
   navigateTo(parts.join('/'))
 }
 
-async function downloadEntry(entry) {
-  const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
-  const res = await fetch(`/api/share/${props.token}/files/download?path=${encodeURIComponent(path)}`, {
-    headers: authHeaders(),
-  })
-  const blob = await res.blob()
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = entry.name
-  a.click()
-  URL.revokeObjectURL(a.href)
+// Downloads go straight to the browser's download manager instead of being read into memory
+// first, which with phone videos meant hundreds of megabytes held by the page before anything
+// was saved.
+function downloadEntry(entry) {
+  downloadLink(urls.download(entry), entry.name)
 }
 
-async function downloadZip() {
-  const path = currentPath.value
-  const res = await fetch(`/api/share/${props.token}/files/download-zip?path=${encodeURIComponent(path)}`, {
-    headers: authHeaders(),
-  })
-  const blob = await res.blob()
+function downloadZip() {
   const name = breadcrumbs.value.at(-1) || rootLabel.value
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = `${name}.zip`
-  a.click()
-  URL.revokeObjectURL(a.href)
+  downloadLink(zipUrl(currentPath.value), `${name}.zip`)
+}
+
+function saveAllToPhotos() {
+  hideMenu()
+  saveItems.value = mediaEntries.value
+}
+
+// One download per file, spaced out so the browser doesn't drop any. It asks once whether the
+// page may download several files.
+async function downloadAll() {
+  hideMenu()
+  for (const entry of entries.value.filter(e => e.type === 'file')) {
+    downloadEntry(entry)
+    await new Promise(resolve => setTimeout(resolve, 600))
+  }
 }
 
 function showMenu(e) {
@@ -203,9 +186,8 @@ function showMoreMenu() {
 }
 
 function onFileActivate(entry) {
-  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-  if (IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext)) {
-    imageViewEntry.value = entry
+  if (isMedia(entry)) {
+    viewerIndex.value = mediaEntries.value.indexOf(entry)
   } else {
     openInTab(entry)
   }
@@ -235,7 +217,7 @@ async function openInTab(entry) {
       }
     }
   } catch {}
-  newTab.location.href = viewSrc(entry)
+  newTab.location.href = urls.view(entry)
 }
 
 function openActiveItem() {
@@ -252,15 +234,7 @@ function downloadFolderZip() {
   const entry = activeEntry.value
   hideMenu()
   const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
-  fetch(`/api/share/${props.token}/files/download-zip?path=${encodeURIComponent(path)}`, { headers: authHeaders() })
-    .then(r => r.blob())
-    .then(blob => {
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = `${entry.name}.zip`
-      a.click()
-      URL.revokeObjectURL(a.href)
-    })
+  downloadLink(zipUrl(path), `${entry.name}.zip`)
 }
 
 function onDocClick(e) {
@@ -325,17 +299,17 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
           v-for="entry in entries"
           :key="entry.name"
           class="gallery-card"
-          @click="entry.type === 'directory' ? onOpen(entry) : null"
-          @dblclick="entry.type === 'file' ? onFileActivate(entry) : null"
+          @click="entry.type === 'directory' ? onOpen(entry) : onFileActivate(entry)"
           @auxclick.prevent="onMiddleClick(entry, $event)"
           @contextmenu.stop="showMenuForEntry(entry, $event)"
         >
           <div class="gallery-thumb">
             <ShareGalleryThumb
-              v-if="entry.type === 'file' && entryIsMedia(entry)"
-              :src="thumbSrc(entry)"
+              v-if="isMedia(entry)"
+              :src="urls.thumbnail(entry)"
               :alt="entry.name"
-              :type="entryIsVideo(entry) ? 'video' : 'image'"
+              :is-video="isVideo(entry)"
+              :duration="entry.duration"
             />
             <component
               v-else
@@ -409,6 +383,14 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 
           <!-- Background menu -->
           <template v-else>
+            <button v-if="canSaveToPhotos && mediaEntries.length" class="ctx-item" @click="saveAllToPhotos">
+              <ImageDown class="ctx-icon" />
+              <span>Save All to Photos</span>
+            </button>
+            <button v-if="entries.some(e => e.type === 'file')" class="ctx-item" @click="downloadAll">
+              <Download class="ctx-icon" />
+              <span>Download All</span>
+            </button>
             <button class="ctx-item" @click="downloadZip(); hideMenu()">
               <FolderDown class="ctx-icon" />
               <span>Download as ZIP</span>
@@ -419,12 +401,21 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
       </Transition>
     </Teleport>
 
-    <ImageViewer
-      v-if="imageViewEntry"
-      :src="imageViewSrc"
-      :name="imageViewEntry.name"
-      :is-video="imageViewIsVideo"
-      @close="imageViewEntry = null"
+    <MediaViewer
+      v-if="viewerIndex !== null"
+      :items="mediaEntries"
+      :start-index="viewerIndex"
+      :urls="urls"
+      @close="viewerIndex = null"
+      @download="downloadEntry"
+      @save="entry => (saveItems = [entry])"
+    />
+
+    <SaveToPhotos
+      v-if="saveItems"
+      :items="saveItems"
+      :download-url="urls.download"
+      @close="saveItems = null"
     />
 
   </div>

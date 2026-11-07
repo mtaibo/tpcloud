@@ -32,9 +32,9 @@ I wanted my files and photos on hardware I own, without monthly storage plans or
 <td width="33%" valign="top">
 
 ### ⚙️ [`api`](api/)
-FastAPI backend for everything: file operations, resumable uploads, thumbnails, ZIP compression and extraction, share links, photo backup and server backups. Validates every request against tpcloud's auth service.
+FastAPI backend for everything: file operations, resumable uploads, thumbnails, light versions of photos and videos for share pages, ZIP compression and extraction, share links, photo backup and server backups. Validates every request against tpcloud's auth service.
 
-**Python · FastAPI · SQLModel · Pillow**
+**Python · FastAPI · SQLModel · Pillow · ffmpeg**
 
 </td>
 <td width="33%" valign="top">
@@ -48,7 +48,7 @@ The storage browser at `store.migueltaibo.com`. Folders with custom icons, favou
 <td width="33%" valign="top">
 
 ### 🔗 [`share-frontend`](share-frontend/)
-The public viewer at `share.migueltaibo.com`. Opens a share link, asks for its password if it has one, and lets anyone browse, preview and download it, or upload into it if it's editable.
+The public viewer at `share.migueltaibo.com`. Opens a share link, asks for its password if it has one, and lets anyone browse it, step through its photos and videos, save them straight to their phone's gallery, download them, or upload into it if it's editable.
 
 **Vue 3 · Vite · Nginx**
 
@@ -100,6 +100,16 @@ Small files go up in one request. Anything over 10 MB is split into 32 MB chunks
 
 Any file or folder can get a link. Each one can have a password (hashed with bcrypt), be read-only or editable, use a readable slug or a random token, and be listed on the public landing page of `share.migueltaibo.com`. Opening a protected link gives the visitor a short session, and every file inside is served through short-lived tokens, so the real path never leaves the server.
 
+Phone media is too heavy to show as it is: an iPhone video is 4K 60 fps HDR HEVC at 80–100 Mbit/s, and HEIC photos don't open in most browsers. So share pages get light versions, made once and cached on disk:
+
+| Original | Shown on the page | Made |
+|---|---|---|
+| Photo (HEIC, JPEG, PNG…) | Square JPEG thumbnail, and a 2048 px JPEG in the viewer | On request, in about a second |
+| Video | Thumbnail cut from a poster frame, with its length | On request, in about a second |
+| Video | 720p H.264 SDR MP4 (about 30× smaller) in the viewer | In the background, one at a time, as soon as the folder is opened; the original plays until it's ready |
+
+Their URLs carry the file's version, so browsers keep them for good. Downloads, ZIPs (streamed, not built in memory) and **Save to Photos** always get the originals. Save to Photos hands the files to the phone's share sheet in parts of up to 300 MB, since a mobile browser can't hold a whole folder of videos at once.
+
 ### Photo backup
 
 ```
@@ -123,7 +133,7 @@ Each photo is unique per user by checksum, so the same picture is never stored t
 
 ### Thumbnails and extras
 
-- **Thumbnails** are generated on demand with Pillow (HEIC included) and cached on disk
+- **Thumbnails** are generated on demand with Pillow (HEIC included), or from a poster frame with ffmpeg for videos, and cached on disk
 - **ZIP** — download any folder as a ZIP, compress files, or extract an archive as a background job with progress
 - **Server backup** — an admin button runs `rsync` from the main storage drive to a backup drive and keeps the last result
 
@@ -133,7 +143,7 @@ Each photo is unique per user by checksum, so the same picture is never stored t
 |---|---|
 | **API** | FastAPI · Python 3.12 · Uvicorn |
 | **Database** | SQLite via SQLModel |
-| **Images** | Pillow · pillow-heif |
+| **Images and video** | Pillow · pillow-heif · ffmpeg |
 | **Frontends** | Vue 3 · Vite |
 | **Auth** | tpcloud's auth service · bcrypt for share passwords |
 | **Hosting** | Docker Compose · Nginx · behind the tpcloud gateway |
