@@ -7,6 +7,7 @@ import MediaViewer from './MediaViewer.vue'
 import SaveToPhotos from './SaveToPhotos.vue'
 import { getFileIcon, getIconColor } from '../fileTypes.js'
 import { isMedia, isVideo, canSaveToPhotos, shareFileUrls, downloadLink } from '../media.js'
+import { vLongPress } from '../longPress.js'
 
 const props = defineProps({
   token: String,
@@ -152,18 +153,24 @@ function showMenu(e) {
 function showMenuForEntry(entry, e) {
   e.preventDefault()
   activeEntry.value = entry
-  _openMenu(e)
+  _openMenu({ x: e.clientX, y: e.clientY })
 }
 
-function _openMenu(e) {
-  menuPos.value = { x: e.clientX, y: e.clientY }
+// Holding a finger on a photo, video or folder: the same menu a right-click opens.
+function showMenuForEntryAt(entry, point) {
+  activeEntry.value = entry
+  _openMenu(point)
+}
+
+function _openMenu({ x, y }) {
+  menuPos.value = { x, y }
   menuVisible.value = true
   nextTick(() => {
     if (!contextMenu.value) return
     const rect = contextMenu.value.getBoundingClientRect()
     menuPos.value = {
-      x: Math.min(e.clientX, window.innerWidth - rect.width - 8),
-      y: Math.min(e.clientY, window.innerHeight - rect.height - 8),
+      x: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
+      y: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)),
     }
   })
 }
@@ -222,6 +229,11 @@ async function openInTab(entry) {
 
 function openActiveItem() {
   onFileActivate(activeEntry.value)
+  hideMenu()
+}
+
+function saveActiveItem() {
+  saveItems.value = [activeEntry.value]
   hideMenu()
 }
 
@@ -302,6 +314,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
           @click="entry.type === 'directory' ? onOpen(entry) : onFileActivate(entry)"
           @auxclick.prevent="onMiddleClick(entry, $event)"
           @contextmenu.stop="showMenuForEntry(entry, $event)"
+          v-long-press="point => showMenuForEntryAt(entry, point)"
         >
           <div class="gallery-thumb">
             <ShareGalleryThumb
@@ -340,6 +353,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
             @open-tab="openInTab"
             @download="downloadEntry"
             @contextmenu.stop="showMenuForEntry(entry, $event)"
+            v-long-press="point => showMenuForEntryAt(entry, point)"
           />
         </tbody>
       </table>
@@ -374,6 +388,10 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
             <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="openActiveItem">
               <ExternalLink class="ctx-icon" />
               <span>Open</span>
+            </button>
+            <button v-if="canSaveToPhotos && isMedia(activeEntry)" class="ctx-item" @click="saveActiveItem">
+              <ImageDown class="ctx-icon" />
+              <span>Save to Photos</span>
             </button>
             <button class="ctx-item" @click="activeEntry.type === 'directory' ? downloadFolderZip() : downloadActiveItem()">
               <Download class="ctx-icon" />
@@ -564,6 +582,16 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   user-select: none;
 }
 .gallery-card:hover { background: rgba(255, 255, 255, 0.06); }
+/* No system callout on a long press (it would save the thumbnail); ours opens the menu instead. */
+.gallery-card,
+.file-table :deep(tr) {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: background 0.1s, transform 0.25s ease;
+}
+.gallery-card.long-pressing { transform: scale(0.94); }
+.file-table :deep(tr.long-pressing) { background: rgba(255, 255, 255, 0.06); }
 
 .gallery-thumb {
   width: 110px;
