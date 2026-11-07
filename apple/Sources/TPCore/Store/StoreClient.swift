@@ -92,6 +92,16 @@ public struct StoreClient: Sendable {
         )
     }
 
+    /// The file served as-is (with byte ranges), e.g. for AVFoundation to read a video's first frame.
+    public func viewURL(path: String, location: StoreLocation = .external) -> URL {
+        var components = URLComponents(url: client.baseURL.appending(path: "/api/files/view"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "location", value: location.rawValue)
+        ]
+        return components.url!
+    }
+
     /// Same size as the web frontend's chunks. Each one is its own request, so no request comes near
     /// Cloudflare's 100 MB body limit, which a big video in a single `upload` request went over.
     public static let uploadChunkSize = 32 * 1024 * 1024

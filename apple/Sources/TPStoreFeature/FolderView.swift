@@ -272,7 +272,7 @@ struct FolderView: View {
                 Button {
                     open(entry)
                 } label: {
-                    rowLabel(FileEntryLabel(entry: entry), isFolder: false)
+                    rowLabel(FileEntryLabel(entry: entry, thumbnail: thumbnail(for: entry)), isFolder: false)
                 }
                 .buttonStyle(StoreRowButtonStyle())
             }
@@ -311,7 +311,7 @@ struct FolderView: View {
         Group {
             if entry.isDirectory {
                 NavigationLink(value: folder.child(entry.name)) {
-                    FileEntryTile(entry: entry, thumbnailURL: nil)
+                    FileEntryTile(entry: entry, thumbnail: nil)
                 }
                 .folderDropTarget(
                     folder.child(entry.name),
@@ -325,18 +325,17 @@ struct FolderView: View {
                 Button {
                     open(entry)
                 } label: {
-                    FileEntryTile(
-                        entry: entry,
-                        thumbnailURL: FileKind(name: entry.name) == .image
-                            ? storeClient.thumbnailURL(path: folder.entryPath(entry.name), location: folder.location, size: 240)
-                            : nil
-                    )
+                    FileEntryTile(entry: entry, thumbnail: thumbnail(for: entry))
                 }
             }
         }
         .buttonStyle(.plain)
         .contextMenu { menuItems(for: entry) }
         .onDrag { StoreDragging.itemProvider(for: entry, in: folder, storeClient: storeClient) }
+    }
+
+    private func thumbnail(for entry: FileEntry) -> FileThumbnailSource? {
+        FileThumbnailSource(entry: entry, in: folder, storeClient: storeClient)
     }
 
     @ViewBuilder

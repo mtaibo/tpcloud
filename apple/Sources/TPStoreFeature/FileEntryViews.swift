@@ -165,11 +165,21 @@ private struct EntryIcon: View {
 struct FileEntryLabel: View {
     let entry: FileEntry
     var itemCount: Int?
+    /// A photo's or video's preview in place of its icon, like the Files app's list.
+    var thumbnail: FileThumbnailSource?
 
     var body: some View {
         HStack(spacing: 14) {
-            EntryIcon(entry: entry, symbolFont: .title)
-                .frame(width: 48, height: 40)
+            Group {
+                if let thumbnail {
+                    FileThumbnail(source: thumbnail, badgeFont: .system(size: 8))
+                        .frame(width: 40, height: 40)
+                        .clipShape(.rect(cornerRadius: 6))
+                } else {
+                    EntryIcon(entry: entry, symbolFont: .title)
+                }
+            }
+            .frame(width: 48, height: 40)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
                     .font(.body)
@@ -188,11 +198,11 @@ struct FileEntryLabel: View {
     }
 }
 
-/// One cell in the icon view. Images get a real thumbnail, folders the Files-style folder, and
-/// everything else its kind's symbol.
+/// One cell in the icon view. Images and videos get a real thumbnail, folders the Files-style
+/// folder, and everything else its kind's symbol.
 struct FileEntryTile: View {
     let entry: FileEntry
-    let thumbnailURL: URL?
+    let thumbnail: FileThumbnailSource?
 
     var body: some View {
         VStack(spacing: 6) {
@@ -203,8 +213,8 @@ struct FileEntryTile: View {
                 } else {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(.fill.quaternary)
-                    if let thumbnailURL {
-                        RemoteImage(url: thumbnailURL)
+                    if let thumbnail {
+                        FileThumbnail(source: thumbnail)
                             .clipShape(.rect(cornerRadius: 12))
                     } else {
                         EntryIcon(entry: entry, symbolFont: .largeTitle)
