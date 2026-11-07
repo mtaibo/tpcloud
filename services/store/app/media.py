@@ -40,9 +40,14 @@ FFPROBE = shutil.which("ffprobe")
 PREVIEW_IMAGE_SIZE = 2048
 POSTER_SIZE = 1280
 
-# Posters and photo previews: a couple at a time, so a burst of thumbnail requests from a
-# gallery can't take every core away from the API.
+# Posters and photo previews someone is waiting for: a couple at a time, so a burst of requests
+# from a gallery can't take every core away from the API.
 _image_sem = asyncio.Semaphore(2)
+# Warming a folder up goes one file at a time and at low priority, behind those requests: it
+# used to start all of a folder's files at once, which kept the Pi's cores busy for minutes and
+# left a visitor's own photo waiting behind the whole folder.
+_warm_lane = asyncio.Semaphore(1)
+_warming: set[Path] = set()
 _in_flight: dict[str, asyncio.Future] = {}
 
 _video_queue: list[Path] = []
@@ -149,7 +154,7 @@ def cached_video_info(file_path: Path) -> dict | None:
 
 # ── Posters and photo previews ────────────────────────────────────────────────
 
-async def ensure_video_poster(file_path: Path) -> Path:
+async def ensure_video_poster(file_path: Path, background: bool = False) -> Path:
     if not FFMPEG:
         raise RuntimeError("ffmpeg isn't installed")
     poster = _cache_path(file_path, f"poster{POSTER_SIZE}", "jpg")
@@ -161,8 +166,9 @@ async def ensure_video_poster(file_path: Path) -> Path:
         scale = f"scale=w={POSTER_SIZE}:h={POSTER_SIZE}:force_original_aspect_ratio=decrease"
         vf = f"{scale},{_TONEMAP},format=yuvj420p" if info["hdr"] else f"{scale},format=yuvj420p"
         tmp = poster.with_suffix(".tmp.jpg")
-        async with _image_sem:
-            await _run(FFMPEG, "-v", "error", "-ss", f"{at:.2f}", "-i", str(file_path),
+        nice = ["nice", "-n", "10"] if background else []
+        async with _warm_lane if background else _image_sem:
+            await _run(*nice, FFMPEG, "-v", "error", "-threads", "2", "-ss", f"{at:.2f}", "-i", str(file_path),
                        "-frames:v", "1", "-vf", vf, "-q:v", "3", "-y", str(tmp))
         tmp.replace(poster)
 
@@ -179,11 +185,11 @@ def _build_image_preview(file_path: Path, target: Path) -> None:
         tmp.replace(target)
 
 
-async def ensure_image_preview(file_path: Path) -> Path:
+async def ensure_image_preview(file_path: Path, background: bool = False) -> Path:
     target = _cache_path(file_path, f"preview{PREVIEW_IMAGE_SIZE}", "jpg")
 
     async def build():
-        async with _image_sem:
+        async with _warm_lane if background else _image_sem:
             await run_in_threadpool(_build_image_preview, file_path, target)
 
     return await _once(target, build)
@@ -262,36 +268,43 @@ async def _transcode(file_path: Path) -> None:
 # ── Warming up a folder ───────────────────────────────────────────────────────
 
 def warm_up(files: list[Path], thumbnail_sizes: list[int]) -> None:
-    """Starts making everything a share page will ask for, so it's ready by the time it does."""
-    if not files:
+    """Starts making everything a share page will ask for, so it's ready by the time it does.
+    A folder already warming up isn't started again when someone else opens it."""
+    if not files or files[0].parent in _warming:
         return
+    folder = files[0].parent
+    _warming.add(folder)
     task = asyncio.get_running_loop().create_task(_warm_up(files, thumbnail_sizes))
     _background.add(task)
-    task.add_done_callback(_background.discard)
+    task.add_done_callback(lambda t: (_background.discard(t), _warming.discard(folder)))
 
 
 async def _warm_up(files: list[Path], thumbnail_sizes: list[int]) -> None:
     from app.routes.files import _thumb_cache_path, _ensure_thumbnail, _THUMB_DIR
     _THUMB_DIR.mkdir(parents=True, exist_ok=True)
 
-    async def warm(file_path: Path):
+    # In page order, one file at a time: every thumbnail first (what the page shows straight
+    # away), then the photos' viewer versions. Videos join the transcode queue as they go.
+    for file_path in files:
         try:
-            if is_video(file_path):
-                if not FFMPEG:
-                    return
-                poster = await ensure_video_poster(file_path)
+            if is_video(file_path) and FFMPEG:
+                poster = await ensure_video_poster(file_path, background=True)
                 for size in thumbnail_sizes:
-                    await _ensure_thumbnail(poster, _thumb_cache_path(poster, size), size)
+                    async with _warm_lane:
+                        await _ensure_thumbnail(poster, _thumb_cache_path(poster, size), size)
                 queue_video_preview(file_path)
             elif is_image(file_path):
                 for size in thumbnail_sizes:
-                    await _ensure_thumbnail(file_path, _thumb_cache_path(file_path, size), size)
-                await ensure_image_preview(file_path)
+                    async with _warm_lane:
+                        await _ensure_thumbnail(file_path, _thumb_cache_path(file_path, size), size)
         except Exception:
             log.exception("Couldn't prepare %s", file_path)
-
-    # Thumbnails first, for the files at the top of the page; the semaphores pace the rest.
-    await asyncio.gather(*(warm(f) for f in files))
+    for file_path in files:
+        if is_image(file_path):
+            try:
+                await ensure_image_preview(file_path, background=True)
+            except Exception:
+                log.exception("Couldn't prepare %s", file_path)
 
 
 def cache_headers(private: bool) -> dict:
