@@ -75,9 +75,23 @@ def _build_thumbnail(file_path: Path, cache_path: Path, size: int) -> None:
         tmp.replace(cache_path)
 
 
+_thumbs_in_flight: dict[Path, asyncio.Task] = {}
+
+
 async def _ensure_thumbnail(file_path: Path, cache_path: Path, size: int) -> None:
     if cache_path.exists():
         return
+    # Two requests for the same thumbnail (a gallery tile, and the share page warming its folder
+    # up) share one build: two at once wrote the same temp file and one of them failed.
+    task = _thumbs_in_flight.get(cache_path)
+    if task is None:
+        task = asyncio.create_task(_build_thumbnail_once(file_path, cache_path, size))
+        _thumbs_in_flight[cache_path] = task
+        task.add_done_callback(lambda _: _thumbs_in_flight.pop(cache_path, None))
+    await asyncio.shield(task)
+
+
+async def _build_thumbnail_once(file_path: Path, cache_path: Path, size: int) -> None:
     async with _thumb_sem:
         if not cache_path.exists():
             await run_in_threadpool(_build_thumbnail, file_path, cache_path, size)
