@@ -165,6 +165,7 @@ To run the app:
 cp App/Config/Local.xcconfig.example App/Config/Local.xcconfig   # set your DEVELOPMENT_TEAM
 make open     # generate the Xcode project and open it
 make app      # or: build the macOS app, install it to /Applications and launch it
+make device   # or: build the iOS app, install it on the connected iPhone and launch it
 ```
 
 The app points at my own servers (`*.migueltaibo.com`), so it needs an account on [tpcloud](https://github.com/mtaibo/tpcloud) to sign in.
