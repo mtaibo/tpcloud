@@ -73,7 +73,10 @@ http://share.migueltaibo.com {
         reverse_proxy store-api:8000
     }
     handle /api/share* {
-        header Cache-Control "no-store, no-cache, must-revalidate"
+        # Only a default: thumbnails, posters and previews set their own long caching (their URLs
+        # carry the file's version), and forcing no-store on them made every visit download each
+        # photo and video again.
+        header ?Cache-Control "no-store, no-cache, must-revalidate"
         reverse_proxy store-api:8000
     }
     handle /api/open/* {
