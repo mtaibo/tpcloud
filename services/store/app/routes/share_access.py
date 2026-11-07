@@ -1,7 +1,9 @@
 import io
 import os
+import queue
 import secrets
 import shutil
+import threading
 import time
 import zipfile
 from datetime import datetime, timezone, timedelta
@@ -311,17 +313,66 @@ def download_folder_zip(
     if not dir_path.exists() or not dir_path.is_dir():
         raise HTTPException(400, "Path is not a directory")
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in sorted(dir_path.rglob("*")):
-            if f.is_file():
-                zf.write(f, Path(dir_path.name) / f.relative_to(dir_path))
-    buf.seek(0)
     return StreamingResponse(
-        buf,
+        _stream_zip(dir_path),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{dir_path.name}.zip"'},
     )
+
+
+class _QueueWriter(io.RawIOBase):
+    """A write-only, unseekable file that hands every write to a queue (zipfile copes with that).
+    Gives up once `cancelled` is set, so a download dropped halfway doesn't leave it blocked."""
+
+    def __init__(self, chunks: queue.Queue, cancelled: threading.Event):
+        self._chunks = chunks
+        self._cancelled = cancelled
+
+    def writable(self):
+        return True
+
+    def write(self, data):
+        while True:
+            if self._cancelled.is_set():
+                raise OSError("Download cancelled")
+            try:
+                self._chunks.put(bytes(data), timeout=1)
+                return len(data)
+            except queue.Full:
+                continue
+
+
+def _stream_zip(dir_path: Path):
+    """Zips the folder as it's sent instead of in memory first, which for a folder of phone
+    videos meant gigabytes of RAM and nothing reaching the browser until the whole zip was done.
+    Stored, not deflated: photos and videos don't shrink, and deflating them only costs CPU."""
+    chunks: queue.Queue = queue.Queue(maxsize=16)
+    cancelled = threading.Event()
+    done = object()
+
+    def write():
+        try:
+            with zipfile.ZipFile(_QueueWriter(chunks, cancelled), "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
+                for f in sorted(dir_path.rglob("*")):
+                    if f.is_file() and not f.name.startswith("."):
+                        zf.write(f, Path(dir_path.name) / f.relative_to(dir_path))
+        except OSError:
+            pass
+        finally:
+            # Unblocks the reader even when the queue is full and nobody is reading any more.
+            while not cancelled.is_set():
+                try:
+                    chunks.put(done, timeout=1)
+                    break
+                except queue.Full:
+                    continue
+
+    threading.Thread(target=write, daemon=True).start()
+    try:
+        while (chunk := chunks.get()) is not done:
+            yield chunk
+    finally:
+        cancelled.set()
 
 
 # ── Write operations (editable shares only) ───────────────────────────────────
