@@ -73,7 +73,7 @@ public final class PhotoSyncStore: ObservableObject {
     /// switching apps mid-run silently kills the task, which is why backups never seemed to
     /// finish. `beginBackgroundTask` buys extra time to let in-flight work land; disabling the
     /// idle timer additionally stops the screen from auto-locking while the run is in the
-    /// foreground. Long unattended runs are kept alive by `PhotoBackupContinuedTask`; this
+    /// foreground. Long unattended runs are kept alive by `ContinuedProcessingTask`; this
     /// remains as the fallback when the system declines that request.
     private func beginBackgroundExecution(name: String) -> () -> Void {
         var taskID: UIBackgroundTaskIdentifier = .invalid
@@ -112,7 +112,11 @@ public final class PhotoSyncStore: ObservableObject {
         PhotoBackgroundUploader.shared.setPaused(true)
         defer { PhotoBackgroundUploader.shared.setPaused(false) }
 
-        let continuedTask = PhotoBackupContinuedTask()
+        let continuedTask = ContinuedProcessingTask(
+            identifierPrefix: "com.migueltaibo.tpapp.photobackup.continued",
+            title: "Photo Backup",
+            itemName: "photos"
+        )
         continuedTask.start(onExpire: { [weak self] in self?.stopRequested = true })
         defer { continuedTask.finish(success: lastError == nil) }
         #endif
