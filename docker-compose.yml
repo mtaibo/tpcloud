@@ -3,6 +3,8 @@ services:
   gateway:
     image: caddy:latest
     container_name: gateway
+    ports:
+      - "80:8081" # LAN only (no port forwarding on the router): OTA firmware for tphome's switches
     volumes:
       - ./gateway/Caddyfile:/etc/caddy/Caddyfile
       - ./gateway/.well-known:/srv/.well-known

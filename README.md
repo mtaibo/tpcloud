@@ -159,4 +159,4 @@ docker compose up -d
 docker compose exec auth python scripts/bootstrap.py   # create the owner account
 ```
 
-Start tpcloud before any module: it creates the `tpcloud_gateway` network that [tpstore](https://github.com/mtaibo/tpstore) joins, and it attaches to [tphome](https://github.com/mtaibo/tphome)'s network to reach its containers.
+Start tpcloud before any module: it creates the `tpcloud_gateway` network that [tpstore](https://github.com/mtaibo/tpstore) joins, and it attaches to [tphome](https://github.com/mtaibo/tphome)'s network to reach its containers. The only port it opens on the host is 80, for the local network alone: it serves nothing but `/firmware`, so tphome's switches can download OTA updates.

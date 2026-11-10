@@ -116,6 +116,18 @@ http://tphome.migueltaibo.com {
     }
 }
 
+# OTA downloads for tphome's switches. They fetch http://<Pi LAN IP>/firmware with no session,
+# so this listener sits on its own port (published as 80 on the host, never routed through the
+# tunnel) and serves that one path only. The named sites above stay unreachable from the LAN.
+:8081 {
+    handle /firmware {
+        reverse_proxy tphome-api:8000
+    }
+    handle {
+        respond 404
+    }
+}
+
 http://game.migueltaibo.com {
     root * /srv/game
     file_server
