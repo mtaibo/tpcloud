@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from '@ui/Icon.vue'
 import Logo from '@ui/Logo.vue'
 import ListSection from '@ui/ListSection.vue'
@@ -26,15 +26,17 @@ const codeInput = ref(null)
 
 const hasPasskeys = passkeysSupported()
 const split = computed(() => wide.value && step.value === 'start')
-// Steps that share a screen ("done" and "leaving") keep one pane, so nothing animates between them.
-const pane = computed(() => (step.value === 'leaving' ? 'done' : step.value))
+// Steps that share a screen keep one pane, so nothing animates between them: email and password
+// are one form (the password row opens under the email, as in Apple's sign-in), "done" and
+// "leaving" are one screen.
+const pane = computed(() => ({ leaving: 'done', email: 'credentials', password: 'credentials' }[step.value] || step.value))
 const canGoBack = computed(() => !['start', 'done', 'leaving'].includes(step.value))
 let conditional = null
 
 const titles = {
-  start: 'Sign in',
-  email: 'Continue with email',
-  password: 'Enter your password',
+  start: 'Log in',
+  email: 'Sign in',
+  password: 'Sign in',
   totp: 'Two-step verification',
   qr: 'Use another device',
   done: "You're in",
@@ -43,7 +45,7 @@ const titles = {
 const subtitles = computed(() => ({
   start: 'Your files, your photos and your home, in TPCloud.',
   email: "Enter your account's email. If you saved a passkey, your browser will offer it right here.",
-  password: email.value,
+  password: "Enter your account's email. If you saved a passkey, your browser will offer it right here.",
   totp: 'Enter the 6-digit code from your authenticator app.',
   qr: 'Scan the code with an iPhone that is already signed in.',
   done: 'One last thing before you go in.',
@@ -199,8 +201,19 @@ watch(step, value => {
   if (value === 'email') startConditional()
   else stopConditional()
 })
-// The next step's field only exists once the old one has faded out, so focus it when it appears.
-watch([emailInput, passwordInput, codeInput], fields => fields.find(Boolean)?.focus())
+// Changing the email after Continue closes the password row again, like Apple's sign-in.
+watch(email, () => { if (step.value === 'password') step.value = 'email' })
+
+// A new pane's field only exists once the old one has faded out, so focus it when it appears.
+watch([emailInput, codeInput], ([emailField, codeField]) => {
+  if (codeField) codeField.focus()
+  else if (emailField) (step.value === 'password' ? passwordInput.value : emailField)?.focus()
+})
+// Inside the email/password form the fields are already there.
+watch(step, (value, old) => {
+  if (value === 'password' && old === 'email') nextTick(() => passwordInput.value?.focus())
+  else if (value === 'email' && old === 'password') nextTick(() => emailInput.value?.focus())
+})
 
 // ---- Start ----
 
@@ -272,8 +285,12 @@ onBeforeUnmount(() => { media.removeEventListener('change', onMedia); stopCondit
                 </div>
               </div>
 
-              <!-- Email -->
-              <form v-else-if="step === 'email'" class="stack" @submit.prevent="continueWithEmail">
+              <!-- Email, then password in the same card -->
+              <form
+                v-else-if="pane === 'credentials'"
+                class="stack"
+                @submit.prevent="step === 'email' ? continueWithEmail() : signInWithPassword()"
+              >
                 <ListSection>
                   <ListRow>
                     <input
@@ -289,37 +306,47 @@ onBeforeUnmount(() => { media.removeEventListener('change', onMedia); stopCondit
                       aria-label="Email"
                     />
                   </ListRow>
+                  <!-- Always in the page so password managers fill both; opens after Continue. -->
+                  <div class="reveal" :class="{ open: step === 'password' }" :inert="step !== 'password'">
+                    <div class="reveal-inner">
+                      <ListRow>
+                        <input
+                          ref="passwordInput"
+                          v-model="password"
+                          class="row-input"
+                          type="password"
+                          name="password"
+                          placeholder="Password"
+                          autocomplete="current-password"
+                          aria-label="Password"
+                        />
+                      </ListRow>
+                    </div>
+                  </div>
                 </ListSection>
-                <button class="btn btn-prominent block" type="submit" :disabled="!email">Continue</button>
-                <button v-if="hasPasskeys && email.includes('@')" class="btn btn-plain block" type="button" :disabled="!!busy" @click="signInWithPasskey(email)">
+                <button
+                  class="btn btn-prominent block"
+                  type="submit"
+                  :disabled="step === 'email' ? !email : !password || !!busy"
+                >
+                  <Spinner v-if="busy === 'password'" :size="18" style="color: #fff" />
+                  <span v-else>{{ step === 'email' ? 'Continue' : 'Sign in' }}</span>
+                </button>
+                <!-- Keeps its place while hidden, so nothing moves when it shows up. -->
+                <button
+                  v-if="hasPasskeys"
+                  class="btn btn-plain block"
+                  :class="{ invisible: !email.includes('@') }"
+                  type="button"
+                  :disabled="!!busy || !email.includes('@')"
+                  @click="signInWithPasskey(email)"
+                >
                   Use a passkey for this email
                 </button>
-              </form>
-
-              <!-- Password -->
-              <form v-else-if="step === 'password'" class="stack" @submit.prevent="signInWithPassword">
-                <input type="email" name="username" autocomplete="username" :value="email" hidden />
-                <ListSection>
-                  <ListRow>
-                    <input
-                      ref="passwordInput"
-                      v-model="password"
-                      class="row-input"
-                      type="password"
-                      name="password"
-                      placeholder="Password"
-                      autocomplete="current-password"
-                      aria-label="Password"
-                    />
-                  </ListRow>
-                </ListSection>
-                <button class="btn btn-prominent block" type="submit" :disabled="!password || !!busy">
-                  <Spinner v-if="busy === 'password'" :size="18" style="color: #fff" />
-                  <span v-else>Sign in</span>
-                </button>
-                <button v-if="hasPasskeys" class="btn btn-plain block" type="button" :disabled="!!busy" @click="signInWithPasskey(email)">
-                  Use a passkey
-                </button>
+                <!-- Takes the room the password row will need, so opening it doesn't shift the screen. -->
+                <div class="reserve" :class="{ open: step === 'password' }" aria-hidden="true" inert>
+                  <div class="reveal-inner"><ListRow><input class="row-input" tabindex="-1" /></ListRow></div>
+                </div>
               </form>
 
               <!-- TOTP -->
@@ -446,16 +473,44 @@ onBeforeUnmount(() => { media.removeEventListener('change', onMedia); stopCondit
   background: var(--cell);
 }
 
+.pane { position: relative; }
+/* Floats under the pane, so showing it never moves anything else. */
 .error {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   gap: 6px;
-  margin-top: 16px;
+  margin-top: 4px;
   color: var(--red);
   text-align: center;
 }
 .error .icon { flex-shrink: 0; margin-top: 1px; }
+
+/* Password row: opens under the email inside the same card. */
+.reveal { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.32s var(--ease); }
+.reveal.open { grid-template-rows: 1fr; }
+.reveal-inner { min-height: 0; overflow: hidden; }
+.reveal-inner .row {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.reveal.open .reveal-inner .row { opacity: 1; transition-delay: 0.08s; }
+.reveal-inner .row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 20px;
+  height: 0.5px;
+  background: var(--separator);
+}
+.reserve { display: grid; grid-template-rows: 1fr; margin-top: -14px; visibility: hidden; transition: grid-template-rows 0.32s var(--ease); }
+.reserve.open { grid-template-rows: 0fr; }
+.invisible { visibility: hidden; }
 
 .code { position: relative; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; cursor: text; }
 .code input { position: absolute; inset: 0; opacity: 0; font-size: 16px; caret-color: transparent; }
