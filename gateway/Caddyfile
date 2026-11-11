@@ -22,6 +22,10 @@
 	forward_auth auth:8000 {
 		uri /auth/passkey/validate
 		copy_headers Set-Cookie
+		# The check itself is a plain GET: passing on a WebSocket's Upgrade made auth refuse it
+		# (403) and the gateway drop every socket, e.g. tphome's live states.
+		header_up -Upgrade
+		header_up -Connection
 	}
 }
 
