@@ -41,15 +41,17 @@ device: generate
 		|| (sleep 2 && xcrun devicectl device install app --device $(DEVICE) $(DEVICE_APP))
 	xcrun devicectl device process launch --device $(DEVICE) com.migueltaibo.tpapp
 
-# Archives the iPhone app and uploads it to App Store Connect (TestFlight). Needs Xcode signed in with
-# the developer account and the app created in App Store Connect with bundle id com.migueltaibo.tpapp.
-# Every upload needs a build number higher than the last: it defaults to the current date and time,
-# BUILD=<n> overrides it. The marketing version is in Shared.xcconfig.
+# Archives the iPhone and Mac apps and uploads both to App Store Connect (TestFlight). Needs Xcode signed
+# in with the developer account and the app created in App Store Connect with bundle id
+# com.migueltaibo.tpapp (iOS and macOS). Every upload needs a build number higher than the last: it
+# defaults to the current date and time, BUILD=<n> overrides it. The marketing version is in Shared.xcconfig.
 BUILD ?= $(shell date +%y%m%d%H%M)
+# Fixed once, so the iPhone and the Mac uploads share a number.
 BUILD := $(BUILD)
 TEAM = $(shell awk -F= '/^DEVELOPMENT_TEAM/ {gsub(/ /, "", $$2); print $$2}' App/Config/Local.xcconfig 2>/dev/null || true)
 TEAM_ID = $(or $(TEAM),$(shell awk '/DEVELOPMENT_TEAM:/ {print $$2; exit}' App/project.yml))
 ARCHIVE = App/build-archive/TPApp-iOS.xcarchive
+MAC_ARCHIVE = App/build-archive/TPApp-macOS.xcarchive
 
 testflight: generate
 	@test -n "$(TEAM_ID)" || (echo "Falta DEVELOPMENT_TEAM en App/Config/Local.xcconfig." && exit 1)
@@ -61,9 +63,14 @@ testflight: generate
 		'<key>teamID</key><string>$(TEAM_ID)</string>' \
 		'<key>signingStyle</key><string>automatic</string>' \
 		'</dict></plist>' > App/build-archive/ExportOptions.plist
-	rm -rf $(ARCHIVE)
+	rm -rf $(ARCHIVE) $(MAC_ARCHIVE)
 	xcodebuild -project App/TPApp.xcodeproj -scheme TPApp-iOS -configuration Release \
 		-destination 'generic/platform=iOS' -archivePath $(ARCHIVE) -allowProvisioningUpdates \
 		CURRENT_PROJECT_VERSION=$(BUILD) -quiet archive
 	xcodebuild -exportArchive -archivePath $(ARCHIVE) -exportOptionsPlist App/build-archive/ExportOptions.plist \
+		-allowProvisioningUpdates
+	xcodebuild -project App/TPApp.xcodeproj -scheme TPApp-macOS -configuration Release \
+		-destination 'generic/platform=macOS' -archivePath $(MAC_ARCHIVE) -allowProvisioningUpdates \
+		CURRENT_PROJECT_VERSION=$(BUILD) -quiet archive
+	xcodebuild -exportArchive -archivePath $(MAC_ARCHIVE) -exportOptionsPlist App/build-archive/ExportOptions.plist \
 		-allowProvisioningUpdates
