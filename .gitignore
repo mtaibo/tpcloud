@@ -18,3 +18,6 @@ accounts/dist/
 package-lock.json
 
 .claude/
+
+# Site blocks for this one server only
+gateway/extra/*.caddy

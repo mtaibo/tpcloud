@@ -4,7 +4,9 @@ from sqlmodel import Session as DBSession
 
 from database import get_session
 from dependencies import require_login
+from config import RP_NAME
 from models import User
+from security import user_failures, verify_totp
 
 router = APIRouter(prefix="/auth/account/totp")
 
@@ -20,7 +22,7 @@ def totp_status(user: User = Depends(require_login)):
 def totp_setup_begin(user: User = Depends(require_login)):
     secret = pyotp.random_base32()
     _pending_totp_secrets[user.id] = secret
-    uri = pyotp.TOTP(secret).provisioning_uri(name=user.email, issuer_name="TPCloud")
+    uri = pyotp.TOTP(secret).provisioning_uri(name=user.email, issuer_name=RP_NAME)
     return {"secret": secret, "otpauth_uri": uri}
 
 
@@ -34,8 +36,10 @@ def totp_setup_complete(
     if not secret:
         raise HTTPException(status_code=400, detail="No hay configuración TOTP pendiente")
 
-    code = str(body.get("code", "")).strip()
-    if not pyotp.TOTP(secret).verify(code, valid_window=1):
+    user_key = f"user:{user.id}"
+    user_failures.check(user_key)
+    if not verify_totp(secret, str(body.get("code", "")), user.id):
+        user_failures.fail(user_key)
         raise HTTPException(status_code=401, detail="Código incorrecto")
 
     db_user = session.get(User, user.id)
@@ -56,8 +60,10 @@ def totp_disable(
     if not user.totp_secret:
         raise HTTPException(status_code=400, detail="TOTP no está configurado")
 
-    code = str(body.get("code", "")).strip()
-    if not pyotp.TOTP(user.totp_secret).verify(code, valid_window=1):
+    user_key = f"user:{user.id}"
+    user_failures.check(user_key)
+    if not verify_totp(user.totp_secret, str(body.get("code", "")), user.id):
+        user_failures.fail(user_key)
         raise HTTPException(status_code=401, detail="Código incorrecto")
 
     db_user = session.get(User, user.id)

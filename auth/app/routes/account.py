@@ -1,4 +1,3 @@
-import os
 import base64
 from datetime import datetime, timezone
 
@@ -9,18 +8,16 @@ from sqlmodel import Session as DBSession, select
 
 from database import get_session
 from dependencies import require_login
+from config import ORIGIN, RP_ID, RP_NAME, SESSION_COOKIE
 from models import PasskeyCredential, Session as SessionModel, User
+from security import ExpiringDict, user_failures
 import webauthn
 from webauthn.helpers import options_to_json
 from webauthn.helpers.structs import AuthenticatorSelectionCriteria, UserVerificationRequirement
 
 router = APIRouter(prefix="/auth/account")
 
-RP_ID = os.environ["RP_ID"]
-RP_NAME = os.environ["RP_NAME"]
-ACCOUNTS_ORIGIN = os.environ["ACCOUNTS_ORIGIN"]
-
-_pending_add_challenges: dict[int, bytes] = {}
+_pending_add_challenges = ExpiringDict(ttl=300)
 
 
 def b64url_encode(data: bytes) -> str:
@@ -48,7 +45,7 @@ def get_profile(
         )
     ).all()
 
-    current_session_id = request.cookies.get("session_id")
+    current_session_id = request.cookies.get(SESSION_COOKIE)
 
     return {
         "id": user.id,
@@ -68,7 +65,7 @@ def get_profile(
         ],
         "sessions": [
             {
-                "session_id": s.session_id,
+                "id": s.id,
                 "created_at": s.created_at.isoformat(),
                 "expires_at": s.expires_at.isoformat(),
                 "ip_address": s.ip_address,
@@ -100,21 +97,30 @@ def update_profile(
 @router.patch("/password")
 def change_password(
     body: dict,
+    request: Request,
     user: User = Depends(require_login),
     session: DBSession = Depends(get_session),
 ):
-    new_password = body.get("new_password", "").strip()
-    if not new_password or len(new_password) < 8:
-        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
+    new_password = str(body.get("new_password", "")).strip()
+    if not new_password or len(new_password) < 12:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 12 caracteres")
 
     if user.password_hash:
-        current_password = body.get("current_password", "")
+        user_key = f"user:{user.id}"
+        user_failures.check(user_key)
+        current_password = str(body.get("current_password", ""))
         if not bcrypt.checkpw(current_password.encode(), user.password_hash.encode()):
+            user_failures.fail(user_key)
             raise HTTPException(status_code=401, detail="Contraseña actual incorrecta")
 
     db_user = session.get(User, user.id)
     db_user.password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
     session.add(db_user)
+    # Whoever knew the old password is signed out everywhere except here.
+    current_session_id = request.cookies.get(SESSION_COOKIE)
+    for s in session.exec(select(SessionModel).where(SessionModel.user_id == user.id)).all():
+        if s.session_id != current_session_id:
+            session.delete(s)
     session.commit()
 
     return {"status": "Contraseña actualizada"}
@@ -156,7 +162,7 @@ def add_passkey_begin(user: User = Depends(require_login)):
             user_verification=UserVerificationRequirement.REQUIRED,
         ),
     )
-    _pending_add_challenges[user.id] = options.challenge
+    _pending_add_challenges.set(user.id, options.challenge)
     return Response(content=options_to_json(options), media_type="application/json")
 
 
@@ -166,7 +172,7 @@ def add_passkey_complete(
     user: User = Depends(require_login),
     session: DBSession = Depends(get_session),
 ):
-    challenge = _pending_add_challenges.get(user.id)
+    challenge = _pending_add_challenges.pop(user.id)
     if not challenge:
         raise HTTPException(status_code=400, detail="No hay registro pendiente")
 
@@ -175,7 +181,7 @@ def add_passkey_complete(
             credential=request_body,
             expected_challenge=challenge,
             expected_rp_id=RP_ID,
-            expected_origin=ACCOUNTS_ORIGIN,
+            expected_origin=ORIGIN,
         )
     except Exception:
         raise HTTPException(status_code=400, detail="Verificación fallida")
@@ -184,24 +190,23 @@ def add_passkey_complete(
         user_id=user.id,
         credential_id=b64url_encode(verification.credential_id),
         public_key=b64url_encode(verification.credential_public_key),
-        device_name=request_body.get("device_name", "nuevo dispositivo"),
+        device_name=str(request_body.get("device_name", "nuevo dispositivo"))[:100],
     )
     session.add(credential)
     session.commit()
-    del _pending_add_challenges[user.id]
 
     return {"status": "passkey añadida"}
 
 
-@router.delete("/session/{session_id}")
+@router.delete("/session/{session_row_id}")
 def revoke_session(
-    session_id: str,
+    session_row_id: int,
     user: User = Depends(require_login),
     session: DBSession = Depends(get_session),
 ):
     db_session = session.exec(
         select(SessionModel).where(
-            SessionModel.session_id == session_id,
+            SessionModel.id == session_row_id,
             SessionModel.user_id == user.id,
         )
     ).first()

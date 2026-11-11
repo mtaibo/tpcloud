@@ -3,6 +3,8 @@ from datetime import timedelta
 import httpx
 import user_agents as ua_lib
 
+from config import GEOIP
+
 WEB_SESSION_DURATION = timedelta(hours=1)
 NATIVE_SESSION_DURATION = timedelta(hours=24)
 
@@ -30,6 +32,8 @@ def parse_device_info(ua_string: str) -> str:
 
 
 def lookup_location(ip: str) -> str:
+    if not GEOIP:
+        return ip
     if not ip or ip in ("127.0.0.1", "::1", ""):
         return "Local"
     try:
@@ -49,9 +53,11 @@ def lookup_location(ip: str) -> str:
 
 
 def get_client_ip(request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """The gateway sets X-Real-IP to the client's address, taken from Cloudflare's or the proxy's
+    header only when the hop it came through is a trusted one, so a client can't pick its own."""
+    real_ip = request.headers.get("X-Real-IP", "")
+    if real_ip:
+        return real_ip.strip()
     return request.client.host if request.client else ""
 
 

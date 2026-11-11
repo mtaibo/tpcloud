@@ -55,8 +55,8 @@ def create_user(
 
     if not email:
         raise HTTPException(status_code=400, detail="Email requerido")
-    if not password or len(password) < 8:
-        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
+    if not password or len(password) < 12:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 12 caracteres")
     if not display_name:
         display_name = email.split("@")[0]
 
@@ -134,7 +134,7 @@ def list_sessions(
     for s in sessions:
         user = session.get(User, s.user_id)
         result.append({
-            "session_id": s.session_id,
+            "id": s.id,
             "user_id": s.user_id,
             "user_email": user.email if user else "—",
             "user_display_name": user.display_name if user else "—",
@@ -148,15 +148,13 @@ def list_sessions(
     return result
 
 
-@router.delete("/sessions/{session_id}")
+@router.delete("/sessions/{session_row_id}")
 def revoke_session(
-    session_id: str,
+    session_row_id: int,
     admin: User = Depends(require_admin),
     session: DBSession = Depends(get_session),
 ):
-    db_session = session.exec(
-        select(SessionModel).where(SessionModel.session_id == session_id)
-    ).first()
+    db_session = session.get(SessionModel, session_row_id)
     if not db_session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
     session.delete(db_session)

@@ -8,12 +8,24 @@ const step = ref('email') // 'email' | 'password' | 'totp'
 const message = ref(null)
 const loading = ref(false)
 
-const params = new URLSearchParams(window.location.search)
-const redirectHost = params.get('redirect') || 'cloud.migueltaibo.com'
+// Where to go after signing in: only ever a path on this same host, so the login page can't be
+// used to send someone to another site.
+function safeNext(value) {
+  if (!value) return '/'
+  try {
+    const url = new URL(value, window.location.origin)
+    if (url.origin !== window.location.origin) return '/'
+    return url.pathname + url.search + url.hash
+  } catch {
+    return '/'
+  }
+}
+
+const next = safeNext(new URLSearchParams(window.location.search).get('next'))
 
 onMounted(async () => {
   const res = await fetch('/auth/passkey/me')
-  if (res.ok) window.location.href = `https://${redirectHost}`
+  if (res.ok) window.location.href = next
 })
 
 function setError(e) {
@@ -45,7 +57,7 @@ async function loginWithPassword() {
     if (data.totp_required) {
       step.value = 'totp'
     } else {
-      window.location.href = `https://${redirectHost}`
+      window.location.href = next
     }
   } catch (e) {
     setError(e)
@@ -66,7 +78,7 @@ async function verifyTotp() {
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail)
-    window.location.href = `https://${redirectHost}`
+    window.location.href = next
   } catch (e) {
     setError(e)
   } finally {
@@ -100,7 +112,7 @@ async function loginWithPasskey() {
     })
 
     if (res.ok) {
-      window.location.href = `https://${redirectHost}`
+      window.location.href = next
     } else {
       throw new Error((await res.json()).detail)
     }

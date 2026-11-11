@@ -349,7 +349,7 @@ function expiresIn(iso) {
     <section class="section">
       <p class="section-label">Active sessions</p>
       <div class="block">
-        <div v-for="s in profile.sessions" :key="s.session_id" class="row">
+        <div v-for="s in profile.sessions" :key="s.id" class="row">
           <div>
             <p class="text-sm">
               {{ s.device_info || 'Unknown device' }}
@@ -362,7 +362,7 @@ function expiresIn(iso) {
               · Started {{ relativeTime(s.created_at) }}
             </p>
           </div>
-          <button class="btn-danger" @click="revokeSession(s.session_id)">Revoke</button>
+          <button class="btn-danger" @click="revokeSession(s.id)">Revoke</button>
         </div>
       </div>
     </section>

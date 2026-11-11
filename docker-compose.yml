@@ -1,21 +1,31 @@
 services:
 
   gateway:
-    image: caddy:latest
+    image: caddy:2
     container_name: gateway
+    environment:
+      - TPCLOUD_SITE=${TPCLOUD_SITE:-:80}
+      - TPCLOUD_TLS=${TPCLOUD_TLS:-none}
+      - TPADMIN_UPSTREAM=${TPADMIN_UPSTREAM:-172.20.0.1:8100}
     ports:
-      - "80:8081" # LAN only (no port forwarding on the router): OTA firmware for tphome's switches
+      # Only what the chosen way in needs reaches beyond this machine; the defaults stay on
+      # localhost (where `tailscale serve` picks the site up).
+      - "${TPCLOUD_HTTP_PUBLISH:-127.0.0.1:8080}:80"
+      - "${TPCLOUD_HTTPS_PUBLISH:-127.0.0.1:8443}:443"
+      # tphome's switches fetch OTA firmware from http://<LAN IP>/firmware; published as 80 on the
+      # LAN only where tphome is installed.
+      - "${TPCLOUD_OTA_PUBLISH:-127.0.0.1:8081}:8081"
     volumes:
-      - ./gateway/Caddyfile:/etc/caddy/Caddyfile
-      - ./gateway/.well-known:/srv/.well-known
-      - ./game:/srv/game:ro
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./gateway/extra:/etc/caddy/extra:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - auth
     networks:
       - gateway
-      - tphome-network
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   auth:
@@ -26,6 +36,8 @@ services:
       - ./data:/app/data
     networks:
       - gateway
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   login:
@@ -35,6 +47,8 @@ services:
       - auth
     networks:
       - gateway
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   cloud:
@@ -44,6 +58,8 @@ services:
       - auth
     networks:
       - gateway
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   accounts:
@@ -53,24 +69,29 @@ services:
       - auth
     networks:
       - gateway
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
+  # Only with COMPOSE_PROFILES=tunnel (your own domain through Cloudflare, no open ports).
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
+    profiles: ["tunnel"]
     command: tunnel --no-autoupdate run
     environment:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
     networks:
       - gateway
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
 networks:
+  # Every module joins this one network to sit behind the gateway.
   gateway:
+    name: tpcloud_gateway
     driver: bridge
-  tphome-network:
-    external: true
-    name: tphome_tphome-network
 
 volumes:
   caddy_data:

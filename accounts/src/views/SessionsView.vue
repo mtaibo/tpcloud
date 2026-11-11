@@ -52,7 +52,7 @@ function expiresIn(iso) {
         <div v-else-if="sessions.length === 0" class="row">
           <span class="muted">No active sessions</span>
         </div>
-        <div v-for="s in sessions" :key="s.session_id" class="row">
+        <div v-for="s in sessions" :key="s.id" class="row">
           <div class="session-info">
             <p class="text-sm">
               {{ s.user_display_name }}
@@ -70,7 +70,7 @@ function expiresIn(iso) {
               · Expires in {{ expiresIn(s.expires_at) }}
             </p>
           </div>
-          <button class="btn-danger" @click="revokeSession(s.session_id)">Revoke</button>
+          <button class="btn-danger" @click="revokeSession(s.id)">Revoke</button>
         </div>
       </div>
     </section>

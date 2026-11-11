@@ -15,10 +15,10 @@ onMounted(async () => {
     if (res.ok) {
       user.value = await res.json()
     } else {
-      window.location.href = 'https://login.migueltaibo.com/?redirect=accounts.migueltaibo.com'
+      window.location.href = '/login/?next=/accounts/'
     }
   } catch {
-    window.location.href = 'https://login.migueltaibo.com/?redirect=accounts.migueltaibo.com'
+    window.location.href = '/login/?next=/accounts/'
   } finally {
     loading.value = false
   }
@@ -26,7 +26,7 @@ onMounted(async () => {
 
 async function logout() {
   await fetch('/auth/passkey/logout', { method: 'POST' })
-  window.location.href = 'https://login.migueltaibo.com'
+  window.location.href = '/login/'
 }
 
 function navigate(view, name) {

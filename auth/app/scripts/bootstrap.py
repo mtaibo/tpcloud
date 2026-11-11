@@ -7,7 +7,7 @@ from sqlmodel import Session as DBSession, select
 from database import engine, init_db
 from models import User
 
-OWNER_EMAIL = os.environ["OWNER_EMAIL"]
+OWNER_EMAIL = os.environ["OWNER_EMAIL"].strip().lower()
 OWNER_PASSWORD = os.environ.get("OWNER_PASSWORD", "")
 
 def bootstrap():

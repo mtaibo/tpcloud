@@ -1,156 +1,168 @@
+# Every module is served from one host, each under its own path:
+#
+#   /login  /accounts  /           tpcloud (sign-in, account, dashboard)
+#   /store  /share                 tpstore (files, public share links)
+#   /home                          tphome
+#   /admin                         tpadmin
+#   /auth                          the auth API every client signs in against
+#
+# Each module's API lives under its own path too (/store/api, /home/api…). The prefix is stripped
+# here, so the services behind it still see the /api/... paths they always had.
 {
-    auto_https off
-    admin off
+	admin off
+	servers {
+		# Requests arrive through cloudflared, `tailscale serve` or Docker's own proxy, all from
+		# private addresses. Only from those is the client's real IP taken from these headers.
+		trusted_proxies static private_ranges
+		client_ip_headers CF-Connecting-IP X-Forwarded-For
+	}
 }
 
 (protected) {
-    forward_auth auth:8000 {
-        uri /auth/passkey/validate
-        copy_headers Set-Cookie
-    }
+	forward_auth auth:8000 {
+		uri /auth/passkey/validate
+		copy_headers Set-Cookie
+	}
 }
 
-http://login.migueltaibo.com {
-    handle /auth/* {
-        reverse_proxy auth:8000
-    }
-    handle {
-        reverse_proxy login:80
-    }
+# Deferred (the `-Server` delete makes Caddy apply these as the response goes out), so the CSP
+# and frame policy are only defaults: tpstore sends its own sandbox CSP for users' files, and
+# overwriting it would let an uploaded HTML file run scripts on this origin.
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		?X-Frame-Options SAMEORIGIN
+		Referrer-Policy same-origin
+		Cross-Origin-Opener-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' wss://{hostport}; frame-src 'self' blob:; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
 }
 
-http://cloud.migueltaibo.com {
-    handle /auth/* {
-        reverse_proxy auth:8000
-    }
-    handle {
-        import protected
-        reverse_proxy cloud:80
-    }
+# Vite puts a content hash in every asset's name, so they can be cached for good; everything else
+# defaults to not being cached at all.
+(caching) {
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	header ?Cache-Control "no-store"
 }
 
-http://accounts.migueltaibo.com {
-    handle /auth/* {
-        reverse_proxy auth:8000
-    }
-    handle {
-        import protected
-        reverse_proxy accounts:80
-    }
+(tls_none) {
 }
 
-http://store.migueltaibo.com {
-    @filethumb path_regexp ^/api/files/thumbnail$
-    @sharethumb path_regexp ^/api/share/[^/]+/files/thumbnail$
-
-    handle /auth/* {
-        reverse_proxy auth:8000
-    }
-    handle @filethumb {
-        import protected
-        reverse_proxy store-api:8000
-    }
-    handle @sharethumb {
-        import protected
-        reverse_proxy store-api:8000
-    }
-    handle /api/* {
-        import protected
-        header Cache-Control "no-store, no-cache, must-revalidate"
-        reverse_proxy store-api:8000
-    }
-    handle {
-        import protected
-        header Cache-Control "no-store, no-cache, must-revalidate"
-        reverse_proxy store-frontend:80
-    }
+# Only for the "this network only" setup: a certificate from Caddy's own local authority.
+(tls_internal) {
+	tls internal
 }
 
-http://share.migueltaibo.com {
-    @sharethumb path_regexp ^/api/share/[^/]+/files/thumbnail$
+{$TPCLOUD_SITE} {
+	import tls_{$TPCLOUD_TLS}
+	import security_headers
+	encode zstd gzip
 
-    handle @sharethumb {
-        reverse_proxy store-api:8000
-    }
-    handle /api/share* {
-        # Only a default: thumbnails, posters and previews set their own long caching (their URLs
-        # carry the file's version), and forcing no-store on them made every visit download each
-        # photo and video again.
-        header ?Cache-Control "no-store, no-cache, must-revalidate"
-        reverse_proxy store-api:8000
-    }
-    handle /api/open/* {
-        header Cache-Control "no-store, no-cache, must-revalidate"
-        reverse_proxy store-api:8000
-    }
-    handle {
-        header Cache-Control "no-store, no-cache, must-revalidate"
-        reverse_proxy share-frontend:80
-    }
+	handle /auth/* {
+		header Cache-Control "no-store"
+		reverse_proxy auth:8000 {
+			header_up X-Real-IP {client_ip}
+		}
+	}
+
+	redir /login /login/ 308
+	handle /login/* {
+		route {
+			uri strip_prefix /login
+			import caching
+			reverse_proxy login:80
+		}
+	}
+
+	redir /accounts /accounts/ 308
+	handle /accounts/* {
+		route {
+			import protected
+			uri strip_prefix /accounts
+			import caching
+			reverse_proxy accounts:80
+		}
+	}
+
+	redir /store /store/ 308
+	handle /store/* {
+		route {
+			import protected
+			uri strip_prefix /store
+			# Thumbnails set their own long caching; other API answers are never cached.
+			header /api/* ?Cache-Control "no-store"
+			reverse_proxy /api/* store-api:8000
+			import caching
+			reverse_proxy store-frontend:80
+		}
+	}
+
+	# Public share links. Only the share endpoints of tpstore's API are reachable from here,
+	# never the rest of it.
+	redir /share /share/ 308
+	handle /share/* {
+		route {
+			uri strip_prefix /share
+			@share_api path /api/share /api/share/* /api/open/*
+			# Only a default: thumbnails, posters and previews set their own long caching (their URLs
+			# carry the file's version), and forcing no-store on them made every visit download each
+			# photo and video again.
+			header @share_api ?Cache-Control "no-store"
+			reverse_proxy @share_api store-api:8000
+			respond /api/* 404
+			import caching
+			reverse_proxy share-frontend:80
+		}
+	}
+
+	redir /home /home/ 308
+	handle /home/* {
+		route {
+			import protected
+			uri strip_prefix /home
+			@home_api path /api/* /openapi.json /firmware
+			header @home_api Cache-Control "no-store"
+			reverse_proxy @home_api tphome-api:8000
+			import caching
+			reverse_proxy tphome-frontend:80
+		}
+	}
+
+	# tpadmin runs on the host (it drives docker, git and tmux), listening only on the gateway
+	# network's bridge IP; it also requires is_admin on every endpoint itself.
+	handle /admin/* {
+		route {
+			import protected
+			uri strip_prefix /admin
+			header Cache-Control "no-store"
+			reverse_proxy {$TPADMIN_UPSTREAM}
+		}
+	}
+
+	handle {
+		route {
+			import protected
+			import caching
+			reverse_proxy cloud:80
+		}
+	}
 }
 
-http://tphome.migueltaibo.com {
-    header Cache-Control "no-store, no-cache, must-revalidate"
-
-    handle /auth/* {
-        reverse_proxy auth:8000
-    }
-    handle /api/ws {
-        reverse_proxy tphome-api:8000
-    }
-    handle /api/* {
-        import protected
-        reverse_proxy tphome-api:8000
-    }
-    handle /openapi.json {
-        import protected
-        reverse_proxy tphome-api:8000
-    }
-    handle /firmware {
-        import protected
-        reverse_proxy tphome-api:8000
-    }
-    handle {
-        import protected
-        reverse_proxy tphome-frontend:80
-    }
-}
-
-# OTA downloads for tphome's switches. They fetch http://<Pi LAN IP>/firmware with no session,
-# so this listener sits on its own port (published as 80 on the host, never routed through the
-# tunnel) and serves that one path only. The named sites above stay unreachable from the LAN.
+# OTA downloads for tphome's switches. They fetch http://<server LAN IP>/firmware with no session,
+# so this listener sits on its own port (published on the LAN only, never through the tunnel) and
+# serves that one path only.
 :8081 {
-    handle /firmware {
-        reverse_proxy tphome-api:8000
-    }
-    handle {
-        respond 404
-    }
+	handle /firmware {
+		reverse_proxy tphome-api:8000
+	}
+	handle {
+		respond 404
+	}
 }
 
-http://game.migueltaibo.com {
-    root * /srv/game
-    file_server
-    encode gzip
-}
-
-# Grade's site (privacy policy and support for the App Store), from the grade repo's own
-# container on this network; public.
-http://grade.migueltaibo.com {
-    encode gzip
-    reverse_proxy grade-web:80
-}
-
-http://admin.migueltaibo.com {
-    header Cache-Control "no-store, no-cache, must-revalidate"
-
-    handle /auth/* {
-        reverse_proxy auth:8000
-    }
-    # tpadmin runs on the host (it drives docker, git and tmux), listening only on this
-    # network's bridge IP; it also requires is_admin on every endpoint itself.
-    handle {
-        import protected
-        reverse_proxy 172.20.0.1:8100
-    }
-}
+# Site blocks for this one server only (gitignored), e.g. old addresses that now redirect here.
+import extra/*.caddy

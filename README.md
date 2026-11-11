@@ -8,22 +8,22 @@
 
 ![Status](https://img.shields.io/badge/status-active-brightgreen)
 ![Made with](https://img.shields.io/badge/made%20with-Python%20%7C%20Vue-blue)
-![Runs on](https://img.shields.io/badge/runs%20on-Docker%20%7C%20Cloudflare-lightgrey)
+![Runs on](https://img.shields.io/badge/runs%20on-Docker-lightgrey)
 
 </div>
 
 ---
 
-TPCloud is the core of everything I self-host under `migueltaibo.com`. It's the front door that every request goes through: one gateway exposed to the internet through a Cloudflare Tunnel, one auth service that signs me in once for every subdomain, and the small web apps around it to log in, manage accounts and jump between services. The rest of my projects plug into it as modules.
+TPCloud is the core of everything I self-host. It's the front door that every request goes through: one gateway at a single address, where every module is a path (`/store`, `/home`, `/login`…), one auth service that signs you in once for all of them, and the small web apps around it to log in, manage accounts and jump between services. The rest of my projects plug into it as modules, and anyone can run their own with one installer.
 
 ## Why I built it
 
 Every service I added to my server needed its own login, its own port and its own way of being reached from outside. I wanted it to feel like a single cloud instead:
 
-- **One login** — sign in once at `login.migueltaibo.com` and every subdomain knows who you are
-- **No open ports** — the server is only reachable through a Cloudflare Tunnel, my router stays closed
-- **Plug in a module** — a new service only needs a container on the shared network and a block in the gateway
-- **Modern auth** — passkeys on the web, password + TOTP for the native app, and sessions I can see and revoke
+- **One login** — sign in once at `/login` and every module knows who you are
+- **Reached your way** — only at home, privately from anywhere through Tailscale, or at your own domain through a Cloudflare Tunnel; nothing is opened unless you choose to
+- **Plug in a module** — a new service only needs a container on the shared network and a path in the gateway
+- **Modern auth** — passkeys on the web, password + TOTP for the native app, and sessions you can see and revoke
 
 ## The ecosystem
 
@@ -32,7 +32,7 @@ Every service I added to my server needed its own login, its own port and its ow
 <td width="50%" valign="top">
 
 ### 🔐 [`auth`](auth/)
-The authentication service behind everything. Passkeys (WebAuthn), password + TOTP two-factor, a session cookie shared across all subdomains, and the forward-auth endpoint the gateway calls before letting a request through.
+The authentication service behind everything. Passkeys (WebAuthn), password + TOTP two-factor, one host-only session cookie, limits on failed attempts, and the forward-auth endpoint the gateway calls before letting a request through.
 
 **Python · FastAPI · SQLModel · webauthn · pyotp**
 
@@ -40,9 +40,9 @@ The authentication service behind everything. Passkeys (WebAuthn), password + TO
 <td width="50%" valign="top">
 
 ### 🌐 [`gateway`](gateway/)
-Caddy routes each subdomain to its container on a shared Docker network, puts the protected ones behind `auth`, and sits behind `cloudflared`, so nothing on the server is exposed directly.
+Caddy routes each path to its container on a shared Docker network, puts the protected ones behind `auth`, and adds strict security headers to every answer. In front of it sits whatever way in was chosen: `cloudflared`, `tailscale serve`, or Caddy's own certificate.
 
-**Caddy · Cloudflare Tunnel · Docker Compose**
+**Caddy · Cloudflare Tunnel · Tailscale · Docker Compose**
 
 </td>
 </tr>
@@ -71,54 +71,58 @@ Separate repos that run next to tpcloud and use its gateway and auth:
 ## Architecture
 
 ```
-                              Internet
+                    Internet · Tailscale · home network
                                  │
-                    ┌────────────▼────────────┐
-                    │    Cloudflare Tunnel     │   no open ports on the router
+                    ┌────────────▼────────────┐   Cloudflare Tunnel, tailscale serve
+                    │   one address, e.g.      │   or port 443 with Caddy's certificate
+                    │   cloud.example.com      │
                     └────────────┬────────────┘
                                  │
                     ┌────────────▼────────────┐       ┌──────────────────┐
                     │     gateway (Caddy)      │──────▶│       auth       │
-                    │  routes by subdomain     │ check │ passkeys · TOTP  │
+                    │      routes by path      │ check │ passkeys · TOTP  │
                     └────────────┬────────────┘session│ sessions · admin │
                                  │                     └──────────────────┘
      ┌──────────┬──────────┬─────┴─────┬───────────┬───────────┬──────────┐
      ▼          ▼          ▼           ▼           ▼           ▼          ▼
    login     accounts    cloud      tpstore      share      tphome     admin
-                                   store.*     share.*     tphome.*   (private)
+   /login    /accounts     /         /store      /share      /home     /admin
    └──────── tpcloud ────────┘   └───── tpstore ─────┘    └ tphome ┘
 ```
 
-| Subdomain | Service | Login required |
+| Path | Service | Login required |
 |---|---|---|
-| `login.migueltaibo.com` | Sign-in page | — |
-| `cloud.migueltaibo.com` | Dashboard | ✅ |
-| `accounts.migueltaibo.com` | Account management | ✅ |
-| `store.migueltaibo.com` | [tpstore](https://github.com/mtaibo/tpstore) file browser | ✅ |
-| `share.migueltaibo.com` | [tpstore](https://github.com/mtaibo/tpstore) public share links | — |
-| `tphome.migueltaibo.com` | [tphome](https://github.com/mtaibo/tphome) control panel | ✅ |
-| `admin.migueltaibo.com` | Server admin API (private) | ✅ admin |
+| `/login` | Sign-in page | — |
+| `/` | Dashboard | ✅ |
+| `/accounts` | Account management | ✅ |
+| `/store` | [tpstore](https://github.com/mtaibo/tpstore) file browser, API at `/store/api` | ✅ |
+| `/share` | [tpstore](https://github.com/mtaibo/tpstore) public share links (only the share endpoints of its API) | — |
+| `/home` | [tphome](https://github.com/mtaibo/tphome) control panel, API at `/home/api` | ✅ |
+| `/admin` | Server admin API (private) | ✅ admin |
+| `/auth` | The auth API every client signs in against | — |
+
+The gateway strips each module's prefix, so the services behind it still see the `/api/...` paths they always had.
 
 ## How it works
 
 Opening a protected service without being signed in:
 
 ```
-Browser opens store.migueltaibo.com
+Browser opens /store/photos
         │
         ▼
 Caddy asks auth: is this session cookie valid?  (forward_auth)
         │
-        ├── no ──▶ redirect to login.migueltaibo.com
+        ├── no ──▶ redirect to /login/?next=/store/photos
         │                 │
         │                 ▼
         │          passkey, or password + TOTP code
         │                 │
         │                 ▼
-        │          auth sets a session cookie on .migueltaibo.com
+        │          auth sets a host-only __Host- session cookie
         │                 │
         │                 ▼
-        │          back to store.migueltaibo.com
+        │          back to /store/photos (only ever a path on this host)
         │
         └── yes ─▶ request goes through to the service
 ```
@@ -130,11 +134,19 @@ Caddy asks auth: is this session cookie valid?  (forward_auth)
 
 ### Sessions
 
-Every session is stored server-side with the device (parsed from the user agent), the IP's city and country, and the sign-in method used, so `accounts` can show where I'm signed in and revoke any of them. Web sessions last a fixed hour; sessions from the native app last 24 hours and slide forward while the app is in use, so it doesn't ask me to log in every day.
+Every session is stored server-side with the device (parsed from the user agent), the IP (and, if `TPCLOUD_GEOIP=1`, its city and country) and the sign-in method used, so `accounts` can show where I'm signed in and revoke any of them. Sessions are revoked by their id; the session token itself never goes back to the browser. Web sessions last a fixed hour; sessions from the native app last 24 hours and slide forward while the app is in use, so it doesn't ask me to log in every day.
+
+### Security
+
+- **One host, one cookie** — the session cookie is `__Host-` prefixed: Secure, HttpOnly, SameSite=Lax, host-only, so no other site or subdomain can read, set or overwrite it.
+- **Limited attempts** — 5 wrong passwords per account (or 20 per address) in 15 minutes lock sign-in for a while; a half-signed-in session is thrown away after 5 wrong TOTP codes, and each code works once.
+- **Nothing to enumerate** — unknown emails get the same answers, in the same time, as real ones.
+- **Strict headers** — HSTS, a Content-Security-Policy that only allows this host's own scripts, `nosniff`, no framing by other sites; files users upload are served sandboxed, so an uploaded HTML page can't run scripts.
+- **Little exposed** — only the gateway listens beyond the Docker network, and only on what the chosen way in needs; the APIs have no docs or schema online.
 
 ### Users and admins
 
-The owner account is created from `.env` on first boot. From there, admins can create users, change roles and revoke anyone's sessions from `accounts`, and services like tpstore check the `is_admin` flag to unlock admin-only features.
+The owner account is created by the installer. From there, admins can create users, change roles and revoke anyone's sessions from `accounts`, and services like tpstore check the `is_admin` flag to unlock admin-only features.
 
 ## Tech stack
 
@@ -144,19 +156,27 @@ The owner account is created from `.env` on first boot. From there, admins can c
 | **Security** | WebAuthn (`webauthn`) · TOTP (`pyotp`) · bcrypt |
 | **Frontends** | Vue 3 · Vite · Nginx |
 | **Gateway** | Caddy · `forward_auth` |
-| **Exposure** | Cloudflare Tunnel (`cloudflared`) |
-| **Hosting** | Docker Compose on my home server |
+| **Exposure** | Cloudflare Tunnel (`cloudflared`) · Tailscale · Caddy's own TLS |
+| **Hosting** | Docker Compose, set up by `install.sh` |
 
 ## How to run
 
-You need Docker and a Cloudflare account with a tunnel pointing your subdomains at the `gateway` container.
+On a Linux machine (a Raspberry Pi, an old PC, a VPS), run the installer and answer its questions:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mtaibo/tpcloud/main/install.sh | bash
+```
+
+It asks which modules you want ([tpstore](https://github.com/mtaibo/tpstore), [tphome](https://github.com/mtaibo/tphome)), where Store keeps its files and how you'll reach it (only at home, Tailscale, or your own domain through a Cloudflare Tunnel or an open port), creates your admin account, installs Docker if it's missing and starts everything. Run it again to update or to change any of that. `bash install.sh --dry-run` shows what it would do without changing anything.
+
+By hand, start tpcloud before any module: it creates the `tpcloud_gateway` network they join.
 
 ```bash
 git clone https://github.com/mtaibo/tpcloud
 cd tpcloud
-cp .env.example .env    # tunnel token, owner email and password, WebAuthn origin
+cp .env.example .env    # address, how it's reached, modules
 docker compose up -d
-docker compose exec auth python scripts/bootstrap.py   # create the owner account
+OWNER_EMAIL=you@example.com OWNER_PASSWORD=... docker compose run --rm -e OWNER_EMAIL -e OWNER_PASSWORD auth python scripts/bootstrap.py
 ```
 
-Start tpcloud before any module: it creates the `tpcloud_gateway` network that [tpstore](https://github.com/mtaibo/tpstore) joins, and it attaches to [tphome](https://github.com/mtaibo/tphome)'s network to reach its containers. The only port it opens on the host is 80, for the local network alone: it serves nothing but `/firmware`, so tphome's switches can download OTA updates.
+Beyond localhost the gateway only publishes what `.env` asks for: port 443 for your own domain or the home network, and, where tphome is installed, port 80 on the local network for nothing but `/firmware`, so its switches can download OTA updates.

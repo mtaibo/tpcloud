@@ -1,15 +1,18 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
 const user = ref(null)
 const loading = ref(true)
 
-const services = [
-  { name: 'TPHome',    icon: 'home',      description: 'Home Automation',   url: 'https://tphome.migueltaibo.com' },
-  { name: 'Accounts', icon: 'person',    description: 'Account Management', url: 'https://accounts.migueltaibo.com' },
-  { name: 'Store',    icon: 'database',  description: 'Storage',            url: 'https://store.migueltaibo.com' },
-  { name: 'Portfolio',icon: 'portfolio', description: 'www.migueltaibo.com',  url: 'https://migueltaibo.com' },
+// Only the modules this server runs (auth reports them in /me).
+const allServices = [
+  { module: 'home',  name: 'TPHome',   icon: 'home',     description: 'Home Automation',    url: '/home/' },
+  { module: null,    name: 'Accounts', icon: 'person',   description: 'Account Management', url: '/accounts/' },
+  { module: 'store', name: 'Store',    icon: 'database', description: 'Storage',            url: '/store/' },
 ]
+const services = computed(() =>
+  allServices.filter(s => !s.module || user.value?.modules?.includes(s.module))
+)
 
 onMounted(async () => {
   try {
@@ -17,10 +20,10 @@ onMounted(async () => {
     if (res.ok) {
       user.value = await res.json()
     } else {
-      window.location.href = 'https://login.migueltaibo.com/?redirect=cloud.migueltaibo.com'
+      window.location.href = '/login/'
     }
   } catch {
-    window.location.href = 'https://login.migueltaibo.com/?redirect=cloud.migueltaibo.com'
+    window.location.href = '/login/'
   } finally {
     loading.value = false
   }
@@ -28,7 +31,7 @@ onMounted(async () => {
 
 async function logout() {
   await fetch('/auth/passkey/logout', { method: 'POST' })
-  window.location.href = 'https://login.migueltaibo.com'
+  window.location.href = '/login/'
 }
 </script>
 
@@ -74,11 +77,6 @@ async function logout() {
                 <ellipse cx="12" cy="5" rx="9" ry="3"/>
                 <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
                 <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>
-              </svg>
-              <!-- portfolio -->
-              <svg v-if="s.icon === 'portfolio'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="7" width="20" height="14" rx="2"/>
-                <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
               </svg>
             </div>
             <p class="card-name">{{ s.name }}</p>
