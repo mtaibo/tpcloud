@@ -79,7 +79,8 @@ onBeforeUnmount(() => {
     <div class="qr-frame" :class="{ dimmed: state !== 'pending' }">
       <div v-if="svg" class="qr-code" v-html="svg" />
       <span class="qr-mark" aria-hidden="true">
-        <svg width="24" height="24" viewBox="0 0 32 32"><rect x="8" y="5.6" width="16" height="4.4" rx="2.2" fill="#fff" /><circle cx="16" cy="16.2" r="3.2" fill="#fff" /><circle cx="16" cy="24.4" r="2.4" fill="#fff" /></svg>
+        <!-- Same artwork as the app icon and Logo.vue. -->
+        <svg width="44" height="44" viewBox="0 0 1024 1024"><rect x="224" y="272" width="576" height="128" rx="64" /><circle cx="512" cy="592" r="96" /><circle cx="512" cy="800" r="70" /></svg>
       </span>
       <Transition name="fade">
         <div v-if="state !== 'pending'" class="qr-state">
@@ -102,9 +103,9 @@ onBeforeUnmount(() => {
     </div>
 
     <ol v-if="state !== 'scanned'" class="steps subheadline">
-      <li><span>1</span>Open the Camera or the TPCloud app on an iPhone that is signed in.</li>
-      <li><span>2</span>Point it at the code.</li>
-      <li><span>3</span>Check the device and confirm.</li>
+      <li><span>1</span>Scan the code with the Camera or the TPCloud app on your iPhone.</li>
+      <li><span>2</span>Approve the sign-in on your device.</li>
+      <li><span>3</span>You're in.</li>
     </ol>
     <p v-else class="subheadline secondary center">On your iPhone, check which device is asking to sign in and from where before you approve it.</p>
     <p v-if="state === 'pending'" class="footnote tertiary center">The code refreshes in {{ countdown }}</p>
@@ -129,14 +130,17 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 40px;
-  height: 40px;
-  margin: -20px 0 0 -20px;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   border-radius: 10px;
-  background: #000;
-  box-shadow: 0 0 0 4px #fff;
+  fill: #000;
+  background: #fff;
+  /* Hairline so the white plate reads against the code, then a white gap around it. */
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14), 0 0 0 5px #fff;
 }
 .qr-frame.dimmed .qr-mark { opacity: 0; }
 .qr-state {
