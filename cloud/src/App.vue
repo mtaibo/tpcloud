@@ -96,7 +96,7 @@ async function confirmSignOut() {
           href="/accounts/security"
           icon="shield"
           tint="blue"
-          title="Inicio de sesión y seguridad"
+          title="Seguridad"
           :subtitle="profile.passkeys.length ? `${profile.passkeys.length} passkey${profile.passkeys.length === 1 ? '' : 's'}${profile.totp_enabled ? ' · 2FA activado' : ''}` : 'Añade una passkey para entrar sin contraseña'"
         />
       </ListSection>

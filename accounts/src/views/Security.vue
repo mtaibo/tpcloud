@@ -157,7 +157,7 @@ function copySecret() {
 </script>
 
 <template>
-  <Page title="Inicio de sesión y seguridad">
+  <Page title="Seguridad">
     <ListSection
       icons
       footer="Con una passkey entras con Face ID, Touch ID o el código de tu dispositivo, sin escribir nada. Se guardan en tu llavero y no se pueden robar con un correo falso."

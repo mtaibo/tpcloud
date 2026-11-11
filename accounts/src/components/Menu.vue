@@ -46,7 +46,7 @@ async function confirmSignOut() {
     </ListSection>
 
     <ListSection>
-      <ListRow to="/security" :chevron="!wide" icon="shield" tint="blue" title="Inicio de sesión y seguridad" :value="security" :class="{ selected: active('/security') }" />
+      <ListRow to="/security" :chevron="!wide" icon="shield" tint="blue" title="Seguridad" :value="security" :class="{ selected: active('/security') }" />
       <ListRow to="/sessions" :chevron="!wide" icon="laptop" tint="green" title="Dispositivos" :value="otherSessions > 0 ? `${otherSessions + 1}` : ''" :class="{ selected: active('/sessions') }" />
       <ListRow to="/activity" :chevron="!wide" icon="history" tint="orange" title="Actividad" :class="{ selected: active('/activity') }" />
     </ListSection>
