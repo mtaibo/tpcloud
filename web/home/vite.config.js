@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
+  // Served under /home/ by tpcloud's gateway.
+  base: '/home/',
   plugins: [
     vue(),
     tailwindcss(),
@@ -15,7 +17,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': {
+      '/home/api': {
         target: 'http://tp.home',
         changeOrigin: true,
         ws: true,

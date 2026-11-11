@@ -24,7 +24,7 @@
 
     async function logout() {
         await fetch('/auth/passkey/logout', { method: 'POST' })
-        window.location.href = 'https://login.migueltaibo.com'
+        window.location.href = '/login/'
     }
 </script>
 
@@ -34,7 +34,7 @@
         <Transition name="fade">
             <div v-if="menuOpen" class="absolute bottom-full left-0 right-0 mb-2 bg-[#1c1c1e] border border-white/10 rounded-xl overflow-hidden shadow-xl">
                 <a
-                    href="https://cloud.migueltaibo.com"
+                    href="/"
                     class="flex items-center gap-2.5 px-3 py-2.5 text-sm text-tp-text/70 hover:bg-white/5 hover:text-white transition-colors"
                 >
                     <Cloud class="w-4 h-4 shrink-0" />
