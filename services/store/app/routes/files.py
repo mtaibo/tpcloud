@@ -6,6 +6,8 @@ import os
 import secrets
 import shutil
 import threading
+import time
+import unicodedata
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -171,6 +173,61 @@ async def list_directory(
             })
 
     return {"path": path, "entries": entries}
+
+
+def _fold(text: str) -> str:
+    """Lowercase without accents, so «cancion» finds «Canción.mp3»."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c)).casefold()
+
+
+@router.get("/search")
+async def search(
+    request: Request,
+    q: str = Query(min_length=1, max_length=200),
+    path: str = Query(default=""),
+    location: str = Query(default="external"),
+    limit: int = Query(default=200, ge=1, le=500),
+):
+    """Files and folders whose name contains `q`, anywhere under `path`. Each result carries the
+    folder it's in (`dir`, a path like the ones /list takes), so the browser can open or reveal it."""
+    user = await get_current_user(request)
+    _check_access(location, path, user["email"])
+    base = _base(location)
+    start = _resolve(base, path)
+    needle = _fold(q.strip())
+    base_root = base.resolve()
+
+    def _walk() -> dict:
+        if not start.is_dir():
+            raise HTTPException(404, "Directory not found")
+        results: list[dict] = []
+        deadline = time.monotonic() + 4  # a huge tree answers with what it found so far
+        truncated = False
+        for root, dirs, files in os.walk(start, followlinks=False):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            rel = Path(root).relative_to(base_root).as_posix()
+            for name, kind in [(d, "directory") for d in dirs] + [(f, "file") for f in sorted(files) if not f.startswith(".")]:
+                if needle not in _fold(name):
+                    continue
+                try:
+                    st = (Path(root) / name).stat()
+                except OSError:
+                    continue
+                results.append({
+                    "name": name,
+                    "type": kind,
+                    "dir": "" if rel == "." else rel,
+                    "size": st.st_size if kind == "file" else None,
+                    "modified": st.st_mtime,
+                })
+                if len(results) >= limit:
+                    return {"results": results, "truncated": True}
+            if time.monotonic() > deadline:
+                truncated = True
+                break
+        return {"results": results, "truncated": truncated}
+
+    return await run_in_threadpool(_walk)
 
 
 @router.post("/upload")

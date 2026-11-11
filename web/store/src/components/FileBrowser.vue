@@ -101,6 +101,89 @@ const visible = computed(() => {
 
 const media = computed(() => visible.value.filter(e => e.type === 'file' && isMedia(e)))
 
+// ---- Search: this folder and every folder inside it, on the server ----
+
+const searchResults = ref(null) // null while the first answer for this query is on its way
+const searchLoading = ref(false)
+const searchTruncated = ref(false)
+const searching = computed(() => !!query.value.trim() && !shareMode.value)
+let searchTimer = null
+let searchController = null
+
+watch([query, () => store.path, () => store.location, shareMode], () => {
+  clearTimeout(searchTimer)
+  searchController?.abort()
+  const q = query.value.trim()
+  if (!q || shareMode.value) {
+    searchResults.value = null
+    searchLoading.value = false
+    return
+  }
+  searchLoading.value = true
+  searchTimer = setTimeout(async () => {
+    const controller = new AbortController()
+    searchController = controller
+    try {
+      const params = new URLSearchParams({ q, path: store.path, location: store.location })
+      const res = await fetch(`/store/api/files/search?${params}`, { signal: controller.signal })
+      if (!res.ok) throw new Error(`Error ${res.status}`)
+      const data = await res.json()
+      searchResults.value = data.results
+      searchTruncated.value = data.truncated
+    } catch (e) {
+      if (e.name === 'AbortError') return
+      searchResults.value = []
+      searchTruncated.value = false
+    }
+    if (searchController === controller) searchLoading.value = false
+  }, 250)
+})
+
+const fold = text => text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+// Folders first, then names that start with what was typed, then the rest by name.
+const sortedResults = computed(() => {
+  const q = fold(query.value.trim())
+  const rank = r => (r.type === 'directory' ? 0 : 2) + (fold(r.name).startsWith(q) ? 0 : 1)
+  return [...(searchResults.value || [])].sort((a, b) => rank(a) - rank(b) || collator.compare(a.name, b.name) || collator.compare(a.dir, b.dir))
+})
+
+// Where a result is, from the folder being searched: «Fotos › 2024», or this folder's name.
+function resultWhere(r) {
+  if (r.dir === store.path) return title.value
+  const rel = store.path ? r.dir.slice(store.path.length + 1) : r.dir
+  return rel.split('/').join(' › ')
+}
+
+function resultThumb(r) {
+  if (r.type !== 'file' || !isMedia(r)) return ''
+  return `/store/api/files/thumbnail?${new URLSearchParams({ path: joinPath(r.dir, r.name), location: store.location })}`
+}
+
+// A folder opens; a file opens its folder with it selected (and in Quick Look if it's a photo or video).
+let pendingReveal = null
+function openResult(r) {
+  if (r.type === 'directory') return navigate(store.location, joinPath(r.dir, r.name))
+  pendingReveal = r.name
+  if (r.dir === store.path) {
+    query.value = ''
+    revealPending()
+  } else {
+    navigate(store.location, r.dir)
+  }
+}
+
+function revealPending() {
+  const name = pendingReveal
+  pendingReveal = null
+  const entry = name && entries.value.find(e => e.name === name)
+  if (!entry) return
+  selected.value = new Set([name])
+  anchor.value = name
+  nextTick(() => document.querySelector(`[data-name="${CSS.escape(name)}"]`)?.scrollIntoView({ block: 'center' }))
+  if (isMedia(entry)) lookEntry.value = entry
+}
+
 async function loadDirectory() {
   loadController?.abort()
   loadController = new AbortController()
@@ -142,6 +225,7 @@ async function loadDirectory() {
     }
 
     entries.value = real
+    if (pendingReveal) nextTick(revealPending)
     real.forEach(e => {
       if (e.type === 'directory') updateFavIconName(`${store.location}:${joinPath(store.path, e.name)}`, e.icon_name || null)
     })
@@ -214,6 +298,11 @@ const crumbs = computed(() => {
 })
 
 const status = computed(() => {
+  if (searching.value) {
+    if (searchResults.value === null) return 'Buscando…'
+    const r = sortedResults.value.length
+    return `${r === 1 ? '1 resultado' : `${r}${searchTruncated.value ? '+' : ''} resultados`}`
+  }
   const n = visible.value.length
   const items = n === 1 ? '1 elemento' : `${n} elementos`
   const sel = selected.value.size > 1 ? `${selected.value.size} de ${items} seleccionados` : items
@@ -794,7 +883,7 @@ onUnmounted(() => {
         <button type="button" class="tool-btn glass-control" aria-label="Más" @click="moreMenu"><MoreHorizontal :size="19" /></button>
         <label class="search glass-control">
           <Search :size="15" />
-          <input ref="searchInput" v-model="query" placeholder="Buscar" aria-label="Buscar en esta carpeta" />
+          <input ref="searchInput" v-model="query" placeholder="Buscar" aria-label="Buscar en esta carpeta y sus subcarpetas" />
           <button v-if="query" type="button" class="clear" aria-label="Borrar" @click="query = ''"><X :size="12" :stroke-width="3" /></button>
         </label>
       </template>
@@ -826,7 +915,7 @@ onUnmounted(() => {
         <h1 class="large-title">{{ title }}</h1>
         <label class="phone-search">
           <Search :size="17" />
-          <input v-model="query" placeholder="Buscar" aria-label="Buscar en esta carpeta" />
+          <input v-model="query" placeholder="Buscar" aria-label="Buscar en esta carpeta y sus subcarpetas" />
           <button v-if="query" type="button" class="clear" aria-label="Borrar" @click="query = ''"><X :size="12" :stroke-width="3" /></button>
         </label>
       </div>
@@ -838,7 +927,45 @@ onUnmounted(() => {
         </div>
       </Transition>
 
-      <div v-if="loading && !entries.length" class="state"><Spinner :size="24" /></div>
+      <!-- Searching: this folder and all the folders inside it -->
+      <div v-if="searching" class="results deselect">
+        <p class="results-scope footnote secondary">En «{{ title }}» y sus subcarpetas</p>
+        <div v-if="searchResults === null" class="state"><Spinner :size="24" /></div>
+        <div v-else-if="!sortedResults.length && !searchLoading" class="state">
+          <Search :size="40" class="tertiary" />
+          <h3 class="headline">Sin resultados</h3>
+          <p class="subheadline secondary">Nada en «{{ title }}» ni en sus subcarpetas se llama «{{ query.trim() }}».</p>
+        </div>
+        <div v-else class="list" role="grid" :class="{ stale: searchLoading }">
+          <div
+            v-for="r in sortedResults"
+            :key="`${r.dir}/${r.name}`"
+            class="list-row result"
+            role="row"
+            tabindex="-1"
+            @click.stop="openResult(r)"
+          >
+            <span class="cell col-name">
+              <ItemIcon :entry="r" :size="phone ? 44 : 30" :thumb="resultThumb(r)" :video="kindOf(r) === 'video'" />
+              <span class="name-stack">
+                <span class="name">{{ r.name }}</span>
+                <span class="row-sub where">
+                  <FileIcon :entry="{ type: 'directory', name: '' }" :size="13" />{{ resultWhere(r) }}
+                </span>
+              </span>
+              <ChevronRight v-if="phone && r.type === 'directory'" :size="18" class="row-chevron" />
+            </span>
+            <template v-if="!phone">
+              <span class="cell col-modified">{{ formatDate(r.modified) }}</span>
+              <span class="cell col-size">{{ r.type === 'file' ? formatSize(r.size) : '—' }}</span>
+              <span class="cell col-kind">{{ kindName(r) }}</span>
+            </template>
+          </div>
+        </div>
+        <p v-if="searchTruncated" class="results-more footnote secondary">Hay más resultados. Escribe algo más concreto para verlos.</p>
+      </div>
+
+      <div v-else-if="loading && !entries.length" class="state"><Spinner :size="24" /></div>
 
       <div v-else-if="error" class="state">
         <h3 class="headline">No se puede abrir la carpeta</h3>
@@ -926,7 +1053,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <p v-if="phone && visible.length" class="phone-status footnote secondary">{{ status }}</p>
+      <p v-if="phone && visible.length && !searching" class="phone-status footnote secondary">{{ status }}</p>
     </div>
 
     <!-- Path bar and status -->
@@ -975,6 +1102,14 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* ---- Search results ---- */
+.results-scope { padding: 10px 20px 6px; }
+.results .list.stale { opacity: 0.6; transition: opacity 0.2s; }
+.results .result { cursor: default; }
+.results .where { display: flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.results .where :deep(svg), .results .where > * { flex-shrink: 0; }
+.results-more { padding: 12px 20px 20px; text-align: center; }
+
 .browser { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* ---- Toolbar ---- */
