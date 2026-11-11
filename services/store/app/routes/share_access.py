@@ -21,17 +21,11 @@ from sqlmodel import Session, select
 from app import media
 from app.database import get_session
 from app.models import ShareLink, ShareSession, ShareFileToken, FolderIcon
-from app.utils import get_base, resolve_path, list_directory_entries as _list_entries, guess_media_type as _guess_media_type
+from app.utils import get_base, resolve_path, list_directory_entries as _list_entries, guess_media_type as _guess_media_type, inline_response, file_headers, PUBLIC_URL
 
 router = APIRouter(prefix="/api/share", tags=["share-access"])
 
 
-def _inline_response(path: Path, media_type: str) -> FileResponse:
-    return FileResponse(
-        path=str(path),
-        media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{path.name}"'},
-    )
 
 SESSION_TTL_HOURS = 24
 
@@ -107,7 +101,7 @@ def list_public_shares(db: Session = Depends(get_session)):
             "token": s.token,
             "label": s.path.split("/")[-1] or s.token,
             "has_password": s.password_hash is not None,
-            "url": f"https://share.migueltaibo.com/{s.token}",
+            "url": f"{PUBLIC_URL}/share/{s.token}",
             "is_file": _share_is_file(s),
         }
         for s in shares
@@ -265,7 +259,7 @@ def view_file(
         raise HTTPException(404, "File not found")
 
     media_type = _guess_media_type(file_path)
-    return _inline_response(file_path, media_type)
+    return inline_response(file_path, media_type)
 
 
 @router.get("/{token}/files/thumbnail")
@@ -288,7 +282,7 @@ async def share_thumbnail(
     media_type = _guess_media_type(file_path)
     is_video = media.is_video(file_path)
     if not media_type.startswith("image/") and not is_video:
-        return _inline_response(file_path, media_type)
+        return inline_response(file_path, media_type)
 
     size = max(40, min(size, 400))
     _THUMB_DIR.mkdir(parents=True, exist_ok=True)
@@ -351,10 +345,11 @@ async def share_preview(
         if preview:
             return FileResponse(path=str(preview), media_type="video/mp4", headers=media.cache_headers(private))
         media.queue_video_preview(file_path, first=True)
+        media_type = _guess_media_type(file_path)
         return FileResponse(
             path=str(file_path),
-            media_type=_guess_media_type(file_path),
-            headers={"Cache-Control": "no-store"},
+            media_type=media_type,
+            headers={**file_headers(media_type), "Cache-Control": "no-store"},
         )
     if media.is_image(file_path):
         try:
@@ -362,7 +357,7 @@ async def share_preview(
         except Exception:
             raise HTTPException(500, "Failed to build preview")
         return FileResponse(path=str(preview), media_type="image/jpeg", headers=media.cache_headers(private))
-    return _inline_response(file_path, _guess_media_type(file_path))
+    return inline_response(file_path, _guess_media_type(file_path))
 
 
 @router.get("/{token}/files/download")

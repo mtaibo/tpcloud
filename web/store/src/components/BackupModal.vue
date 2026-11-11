@@ -11,7 +11,7 @@ let pollTimer = null
 
 async function fetchStatus() {
   try {
-    const res = await fetch('/api/backup/status')
+    const res = await fetch('/store/api/backup/status')
     if (res.ok) status.value = await res.json()
   } catch {
     // ignore
@@ -20,7 +20,7 @@ async function fetchStatus() {
 
 async function runBackup() {
   error.value = null
-  const res = await fetch('/api/backup/run', { method: 'POST' })
+  const res = await fetch('/store/api/backup/run', { method: 'POST' })
   if (res.ok) {
     await fetchStatus()
   } else {

@@ -27,6 +27,7 @@ from app.utils import (
     check_access as _check_access,
     list_directory_entries as _list_entries,
     guess_media_type as _guess_media_type,
+    inline_response,
 )
 
 _THUMB_DIR = DATA_DIR / "thumbs"
@@ -99,12 +100,6 @@ async def _build_thumbnail_once(file_path: Path, cache_path: Path, size: int) ->
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 
-def _inline_response(path: Path, media_type: str) -> FileResponse:
-    return FileResponse(
-        path=str(path),
-        media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{path.name}"'},
-    )
 
 
 @router.get("/list")
@@ -423,7 +418,7 @@ async def open_file_by_token(
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(404, "File not found")
     media_type = _guess_media_type(file_path)
-    return _inline_response(file_path, media_type)
+    return inline_response(file_path, media_type)
 
 
 @router.get("/thumbnail")
@@ -443,7 +438,7 @@ async def thumbnail_file(
 
     media_type = _guess_media_type(file_path)
     if not media_type.startswith("image/"):
-        return _inline_response(file_path, media_type)
+        return inline_response(file_path, media_type)
 
     size = max(40, min(size, 400))
     _THUMB_DIR.mkdir(parents=True, exist_ok=True)
@@ -477,7 +472,7 @@ async def view_file(
         raise HTTPException(404, "File not found")
 
     media_type = _guess_media_type(file_path)
-    return _inline_response(file_path, media_type)
+    return inline_response(file_path, media_type)
 
 
 @router.get("/disk")

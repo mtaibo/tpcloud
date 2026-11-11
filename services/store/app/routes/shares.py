@@ -11,7 +11,7 @@ from app.auth import get_current_user
 from app.database import get_session
 from app.models import ShareLink
 from app.routes.share_access import _invalidate_share_cache, _share_is_file
-from app.utils import check_access
+from app.utils import PUBLIC_URL, check_access
 
 router = APIRouter(prefix="/api/shares", tags=["shares"])
 
@@ -19,7 +19,7 @@ SLUG_RE = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
 
 
 def _share_url(token: str) -> str:
-    return f"https://share.migueltaibo.com/{token}"
+    return f"{PUBLIC_URL}/share/{token}"
 
 
 def _serialize(share: ShareLink) -> dict:

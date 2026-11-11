@@ -30,13 +30,13 @@ const entryPath = computed(() =>
 
 const shareUrl = computed(() => {
   if (!existingShare.value) return ''
-  return `https://share.migueltaibo.com/${existingShare.value.token}`
+  return `${window.location.origin}/share/${existingShare.value.token}`
 })
 
 onMounted(async () => {
   try {
     const params = new URLSearchParams({ path: entryPath.value, location: props.location })
-    const res = await fetch(`/api/shares?${params}`)
+    const res = await fetch(`/store/api/shares?${params}`)
     if (res.ok) {
       const data = await res.json()
       existingShare.value = data[0] ?? null
@@ -59,7 +59,7 @@ async function createShare() {
       editable: editable.value,
       public: isPublic.value,
     }
-    const res = await fetch('/api/shares', {
+    const res = await fetch('/store/api/shares', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -80,7 +80,7 @@ async function createShare() {
 async function deleteShare() {
   saving.value = true
   try {
-    const res = await fetch(`/api/shares/${existingShare.value.token}`, { method: 'DELETE' })
+    const res = await fetch(`/store/api/shares/${existingShare.value.token}`, { method: 'DELETE' })
     if (res.ok) existingShare.value = null
   } catch {}
   saving.value = false

@@ -126,11 +126,11 @@ function entryIsMedia(entry) {
 function galleryThumbSrc(entry) {
   if (shareMode.value) {
     const path = joinPath(shareMode.value.path, entry.name)
-    return `/api/share/${shareMode.value.token}/files/thumbnail?path=${encodeURIComponent(path)}`
+    return `/store/api/share/${shareMode.value.token}/files/thumbnail?path=${encodeURIComponent(path)}`
   }
   const path = joinPath(props.currentPath, entry.name)
   const params = new URLSearchParams({ path, location: props.location })
-  return `/api/files/thumbnail?${params}`
+  return `/store/api/files/thumbnail?${params}`
 }
 
 function galleryEntryIcon(entry) { return getFileIcon(entry) }
@@ -140,11 +140,11 @@ const imageViewSrc = computed(() => {
   if (!imageViewEntry.value) return ''
   if (shareMode.value) {
     const path = joinPath(shareMode.value.path, imageViewEntry.value.name)
-    return `/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(path)}`
+    return `/store/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(path)}`
   }
   const path = joinPath(props.currentPath, imageViewEntry.value.name)
   const params = new URLSearchParams({ path, location: props.location })
-  return `/api/files/view?${params}`
+  return `/store/api/files/view?${params}`
 })
 
 const imageViewIsVideo = computed(() => imageViewEntry.value && entryIsVideo(imageViewEntry.value))
@@ -251,7 +251,7 @@ onMounted(async () => {
   document.addEventListener('keydown', onDocKeydown)
   window.addEventListener('tpstore:refresh-directory', loadDirectory)
   try {
-    const res = await fetch('/api/files/disk')
+    const res = await fetch('/store/api/files/disk')
     if (res.ok) diskInfo.value = await res.json()
   } catch {}
 })
@@ -276,7 +276,7 @@ async function loadDirectory() {
   error.value = null
   try {
     const params = new URLSearchParams({ path: props.currentPath, location: props.location })
-    const res = await fetch(`/api/files/list?${params}`, { signal })
+    const res = await fetch(`/store/api/files/list?${params}`, { signal })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       throw new Error(data.detail || `Error ${res.status}`)
@@ -286,7 +286,7 @@ async function loadDirectory() {
 
     if (props.location === 'external' && props.currentPath === 'shared') {
       let ownTokens = new Set()
-      const sres = await fetch('/api/shares', { signal })
+      const sres = await fetch('/store/api/shares', { signal })
       if (sres.ok) {
         const sdata = await sres.json()
         ownTokens = new Set(sdata.map(s => s.token))
@@ -301,7 +301,7 @@ async function loadDirectory() {
         }))
         real = [...virtual, ...real]
       }
-      const pres = await fetch('/api/share', { signal })
+      const pres = await fetch('/store/api/share', { signal })
       if (pres.ok) {
         const pdata = await pres.json()
         const pubVirtual = pdata
@@ -341,7 +341,7 @@ async function loadShareDirectory() {
   entries.value = []
   try {
     const params = new URLSearchParams({ path: shareMode.value.path })
-    const res = await fetch(`/api/share/${shareMode.value.token}/files/list?${params}`)
+    const res = await fetch(`/store/api/share/${shareMode.value.token}/files/list?${params}`)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       throw new Error(data.detail || `Error ${res.status}`)
@@ -384,7 +384,7 @@ function openItem(entry) {
 async function deleteItem(entry) {
   const path = joinPath(props.currentPath, entry.name)
   const params = new URLSearchParams({ path, location: props.location })
-  const res = await fetch(`/api/files?${params}`, { method: 'DELETE' })
+  const res = await fetch(`/store/api/files?${params}`, { method: 'DELETE' })
   if (res.ok) {
     loadDirectory()
   } else {
@@ -416,7 +416,7 @@ async function viewItem(entry) {
       imageViewEntry.value = entry
       return
     }
-    window.open(`/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(entryPath)}`, '_blank')
+    window.open(`/store/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(entryPath)}`, '_blank')
     return
   }
   const path = joinPath(props.currentPath, entry.name)
@@ -425,24 +425,24 @@ async function viewItem(entry) {
     imageViewEntry.value = entry
     return
   }
-  const res = await fetch('/api/files/token', {
+  const res = await fetch('/store/api/files/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, location: props.location }),
   })
   const data = await res.json()
-  window.open(`/${data.token}`, '_blank')
+  window.open(`/store/${data.token}`, '_blank')
 }
 
 function downloadItem(entry) {
   if (shareMode.value) {
     const entryPath = joinPath(shareMode.value.path, entry.name)
-    downloadWithProgress(`/api/share/${shareMode.value.token}/files/download?path=${encodeURIComponent(entryPath)}`, entry.name)
+    downloadWithProgress(`/store/api/share/${shareMode.value.token}/files/download?path=${encodeURIComponent(entryPath)}`, entry.name)
     return
   }
   const path = joinPath(props.currentPath, entry.name)
   const params = new URLSearchParams({ path, location: props.location })
-  downloadWithProgress(`/api/files/download?${params}`, entry.name)
+  downloadWithProgress(`/store/api/files/download?${params}`, entry.name)
 }
 
 function createFolder() {
@@ -459,7 +459,7 @@ async function onCreated(name) {
   const mode = createMode.value
   createMode.value = null
   const path = joinPath(props.currentPath, name)
-  const endpoint = mode === 'folder' ? '/api/files/mkdir' : '/api/files/touch'
+  const endpoint = mode === 'folder' ? '/store/api/files/mkdir' : '/store/api/files/touch'
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -482,7 +482,7 @@ async function onRenamed(newName) {
   const entry = renameEntry.value
   renameEntry.value = null
   const path = joinPath(props.currentPath, entry.name)
-  const res = await fetch('/api/files/rename', {
+  const res = await fetch('/store/api/files/rename', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, new_name: newName, location: props.location }),
@@ -511,7 +511,7 @@ async function duplicateItem() {
   const entry = activeEntry.value
   hideMenu()
   const path = joinPath(props.currentPath, entry.name)
-  const res = await fetch('/api/files/duplicate', {
+  const res = await fetch('/store/api/files/duplicate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, location: props.location }),
@@ -541,14 +541,14 @@ function downloadFolderAsZip() {
   hideMenu()
   const path = joinPath(props.currentPath, entry.name)
   const params = new URLSearchParams({ path, location: props.location })
-  downloadWithProgress(`/api/files/download-zip?${params}`, `${entry.name}.zip`)
+  downloadWithProgress(`/store/api/files/download-zip?${params}`, `${entry.name}.zip`)
 }
 
 async function compressItem() {
   const entry = activeEntry.value
   hideMenu()
   const path = joinPath(props.currentPath, entry.name)
-  const res = await fetch('/api/files/compress', {
+  const res = await fetch('/store/api/files/compress', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, location: props.location }),
@@ -583,7 +583,7 @@ async function onIconPickerDone(iconName) {
   iconPickerEntry.value = null
   const path = joinPath(props.currentPath, entry.name)
   if (iconName) {
-    const res = await fetch('/api/files/icon', {
+    const res = await fetch('/store/api/files/icon', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, location: props.location, icon_name: iconName }),
@@ -595,7 +595,7 @@ async function onIconPickerDone(iconName) {
     }
   } else {
     const params = new URLSearchParams({ path, location: props.location })
-    const res = await fetch(`/api/files/icon?${params}`, { method: 'DELETE' })
+    const res = await fetch(`/store/api/files/icon?${params}`, { method: 'DELETE' })
     if (res.ok) {
       const idx = entries.value.findIndex(e => e.name === entry.name)
       if (idx !== -1) {
@@ -651,7 +651,7 @@ function editShareProps() {
 async function deleteShareEntry() {
   const entry = activeEntry.value
   hideMenu()
-  await fetch(`/api/shares/${entry.token}`, { method: 'DELETE' })
+  await fetch(`/store/api/shares/${entry.token}`, { method: 'DELETE' })
   loadDirectory()
 }
 
@@ -717,7 +717,7 @@ function downloadActiveShareFolderAsZip() {
   const entry = activeEntry.value
   hideMenu()
   const entryPath = joinPath(shareMode.value.path, entry.name)
-  downloadWithProgress(`/api/share/${shareMode.value.token}/files/download-zip?path=${encodeURIComponent(entryPath)}`, `${entry.name}.zip`)
+  downloadWithProgress(`/store/api/share/${shareMode.value.token}/files/download-zip?path=${encodeURIComponent(entryPath)}`, `${entry.name}.zip`)
 }
 
 function triggerUpload() {

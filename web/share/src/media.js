@@ -57,7 +57,7 @@ export function shareFileUrls(token, sessionToken, folderPath) {
     const path = folderPath() ? `${folderPath()}/${entry.name}` : entry.name
     const params = new URLSearchParams({ path, ...extra })
     if (sessionToken) params.set('session', sessionToken)
-    return `/api/share/${token}/files/${endpoint}?${params}`
+    return `/share/api/share/${token}/files/${endpoint}?${params}`
   }
   return {
     thumbnail: (entry, size = 320) => url('thumbnail', entry, { size: String(size), v: String(Math.floor(entry.modified)) }),

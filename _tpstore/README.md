@@ -14,7 +14,7 @@
 
 ---
 
-TPStore is the storage module of my personal cloud, [tpcloud](https://github.com/mtaibo/tpcloud). It's my replacement for Google Drive and iCloud Photos: a file browser at `store.migueltaibo.com`, public share links at `share.migueltaibo.com`, and the backend that my native app, [tpapp](https://github.com/mtaibo/tpapp), backs up my iPhone photos to. Everything lives on an external disk plugged into my home server.
+TPStore is the storage module of my personal cloud, [tpcloud](https://github.com/mtaibo/tpcloud). It's my replacement for Google Drive and iCloud Photos: a file browser at `/store`, public share links at `/share`, and the backend that my native app, [tpapp](https://github.com/mtaibo/tpapp), backs up my iPhone photos to. Everything lives on an external disk plugged into my home server.
 
 ## Why I built it
 
@@ -40,7 +40,7 @@ FastAPI backend for everything: file operations, resumable uploads, thumbnails, 
 <td width="33%" valign="top">
 
 ### 🗂️ [`frontend`](frontend/)
-The storage browser at `store.migueltaibo.com`. Folders with custom icons, favourites, drag-and-drop uploads with a transfer panel, image, video and audio viewers, share management, and a mobile layout.
+The storage browser at `/store`. Folders with custom icons, favourites, drag-and-drop uploads with a transfer panel, image, video and audio viewers, share management, and a mobile layout.
 
 **Vue 3 · Vite · Nginx**
 
@@ -48,7 +48,7 @@ The storage browser at `store.migueltaibo.com`. Folders with custom icons, favou
 <td width="33%" valign="top">
 
 ### 🔗 [`share-frontend`](share-frontend/)
-The public viewer at `share.migueltaibo.com`. Opens a share link, asks for its password if it has one, and lets anyone browse it, step through its photos and videos, save them straight to their phone's gallery, download them, or upload into it if it's editable.
+The public viewer at `/share`. Opens a share link, asks for its password if it has one, and lets anyone browse it, step through its photos and videos, save them straight to their phone's gallery, download them, or upload into it if it's editable.
 
 **Vue 3 · Vite · Nginx**
 
@@ -64,8 +64,8 @@ The public viewer at `share.migueltaibo.com`. Opens a share link, asks for its p
           └─────────────┬──────────────┘                              │
                         │ HTTPS                                       │ HTTPS
 ┌───────────────────────▼─────────────────────────────────────────────▼───────┐
-│                tpcloud gateway · Caddy + Cloudflare Tunnel                  │
-│        store.migueltaibo.com (login required) · share.migueltaibo.com       │
+│                       tpcloud gateway · Caddy                               │
+│              /store and /store/api (login required) · /share                │
 └──────────┬──────────────────────────┬─────────────────────────┬─────────────┘
            │                          │                         │
 ┌──────────▼──────────┐   ┌───────────▼───────────┐  ┌──────────▼──────────┐
@@ -78,7 +78,7 @@ The public viewer at `share.migueltaibo.com`. Opens a share link, asks for its p
                        tpcloud auth    external disk
 ```
 
-tpstore isn't a standalone deployment. It joins tpcloud's `tpcloud_gateway` Docker network, the gateway routes both subdomains to it, and the API asks tpcloud's `auth` service who's behind every request. `share-frontend` has no backend of its own: every request it makes is served by the same API, against the same database.
+tpstore isn't a standalone deployment. It joins tpcloud's `tpcloud_gateway` Docker network, the gateway routes `/store` and `/share` to it (stripping the prefix, so the API still serves `/api/...`), and the API asks tpcloud's `auth` service who's behind every request. `share-frontend` has no backend of its own: every request it makes is served by the same API, against the same database.
 
 ## How it works
 
@@ -98,7 +98,7 @@ Small files go up in one request. Anything over 10 MB is split into 32 MB chunks
 
 ### Share links
 
-Any file or folder can get a link. Each one can have a password (hashed with bcrypt), be read-only or editable, use a readable slug or a random token, and be listed on the public landing page of `share.migueltaibo.com`. Opening a protected link gives the visitor a short session, and every file inside is served through short-lived tokens, so the real path never leaves the server.
+Any file or folder can get a link. Each one can have a password (hashed with bcrypt), be read-only or editable, use a readable slug or a random token, and be listed on the public landing page at `/share`. Only the share endpoints of the API are reachable from `/share`; everything else needs a session. Opening a protected link gives the visitor a short session, and every file inside is served through short-lived tokens, so the real path never leaves the server.
 
 Phone media is too heavy to show as it is: an iPhone video is 4K 60 fps HDR HEVC at 80–100 Mbit/s, and HEIC photos don't open in most browsers. So share pages get light versions, made once and cached on disk:
 
@@ -150,12 +150,12 @@ Each photo is unique per user by checksum, so the same picture is never stored t
 
 ## How to run
 
-[tpcloud](https://github.com/mtaibo/tpcloud) has to be running on the same host first, since it creates the `tpcloud_gateway` network and the `auth` service that tpstore depends on.
+The easiest way is [tpcloud](https://github.com/mtaibo/tpcloud)'s installer, which sets tpstore up too. By hand, tpcloud has to be running on the same host first, since it creates the `tpcloud_gateway` network and the `auth` service that tpstore depends on.
 
 ```bash
 git clone https://github.com/mtaibo/tpstore
 cd tpstore
-cp .env.example .env    # set EXTERNAL_DISK_PATH to the disk that holds the files
+cp .env.example .env    # EXTERNAL_DISK_PATH (the disk that holds the files) and TPCLOUD_URL
 docker compose up --build -d
 ```
 

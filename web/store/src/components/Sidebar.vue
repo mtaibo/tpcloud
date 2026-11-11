@@ -8,7 +8,6 @@ import { getFileIcon } from '../fileTypes.js'
 import TransferPanel from './TransferPanel.vue'
 import BackupModal from './BackupModal.vue'
 
-const LOGIN_URL = 'https://login.migueltaibo.com'
 
 const props = defineProps({
   user: Object,
@@ -56,7 +55,7 @@ function go(loc, path) {
 
 async function logout() {
   await fetch('/auth/passkey/logout', { method: 'POST' })
-  window.location.href = `${LOGIN_URL}/`
+  window.location.href = '/login/'
 }
 
 onMounted(() => {
@@ -143,11 +142,11 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
         <Transition name="fade">
           <div v-if="menuOpen" class="user-menu">
-            <a href="https://accounts.migueltaibo.com" class="user-menu-item">
+            <a href="/accounts/" class="user-menu-item">
               <User class="menu-icon" />
               Account
             </a>
-            <a href="https://cloud.migueltaibo.com" class="user-menu-item">
+            <a href="/" class="user-menu-item">
               <Cloud class="menu-icon" />
               TPCloud
             </a>

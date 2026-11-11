@@ -61,7 +61,7 @@ function toggleGallery() {
 function zipUrl(path) {
   const params = new URLSearchParams({ path })
   if (props.sessionToken) params.set('session', props.sessionToken)
-  return `/api/share/${props.token}/files/download-zip?${params}`
+  return `/share/api/share/${props.token}/files/download-zip?${params}`
 }
 
 async function loadDir(path) {
@@ -69,7 +69,7 @@ async function loadDir(path) {
   error.value = ''
   try {
     const params = new URLSearchParams({ path })
-    const res = await fetch(`/api/share/${props.token}/files/list?${params}`, {
+    const res = await fetch(`/share/api/share/${props.token}/files/list?${params}`, {
       headers: authHeaders(),
     })
     if (!res.ok) { error.value = 'Failed to load files'; return }
@@ -209,17 +209,17 @@ async function openInTab(entry) {
   const newTab = window.open('', '_blank')
   if (!newTab) return
   try {
-    const tokenRes = await fetch(`/api/share/${props.token}/files/token`, {
+    const tokenRes = await fetch(`/share/api/share/${props.token}/files/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ path }),
     })
     if (tokenRes.ok) {
       const { token: fileToken } = await tokenRes.json()
-      const infoRes = await fetch(`/api/open/${fileToken}/info`)
+      const infoRes = await fetch(`/share/api/open/${fileToken}/info`)
       const ct = infoRes.ok ? (infoRes.headers.get('content-type') || '') : ''
       if (ct.includes('application/json')) {
-        newTab.location.href = `/${fileToken}`
+        newTab.location.href = `/share/${fileToken}`
         return
       }
     }

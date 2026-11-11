@@ -83,7 +83,7 @@ export function useTransfers() {
     if (!t) return
     t.controller?.abort()
     if (t.uploadId) {
-      try { await fetch(`/api/files/cancel-upload/${t.uploadId}`, { method: 'DELETE' }) } catch {}
+      try { await fetch(`/store/api/files/cancel-upload/${t.uploadId}`, { method: 'DELETE' }) } catch {}
     }
     transfers.value = transfers.value.filter(x => x.id !== id)
     await fetchPendingUploads()
@@ -91,14 +91,14 @@ export function useTransfers() {
   }
 
   async function cancelPendingUpload(uploadId) {
-    try { await fetch(`/api/files/cancel-upload/${uploadId}`, { method: 'DELETE' }) } catch {}
+    try { await fetch(`/store/api/files/cancel-upload/${uploadId}`, { method: 'DELETE' }) } catch {}
     await fetchPendingUploads()
     window.dispatchEvent(new CustomEvent('tpstore:refresh-directory'))
   }
 
   async function fetchPendingUploads() {
     try {
-      const res = await fetch('/api/files/pending-uploads')
+      const res = await fetch('/store/api/files/pending-uploads')
       pendingServerUploads.value = res.ok ? await res.json() : []
     } catch {
       pendingServerUploads.value = []
@@ -131,7 +131,7 @@ export function useTransfers() {
         location,
       })
       try {
-        const res = await fetch(`/api/files/upload-chunk?${params}`, {
+        const res = await fetch(`/store/api/files/upload-chunk?${params}`, {
           method: 'POST',
           body: file.slice(start, end),
           headers: { 'Content-Type': 'application/octet-stream' },
@@ -168,7 +168,7 @@ export function useTransfers() {
     const form = new FormData()
     form.append('files', file)
     try {
-      const res = await fetch(`/api/files/upload?${params}`, { method: 'POST', body: form })
+      const res = await fetch(`/store/api/files/upload?${params}`, { method: 'POST', body: form })
       if (!res.ok) {
         let msg = `Error ${res.status}`
         try { msg = (await res.json()).detail || msg } catch {}

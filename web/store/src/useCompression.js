@@ -11,7 +11,7 @@ let _pollTimer = null
 export function useCompression() {
   async function fetchJobs() {
     try {
-      const res = await fetch('/api/compression/jobs')
+      const res = await fetch('/store/api/compression/jobs')
       if (!res.ok) return
       const raw = await res.json()
       const now = Date.now()
@@ -36,7 +36,7 @@ export function useCompression() {
             _dismissed.add(j.job_id)
             _speedTracker.delete(j.job_id)
             jobs.value = jobs.value.filter(x => x.job_id !== j.job_id)
-            fetch(`/api/compression/jobs/${j.job_id}`, { method: 'DELETE' }).catch(() => {})
+            fetch(`/store/api/compression/jobs/${j.job_id}`, { method: 'DELETE' }).catch(() => {})
           }, delay)
         }
       }
@@ -65,7 +65,7 @@ export function useCompression() {
 
   async function startDecompress(filename, path, location) {
     const params = new URLSearchParams({ filename, path, location })
-    const res = await fetch(`/api/compression/jobs?${params}`, { method: 'POST' })
+    const res = await fetch(`/store/api/compression/jobs?${params}`, { method: 'POST' })
     if (res.ok) {
       await fetchJobs()
       _startPolling()
@@ -78,7 +78,7 @@ export function useCompression() {
     _speedTracker.delete(jobId)
     jobs.value = jobs.value.filter(j => j.job_id !== jobId)
     if (!jobs.value.some(j => j.status === 'active')) _stopPolling()
-    await fetch(`/api/compression/jobs/${jobId}`, { method: 'DELETE' }).catch(() => {})
+    await fetch(`/store/api/compression/jobs/${jobId}`, { method: 'DELETE' }).catch(() => {})
   }
 
   const hasJobs = computed(() => jobs.value.length > 0)

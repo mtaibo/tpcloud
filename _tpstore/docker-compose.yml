@@ -6,12 +6,17 @@ services:
     environment:
       - EXTERNAL_DISK_PATH=/mnt/external
       - AUTH_SERVICE_URL=${AUTH_SERVICE_URL:-http://auth:8000}
+      - TPCLOUD_URL=${TPCLOUD_URL}
     volumes:
       - ${EXTERNAL_DISK_PATH:-/mnt/external}:/mnt/external
-      - /mnt:/mnt/server/mnt
+      # The host's disks, only for the admin backup (rsync of /mnt/storage to /mnt/backup). Off
+      # unless TPSTORE_BACKUP_MOUNT=/mnt is set.
+      - ${TPSTORE_BACKUP_MOUNT:-./data/no-backup}:/mnt/server/mnt
       - ./data:/app/data
     networks:
       - gateway
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   store-frontend:
@@ -21,6 +26,8 @@ services:
       - store-api
     networks:
       - gateway
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   share-frontend:
@@ -28,6 +35,8 @@ services:
     container_name: tpshare-frontend
     networks:
       - gateway
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
 networks:

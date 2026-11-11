@@ -3,7 +3,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
 from app.routes.files import router as files_router
@@ -34,15 +33,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="TPStore API", lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://store.migueltaibo.com", "https://share.migueltaibo.com"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="TPStore API", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 app.include_router(files_router)
 app.include_router(admin_router)

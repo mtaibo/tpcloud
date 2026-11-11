@@ -5,7 +5,7 @@ import ShareBrowser from './components/ShareBrowser.vue'
 import ShareLanding from './components/ShareLanding.vue'
 import FileViewer from './components/FileViewer.vue'
 
-const token = window.location.pathname.replace(/^\/+/, '').split('/')[0]
+const token = window.location.pathname.replace(/^\/share\/?/, '').split('/')[0]
 
 const shareInfo = ref(null)
 const sessionToken = ref(null)
@@ -20,10 +20,10 @@ onMounted(async () => {
   }
   sessionToken.value = localStorage.getItem(`share-session-${token}`)
   try {
-    const res = await fetch(`/api/share/${token}`)
+    const res = await fetch(`/share/api/share/${token}`)
     if (res.status === 404) {
       try {
-        const openRes = await fetch(`/api/open/${token}/info`)
+        const openRes = await fetch(`/share/api/open/${token}/info`)
         if (openRes.ok) {
           const ct = openRes.headers.get('content-type') || ''
           if (ct.includes('application/json')) {
@@ -56,7 +56,7 @@ const shareFileUrl = computed(() => {
   const params = new URLSearchParams()
   if (sessionToken.value) params.set('session', sessionToken.value)
   const qs = params.toString()
-  return `/api/share/${token}/files/view${qs ? `?${qs}` : ''}`
+  return `/share/api/share/${token}/files/view${qs ? `?${qs}` : ''}`
 })
 
 function onAuthenticated(st) {
@@ -69,7 +69,7 @@ function onAuthenticated(st) {
     v-if="!loading && fileInfo"
     :filename="fileInfo.filename"
     :content-type="fileInfo.content_type"
-    :file-url="`/api/open/${token}`"
+    :file-url="`/share/api/open/${token}`"
   />
   <ShareLanding v-else-if="!loading && !token" />
   <div v-else-if="loading" class="center-msg">Loading…</div>

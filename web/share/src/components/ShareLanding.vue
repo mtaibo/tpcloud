@@ -7,7 +7,7 @@ const loading = ref(true)
 
 onMounted(async () => {
   try {
-    const res = await fetch('/api/share')
+    const res = await fetch('/share/api/share')
     if (res.ok) shares.value = await res.json()
   } finally {
     loading.value = false
@@ -15,7 +15,7 @@ onMounted(async () => {
 })
 
 function open(token) {
-  window.location.href = '/' + token
+  window.location.href = '/share/' + token
 }
 </script>
 

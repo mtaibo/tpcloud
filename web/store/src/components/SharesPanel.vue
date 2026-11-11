@@ -16,7 +16,7 @@ const saving = ref(false)
 async function load() {
   loading.value = true
   try {
-    const res = await fetch('/api/shares')
+    const res = await fetch('/store/api/shares')
     if (res.ok) shares.value = await res.json()
   } finally {
     loading.value = false
@@ -52,7 +52,7 @@ async function saveEdit(share) {
       clear_password: editClearPassword.value,
       password: !editClearPassword.value && editPassword.value ? editPassword.value : undefined,
     }
-    const res = await fetch(`/api/shares/${share.token}`, {
+    const res = await fetch(`/store/api/shares/${share.token}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -69,7 +69,7 @@ async function saveEdit(share) {
 }
 
 async function deleteShare(share) {
-  const res = await fetch(`/api/shares/${share.token}`, { method: 'DELETE' })
+  const res = await fetch(`/store/api/shares/${share.token}`, { method: 'DELETE' })
   if (res.ok) shares.value = shares.value.filter(s => s.token !== share.token)
 }
 

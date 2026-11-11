@@ -19,7 +19,7 @@ async function load(path) {
   loading.value = true
   try {
     const params = new URLSearchParams({ path, location: props.location })
-    const res = await fetch(`/api/files/list?${params}`)
+    const res = await fetch(`/store/api/files/list?${params}`)
     if (!res.ok) { dirs.value = []; return }
     const data = await res.json()
     const sourceName = props.entry.name
@@ -61,7 +61,7 @@ async function doAction() {
   const sourcePath = props.currentPath
     ? `${props.currentPath}/${props.entry.name}`
     : props.entry.name
-  const endpoint = props.mode === 'copy' ? '/api/files/copy' : '/api/files/move'
+  const endpoint = props.mode === 'copy' ? '/store/api/files/copy' : '/store/api/files/move'
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

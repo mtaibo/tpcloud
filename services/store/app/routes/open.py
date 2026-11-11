@@ -7,19 +7,13 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models import ShareFileToken, ShareLink
-from app.utils import get_base, resolve_path, guess_media_type
+from app.utils import get_base, resolve_path, guess_media_type, inline_response
 
 router = APIRouter(prefix="/api/open", tags=["open"])
 
 TOKEN_TTL_HOURS = 24
 
 
-def _inline_response(path: Path, media_type: str) -> FileResponse:
-    return FileResponse(
-        path=str(path),
-        media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{path.name}"'},
-    )
 
 
 def _resolve_token(token_str: str, db: Session):
@@ -56,4 +50,4 @@ def open_share_file(token: str, db: Session = Depends(get_session)):
         rec.first_accessed_at = datetime.now(timezone.utc)
         db.add(rec)
         db.commit()
-    return _inline_response(file_path, guess_media_type(file_path))
+    return inline_response(file_path, guess_media_type(file_path))

@@ -7,7 +7,6 @@ import MobileBottomNav from './components/MobileBottomNav.vue'
 import MobileBrowse from './components/MobileBrowse.vue'
 import FileViewer from './components/FileViewer.vue'
 
-const LOGIN_URL = 'https://login.migueltaibo.com'
 
 const user = ref(null)
 const appReady = ref(false)
@@ -87,19 +86,19 @@ onMounted(async () => {
     if (res.ok) {
       user.value = await res.json()
     } else {
-      window.location.href = `${LOGIN_URL}/?redirect=store.migueltaibo.com`
+      window.location.href = '/login/?next=/store/'
       return
     }
   } catch {
-    window.location.href = `${LOGIN_URL}/?redirect=store.migueltaibo.com`
+    window.location.href = '/login/?next=/store/'
     return
   }
 
-  const pathParts = window.location.pathname.replace(/^\//, '').split('/')
+  const pathParts = window.location.pathname.replace(/^\/store\/?/, '').split('/')
   const potentialToken = (pathParts.length === 1 && pathParts[0]) ? pathParts[0] : null
 
   if (potentialToken) {
-    const infoRes = await fetch(`/api/files/open/${potentialToken}/info`)
+    const infoRes = await fetch(`/store/api/files/open/${potentialToken}/info`)
     if (infoRes.ok) {
       fileViewerToken.value = potentialToken
       fileViewerInfo.value = await infoRes.json()
@@ -122,7 +121,7 @@ onMounted(async () => {
     v-if="appReady && fileViewerToken && fileViewerInfo"
     :filename="fileViewerInfo.filename"
     :content-type="fileViewerInfo.content_type"
-    :file-url="`/api/files/open/${fileViewerToken}`"
+    :file-url="`/store/api/files/open/${fileViewerToken}`"
   />
   <div v-else-if="appReady && user" class="app">
     <Sidebar :user="user" :location="location" :current-path="currentPath" @navigate="navigate" />

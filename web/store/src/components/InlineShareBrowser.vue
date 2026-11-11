@@ -49,13 +49,13 @@ function thumbSrc(entry) {
   const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
   const params = new URLSearchParams({ path })
   if (sessionToken.value) params.set('session', sessionToken.value)
-  return `/api/share/${token.value}/files/thumbnail?${params}`
+  return `/store/api/share/${token.value}/files/thumbnail?${params}`
 }
 
 onMounted(async () => {
   sessionToken.value = sessionStorage.getItem(`share-session-${token.value}`)
   try {
-    const res = await fetch(`/api/share/${token.value}`)
+    const res = await fetch(`/store/api/share/${token.value}`)
     if (!res.ok) { infoError.value = 'Share not found'; return }
     shareInfo.value = await res.json()
   } catch {
@@ -71,7 +71,7 @@ async function submitPassword() {
   passwordLoading.value = true
   passwordError.value = ''
   try {
-    const res = await fetch(`/api/share/${token.value}/auth`, {
+    const res = await fetch(`/store/api/share/${token.value}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: passwordInput.value }),
@@ -94,7 +94,7 @@ async function loadDir(path) {
   entries.value = []
   try {
     const params = new URLSearchParams({ path })
-    const res = await fetch(`/api/share/${token.value}/files/list?${params}`, {
+    const res = await fetch(`/store/api/share/${token.value}/files/list?${params}`, {
       headers: authHeaders(),
     })
     if (!res.ok) { dirError.value = 'Failed to load files'; return }
@@ -121,7 +121,7 @@ async function viewEntry(entry) {
   if (IMAGE_EXTS.has(ext)) {
     const params = new URLSearchParams({ path })
     if (sessionToken.value) params.set('session', sessionToken.value)
-    imageViewSrc.value = `/api/share/${token.value}/files/view?${params}`
+    imageViewSrc.value = `/store/api/share/${token.value}/files/view?${params}`
     imageViewName.value = entry.name
     return
   }
@@ -130,7 +130,7 @@ async function viewEntry(entry) {
 
 async function downloadEntry(entry) {
   const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
-  const url = `/api/share/${token.value}/files/download?path=${encodeURIComponent(path)}`
+  const url = `/store/api/share/${token.value}/files/download?path=${encodeURIComponent(path)}`
   const res = await fetch(url, { headers: authHeaders() })
   const blob = await res.blob()
   const a = document.createElement('a')
@@ -142,7 +142,7 @@ async function downloadEntry(entry) {
 
 async function downloadZip() {
   const path = currentPath.value
-  const url = `/api/share/${token.value}/files/download-zip?path=${encodeURIComponent(path)}`
+  const url = `/store/api/share/${token.value}/files/download-zip?path=${encodeURIComponent(path)}`
   const res = await fetch(url, { headers: authHeaders() })
   const blob = await res.blob()
   const dirName = breadcrumbs.value.at(-1) || rootLabel.value

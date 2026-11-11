@@ -14,7 +14,7 @@ async function submit() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetch(`/api/share/${props.token}/auth`, {
+    const res = await fetch(`/share/api/share/${props.token}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: password.value }),
