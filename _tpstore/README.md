@@ -48,7 +48,7 @@ The storage browser at `/store`, drawn after Finder on the desktop and Files on 
 <td width="33%" valign="top">
 
 ### 🔗 [`share-frontend`](share-frontend/)
-The public viewer at `/share`. Opens a share link, asks for its password if it has one, and lets anyone browse it, step through its photos and videos, save them straight to their phone's gallery, download them, or upload into it if it's editable.
+The public viewer at `/share`, in the same look as the browser: the shared folder up top with Download all and Save to Photos, photos and videos in a grid like Photos, other files in a list like Files. It asks for the link's password if it has one, steps through photos and videos full screen, saves them straight to the phone's gallery and downloads them.
 
 **Vue 3 · Vite · Nginx**
 
