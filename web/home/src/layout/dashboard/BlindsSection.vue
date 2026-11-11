@@ -4,14 +4,15 @@ import { Blinds, ChevronDown, ChevronUp, Lock, Pause, Settings } from 'lucide-vu
 
 import Sheet from '@/ui/Sheet.vue'
 import BlindsControl from './BlindsControl.vue'
+import BlindSlider from '@/components/BlindSlider.vue'
 
 import { useDevices } from '@/config/devices'
-import { positions } from '@/config/useBlindAnimations'
-import { blindStatus, moveBlind, stopBlind } from '@/config/blindControl'
+import { positions, handlePositions } from '@/config/useBlindAnimations'
+import { blindStatus, dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
 import { navigateToDevice } from '@/config/sections'
 
-// Every blind as a tile, like Home's accessories: how open it is, and up / stop / down right there.
-// Tapping the tile opens its sheet with the big slider.
+// Every blind as a tile, like Home's accessories: its bar and up / stop / down right there, as in
+// its sheet. Tapping the rest of the tile opens that sheet.
 const store = useDevices()
 const blinds = computed(() => Object.entries(store.blinds).map(([id, d]) => ({ id, ...d })))
 
@@ -64,10 +65,21 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
                         <span class="headline name">{{ b.name }}</span>
                         <span class="footnote secondary">{{ b.locked ? 'Bloqueada' : blindStatus(b, positions[b.id]) }}</span>
                     </div>
-                    <div class="tile-actions" @click.stop>
-                        <button type="button" aria-label="Subir" :disabled="b.locked" @click="moveBlind(b.id, 'up')"><ChevronUp :size="20" :stroke-width="2.4" /></button>
-                        <button type="button" aria-label="Parar" :disabled="b.locked" @click="stopBlind(b.id)"><Pause :size="16" :stroke-width="2.4" fill="currentColor" /></button>
-                        <button type="button" aria-label="Bajar" :disabled="b.locked" @click="moveBlind(b.id, 'down')"><ChevronDown :size="20" :stroke-width="2.4" /></button>
+                    <div class="stage" @click.stop>
+                        <BlindSlider
+                            class="slider"
+                            :fill-pos="positions[b.id] ?? 0"
+                            :handle-pos="handlePositions[b.id] ?? 0"
+                            :disabled="b.locked"
+                            @drag-start="dragStart(b.id, $event)"
+                            @drag-move="dragMove(b.id, $event)"
+                            @drag-end="setBlind(b.id, $event)"
+                        />
+                        <div class="buttons">
+                            <button type="button" aria-label="Subir" :disabled="b.locked" @click="moveBlind(b.id, 'up')"><ChevronUp :size="20" :stroke-width="2.4" /></button>
+                            <button type="button" aria-label="Parar" :disabled="b.locked" @click="stopBlind(b.id)"><Pause :size="15" :stroke-width="2.4" fill="currentColor" /></button>
+                            <button type="button" aria-label="Bajar" :disabled="b.locked" @click="moveBlind(b.id, 'down')"><ChevronDown :size="20" :stroke-width="2.4" /></button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -125,17 +137,21 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
 .lock { color: var(--label-3); }
 .tile-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.tile-actions button {
-    height: 36px;
+/* The bar and its buttons, as in the sheet: the bar as tall as the three and twice as wide as one. */
+.stage { --round: 40px; --gap: 8px; display: flex; justify-content: center; gap: 12px; cursor: default; }
+.slider { width: calc(2 * var(--round)); height: calc(3 * var(--round) + 2 * var(--gap)); border-radius: calc(var(--round) / 2); }
+.buttons { display: flex; flex-direction: column; gap: var(--gap); }
+.buttons button {
+    width: var(--round);
+    height: var(--round);
     display: grid;
     place-items: center;
-    border-radius: 12px;
+    border-radius: 50%;
     color: var(--label);
     background: var(--fill-3);
     transition: transform 0.2s var(--spring), background 0.2s;
 }
-.tile-actions button:hover:not(:disabled) { background: var(--fill-2); }
-.tile-actions button:active:not(:disabled) { transform: scale(0.9); }
-.tile-actions button:disabled { opacity: 0.35; }
+.buttons button:hover:not(:disabled) { background: var(--fill-2); }
+.buttons button:active:not(:disabled) { transform: scale(0.9); }
+.buttons button:disabled { opacity: 0.35; }
 </style>
