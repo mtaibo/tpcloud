@@ -19,15 +19,6 @@ const open = computed({
     set: v => { if (!v) selectedId.value = null },
 })
 
-const summary = computed(() => {
-    const all = Object.values(store.blinds)
-    if (!all.length) return ''
-    const online = all.filter(d => d.connection?.online).length
-    const opened = all.filter(d => (d.state?.position ?? 0) > 0).length
-    const parts = [`${opened} de ${all.length} persianas abiertas`]
-    if (online < all.length) parts.push(`${all.length - online} sin conexión`)
-    return parts.join(' · ')
-})
 </script>
 
 <template>
@@ -35,7 +26,6 @@ const summary = computed(() => {
         <div class="page">
             <header class="page-header">
                 <h1 class="large-title">Plano</h1>
-                <p v-if="summary" class="subheadline secondary">{{ summary }}</p>
             </header>
 
             <div v-if="map.storage.viewBox" class="plan-card">
