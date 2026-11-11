@@ -14,6 +14,8 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     password_hash: Optional[str] = Field(default=None)
     totp_secret: Optional[str] = Field(default=None)
+    # Failed sign-ins up to here were confirmed as the owner's own, so they no longer warn.
+    failures_reviewed_at: Optional[datetime] = Field(default=None)
 
 
 class PasskeyCredential(SQLModel, table=True):

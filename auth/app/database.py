@@ -28,6 +28,7 @@ def init_db():
             "ALTER TABLE sessions ADD COLUMN last_seen_at DATETIME",
             "ALTER TABLE sessions ADD COLUMN last_ip TEXT",
             "ALTER TABLE sessions ADD COLUMN approved_by TEXT",
+            "ALTER TABLE users ADD COLUMN failures_reviewed_at DATETIME",
         ]:
             try:
                 conn.execute(text(sql))

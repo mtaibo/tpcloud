@@ -1,14 +1,18 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import Icon from '@ui/Icon.vue'
 import ListSection from '@ui/ListSection.vue'
 import ListRow from '@ui/ListRow.vue'
 import Segmented from '@ui/Segmented.vue'
 import Spinner from '@ui/Spinner.vue'
 import { api } from '@ui/api.js'
+import { ask, toast } from '@ui/dialog.js'
 import { dayHeading, formatTime, methodNames } from '@ui/format.js'
 import Page from '../components/Page.vue'
+import { store } from '../store.js'
 
+const router = useRouter()
 const events = ref(null)
 const filter = ref('all')
 const filters = [
@@ -53,20 +57,47 @@ const groups = computed(() => {
   }
   return out
 })
-const failures = computed(() => (events.value || []).filter(e => e.kind === 'failed' && Date.now() - new Date(e.at) < 7 * 86400000).length)
+// Failed sign-ins this week that haven't been confirmed as the owner's own.
+const recentFailures = computed(() => {
+  const reviewed = store.profile?.failures_reviewed_at ? new Date(store.profile.failures_reviewed_at) : 0
+  return (events.value || []).filter(e => e.kind === 'failed' && Date.now() - new Date(e.at) < 7 * 86400000 && new Date(e.at) > reviewed)
+})
+const failures = computed(() => recentFailures.value.length)
+
+async function reviewFailures() {
+  const last = recentFailures.value[0]
+  const where = last ? [last.device_info, last.location && last.location !== last.ip_address ? last.location : last.ip_address].filter(Boolean).join(' · ') : ''
+  const answer = await ask({
+    title: '¿Fuiste tú?',
+    message: `${failures.value === 1 ? 'Un intento fallido' : `${failures.value} intentos fallidos`} de entrar en tu cuenta esta semana${where ? `, el último desde ${where}` : ''}.`,
+    actions: [
+      { label: 'Sí, fui yo', role: 'default', value: 'me' },
+      { label: 'No, cambiar la contraseña', role: 'destructive', value: 'not-me' },
+      { label: 'Cancelar', role: 'cancel', value: null },
+    ],
+  })
+  if (answer === 'me') {
+    const { failures_reviewed_at } = await api('/auth/account/failures/reviewed', { method: 'POST' })
+    if (store.profile) store.profile.failures_reviewed_at = failures_reviewed_at
+    toast('Aviso descartado')
+  } else if (answer === 'not-me') {
+    router.push('/security')
+  }
+}
 </script>
 
 <template>
   <Page title="Actividad" subtitle="Cada inicio de sesión, intento fallido y sesión cerrada de los últimos 6 meses.">
     <div v-if="!events" class="empty"><Spinner :size="24" /></div>
     <template v-else>
-      <div v-if="failures" class="banner">
+      <button v-if="failures" type="button" class="banner" @click="reviewFailures">
         <Icon name="warning" :size="22" />
         <p class="subheadline">
           {{ failures === 1 ? 'Ha habido 1 intento fallido' : `Ha habido ${failures} intentos fallidos` }} esta semana.
-          Si no fuiste tú, cambia la contraseña y revisa tus dispositivos.
+          Toca para confirmar si fuiste tú.
         </p>
-      </div>
+        <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
+      </button>
 
       <Segmented v-model="filter" :options="filters" class="filter" />
 
@@ -96,8 +127,11 @@ const failures = computed(() => (events.value || []).filter(e => e.kind === 'fai
 .filter { margin: 0 0 24px; }
 .banner {
   display: flex;
+  width: 100%;
   gap: 12px;
-  align-items: flex-start;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
   padding: 14px 18px;
   margin-bottom: 18px;
   border-radius: 20px;
@@ -105,4 +139,7 @@ const failures = computed(() => (events.value || []).filter(e => e.kind === 'fai
   background: color-mix(in srgb, var(--orange) 16%, var(--cell));
 }
 .banner .icon { flex-shrink: 0; color: var(--orange); }
+.banner p { flex: 1; }
+.banner .row-chevron { color: var(--label-3); }
+.banner:active { transform: scale(0.99); }
 </style>

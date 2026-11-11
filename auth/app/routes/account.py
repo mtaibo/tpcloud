@@ -62,6 +62,7 @@ def get_profile(
         "is_admin": user.is_admin,
         "has_password": user.password_hash is not None,
         "totp_enabled": user.totp_secret is not None,
+        "failures_reviewed_at": iso(user.failures_reviewed_at),
         "passkeys": [
             {
                 "credential_id": p.credential_id,
@@ -108,6 +109,19 @@ def activity(
         }
         for e in events
     ]
+
+
+@router.post("/failures/reviewed")
+def failures_reviewed(
+    user: User = Depends(require_login),
+    session: DBSession = Depends(get_session),
+):
+    """The owner says the failed sign-ins so far were theirs: the warning goes away everywhere
+    until there's a new one."""
+    user.failures_reviewed_at = datetime.now(timezone.utc)
+    session.add(user)
+    session.commit()
+    return {"failures_reviewed_at": iso(user.failures_reviewed_at)}
 
 
 @router.patch("/profile")

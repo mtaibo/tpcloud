@@ -31,7 +31,11 @@ const today = computed(() => {
   return text.charAt(0).toUpperCase() + text.slice(1)
 })
 const others = computed(() => (profile.value?.sessions.length ?? 1) - 1)
-const failures = computed(() => activity.value.filter(e => e.kind === 'failed' && Date.now() - new Date(e.at) < 7 * 86400000).length)
+// Failed sign-ins this week that the owner hasn't confirmed as their own (in Cuenta → Actividad).
+const failures = computed(() => {
+  const reviewed = profile.value?.failures_reviewed_at ? new Date(profile.value.failures_reviewed_at) : 0
+  return activity.value.filter(e => e.kind === 'failed' && Date.now() - new Date(e.at) < 7 * 86400000 && new Date(e.at) > reviewed).length
+})
 
 onMounted(async () => {
   window.history.replaceState(null, '', '/')
