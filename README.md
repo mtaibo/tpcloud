@@ -137,7 +137,7 @@ Caddy asks auth: is this session cookie valid?  (forward_auth)
 
 Every session is stored server-side with the device (parsed from the user agent), the IP it signed in from and the one it was last used from (and, if `TPCLOUD_GEOIP=1`, their city and country), when it was last used, and how it signed in (for a QR code, which device approved it), so `accounts` can show where I'm signed in and revoke any of them, or all but this one. Sessions are revoked by their id; the session token itself never goes back to the browser.
 
-Sessions slide forward while they're used: with "keep me signed in" (the default) a browser stays signed in 30 days after it was last used; without it, until the browser closes or 12 hours without use. The native app gets 90 days. Every sign-in, failed attempt and revoked session is also kept for six months as the account's activity, with device, place and IP.
+Sessions slide forward while they're used: with "keep me signed in" (asked right after signing in, on by default) a browser stays signed in 30 days after it was last used; without it, until the browser closes or 12 hours without use. The native app gets 90 days. Every sign-in, failed attempt and revoked session is also kept for six months as the account's activity, with device, place and IP.
 
 ### Security
 

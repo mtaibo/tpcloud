@@ -419,6 +419,7 @@ button.row:disabled { cursor: default; }
 
 .toggle {
   position: relative;
+  display: inline-block;
   flex-shrink: 0;
   width: 63px;
   height: 28px;
@@ -427,7 +428,7 @@ button.row:disabled { cursor: default; }
   transition: background-color 0.25s;
   cursor: pointer;
 }
-.toggle input { position: absolute; inset: 0; opacity: 0; cursor: pointer; margin: 0; }
+.toggle input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; cursor: pointer; appearance: none; -webkit-appearance: none; }
 .toggle .knob {
   position: absolute;
   top: 2px;

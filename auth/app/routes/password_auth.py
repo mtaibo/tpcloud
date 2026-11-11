@@ -36,7 +36,7 @@ def password_login(
     remember = bool(body.get("remember", True))
 
     if not email or not password:
-        raise HTTPException(status_code=400, detail="Email y contraseña requeridos")
+        raise HTTPException(status_code=400, detail="Email and password are required.")
 
     ip = get_client_ip(request)
     email_key, ip_key = f"email:{email}", f"ip:{ip}"
@@ -51,7 +51,7 @@ def password_login(
         ip_failures.fail(ip_key)
         if user:
             record_event(request, user.id, "failed", "password", "Contraseña incorrecta")
-        raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos")
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
 
     login_failures.reset(email_key)
 
@@ -69,21 +69,21 @@ def verify_totp_code(
 ):
     session_id = request.cookies.get(SESSION_COOKIE)
     if not session_id:
-        raise HTTPException(status_code=401, detail="No autenticado")
+        raise HTTPException(status_code=401, detail="Not signed in.")
 
     db_session = session.exec(
         select(SessionModel).where(SessionModel.session_id == session_id)
     ).first()
     if not db_session:
-        raise HTTPException(status_code=401, detail="Sesión inválida")
+        raise HTTPException(status_code=401, detail="Invalid session.")
     if as_utc(db_session.expires_at) < datetime.now(timezone.utc):
-        raise HTTPException(status_code=401, detail="Ha pasado demasiado tiempo. Vuelve a iniciar sesión.")
+        raise HTTPException(status_code=401, detail="That took too long. Please sign in again.")
     if db_session.totp_verified:
         return {"status": "ok"}
 
     user = session.get(User, db_session.user_id)
     if not user or not user.totp_secret:
-        raise HTTPException(status_code=400, detail="TOTP no configurado")
+        raise HTTPException(status_code=400, detail="Two-step verification isn't set up.")
 
     user_key = f"user:{user.id}"
     user_failures.check(user_key)
@@ -96,9 +96,9 @@ def verify_totp_code(
             _totp_attempts.pop(session_id, None)
             session.delete(db_session)
             session.commit()
-            raise HTTPException(status_code=401, detail="Demasiados códigos incorrectos. Vuelve a iniciar sesión.")
+            raise HTTPException(status_code=401, detail="Too many incorrect codes. Please sign in again.")
         _totp_attempts[session_id] = attempts
-        raise HTTPException(status_code=401, detail="Código incorrecto")
+        raise HTTPException(status_code=401, detail="Incorrect code.")
 
     _totp_attempts.pop(session_id, None)
     user_failures.reset(user_key)

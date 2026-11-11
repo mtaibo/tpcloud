@@ -100,7 +100,7 @@ def login_complete(
 
     challenge = _challenge_of(request_body)
     if not challenge:
-        raise HTTPException(status_code=400, detail="La solicitud ha caducado. Vuelve a intentarlo.")
+        raise HTTPException(status_code=400, detail="The request expired. Please try again.")
 
     stored_credential = session.exec(
         select(PasskeyCredential).where(PasskeyCredential.credential_id == str(request_body.get("id", "")))
@@ -108,7 +108,7 @@ def login_complete(
     user = session.get(User, stored_credential.user_id) if stored_credential else None
     if not stored_credential or not user:
         ip_failures.fail(f"ip:{ip}")
-        raise HTTPException(status_code=401, detail="Esta passkey no pertenece a ninguna cuenta de este servidor.")
+        raise HTTPException(status_code=401, detail="This passkey doesn't belong to any account on this server.")
 
     try:
         verify_authentication_response(
@@ -123,7 +123,7 @@ def login_complete(
     except Exception:
         ip_failures.fail(f"ip:{ip}")
         record_event(request, user.id, "failed", "passkey", "La passkey no se pudo verificar")
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        raise HTTPException(status_code=401, detail="Invalid credentials.")
 
     stored_credential.last_used_at = datetime.now(timezone.utc)
     session.add(stored_credential)

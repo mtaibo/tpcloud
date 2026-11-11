@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from '@ui/Icon.vue'
 import Logo from '@ui/Logo.vue'
 import ListSection from '@ui/ListSection.vue'
@@ -9,7 +9,7 @@ import Toggle from '@ui/Toggle.vue'
 import { conditionalSupported, getCredential, passkeysSupported } from '@ui/webauthn.js'
 import QrPanel from './QrPanel.vue'
 
-const step = ref('start') // start | email | password | totp | qr | done
+const step = ref('start') // start | email | password | totp | qr | done | leaving
 const email = ref('')
 const password = ref('')
 const code = ref('')
@@ -25,23 +25,29 @@ const passwordInput = ref(null)
 const codeInput = ref(null)
 
 const hasPasskeys = passkeysSupported()
+const split = computed(() => wide.value && step.value === 'start')
+// Steps that share a screen ("done" and "leaving") keep one pane, so nothing animates between them.
+const pane = computed(() => (step.value === 'leaving' ? 'done' : step.value))
+const canGoBack = computed(() => !['start', 'done', 'leaving'].includes(step.value))
 let conditional = null
 
 const titles = {
-  start: 'Inicia sesión',
-  email: 'Continuar con correo',
-  password: 'Introduce tu contraseña',
-  totp: 'Verificación en dos pasos',
-  qr: 'Usar otro dispositivo',
-  done: 'Ya has entrado',
+  start: 'Sign in',
+  email: 'Continue with email',
+  password: 'Enter your password',
+  totp: 'Two-step verification',
+  qr: 'Use another device',
+  done: "You're in",
+  leaving: "You're in",
 }
 const subtitles = computed(() => ({
-  start: 'Tus archivos, tus fotos y tu casa, en TPCloud.',
-  email: 'Escribe el correo de tu cuenta. Si guardaste una passkey, el navegador te la ofrecerá aquí mismo.',
+  start: 'Your files, your photos and your home, in TPCloud.',
+  email: "Enter your account's email. If you saved a passkey, your browser will offer it right here.",
   password: email.value,
-  totp: 'Escribe el código de 6 cifras de tu app de autenticación.',
-  qr: 'Escanea el código con un iPhone que ya tenga la sesión iniciada.',
-  done: 'Un momento…',
+  totp: 'Enter the 6-digit code from your authenticator app.',
+  qr: 'Scan the code with an iPhone that is already signed in.',
+  done: 'One last thing before you go in.',
+  leaving: 'One moment…',
 }[step.value]))
 
 function fail(e) {
@@ -49,7 +55,7 @@ function fail(e) {
     error.value = ''
     return
   }
-  error.value = e?.message || 'Algo ha fallado. Vuelve a intentarlo.'
+  error.value = e?.message || 'Something went wrong. Please try again.'
   shaking.value = false
   requestAnimationFrame(() => { shaking.value = true })
 }
@@ -61,16 +67,27 @@ async function post(path, body) {
     body: body ? JSON.stringify(body) : undefined,
   })
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null
-  if (!res.ok) throw new Error(data?.detail || 'Algo ha fallado. Vuelve a intentarlo.')
+  if (!res.ok) throw new Error(data?.detail || 'Something went wrong. Please try again.')
   return data
 }
 
-async function finish() {
-  step.value = 'done'
+// Signed in: ask whether to keep this browser signed in, then go on.
+function finish() {
+  stopConditional()
   error.value = ''
+  step.value = 'done'
+}
+
+async function leave(rememberChoice) {
+  if (busy.value) return
+  busy.value = 'continue'
+  try {
+    if (rememberChoice !== null) await post('/auth/login/remember', { remember: rememberChoice })
+  } catch { /* stays a browser-session sign-in */ }
   let next = '/'
   try { next = (await post('/auth/login/continue')).next || '/' } catch { /* home it is */ }
-  setTimeout(() => window.location.replace(next), 650)
+  step.value = 'leaving'
+  setTimeout(() => window.location.replace(next), 350)
 }
 
 function go(to) {
@@ -94,7 +111,7 @@ async function startConditional() {
     const options = await post('/auth/passkey/login/begin')
     const credential = await getCredential(options, { mediation: 'conditional', signal: controller.signal })
     busy.value = 'passkey'
-    await post(`/auth/passkey/login/complete?remember=${remember.value}`, credential)
+    await post(`/auth/passkey/login/complete?remember=false`, credential)
     await finish()
   } catch (e) {
     if (conditional === controller) fail(e)
@@ -113,7 +130,7 @@ async function signInWithPasskey(forEmail = '') {
     const query = forEmail ? `?email=${encodeURIComponent(forEmail)}` : ''
     const options = await post(`/auth/passkey/login/begin${query}`)
     const credential = await getCredential(options)
-    await post(`/auth/passkey/login/complete?remember=${remember.value}`, credential)
+    await post(`/auth/passkey/login/complete?remember=false`, credential)
     await finish()
   } catch (e) {
     fail(e)
@@ -125,7 +142,7 @@ async function signInWithPasskey(forEmail = '') {
 // ---- Email, password, code ----
 
 function continueWithEmail() {
-  if (!email.value.includes('@')) return fail(new Error('Escribe un correo válido.'))
+  if (!email.value.includes('@')) return fail(new Error('Enter a valid email.'))
   stopConditional()
   go('password')
 }
@@ -135,7 +152,7 @@ async function signInWithPassword() {
   busy.value = 'password'
   error.value = ''
   try {
-    const data = await post('/auth/password/login', { email: email.value, password: password.value, remember: remember.value })
+    const data = await post('/auth/password/login', { email: email.value, password: password.value, remember: false })
     if (data.totp_required) go('totp')
     else await finish()
   } catch (e) {
@@ -155,7 +172,7 @@ async function verifyCode() {
     await finish()
   } catch (e) {
     code.value = ''
-    if (/Vuelve a iniciar sesión/.test(e.message)) {
+    if (/sign in again/.test(e.message)) {
       password.value = ''
       step.value = 'password'
     }
@@ -178,13 +195,12 @@ function back() {
   else step.value = 'start'
 }
 
-watch(step, async value => {
-  await nextTick()
-  if (value === 'email') { emailInput.value?.focus(); startConditional() }
-  if (value === 'password') passwordInput.value?.focus()
-  if (value === 'totp') codeInput.value?.focus()
-  if (value !== 'email') stopConditional()
+watch(step, value => {
+  if (value === 'email') startConditional()
+  else stopConditional()
 })
+// The next step's field only exists once the old one has faded out, so focus it when it appears.
+watch([emailInput, passwordInput, codeInput], fields => fields.find(Boolean)?.focus())
 
 // ---- Start ----
 
@@ -204,7 +220,7 @@ onMounted(async () => {
 
   try {
     const res = await fetch('/auth/passkey/me')
-    if (res.ok) return finish()
+    if (res.ok) return leave(null)
   } catch { /* stay here */ }
   ready.value = true
 })
@@ -213,152 +229,159 @@ onBeforeUnmount(() => { media.removeEventListener('change', onMedia); stopCondit
 
 <template>
   <main class="login" :class="{ wide, ready }">
-    <div class="layout" :class="{ split: wide && step === 'start' }">
-      <section class="column">
-        <div class="top">
-          <button
-            v-if="step !== 'start' && step !== 'done'"
-            class="icon-btn back"
-            type="button"
-            aria-label="Atrás"
-            @click="back"
-          >
-            <Icon name="chevron-left" :size="22" :weight="2.4" />
-          </button>
-        </div>
+    <Transition name="swap" mode="out-in">
+      <div :key="split ? 'split' : 'single'" class="layout" :class="{ split }">
+        <section class="column">
+          <Transition name="step" mode="out-in">
+            <div :key="pane" class="pane">
+              <div class="top">
+                <button
+                  v-if="canGoBack"
+                  class="icon-btn back"
+                  type="button"
+                  aria-label="Back"
+                  @click="back"
+                >
+                  <Icon name="chevron-left" :size="22" :weight="2.4" />
+                </button>
+              </div>
 
-        <header class="hero">
-          <Transition name="fade" mode="out-in">
-            <span v-if="step === 'done'" key="done" class="done-mark"><Icon name="checkmark" :size="40" :weight="2.6" /></span>
-            <Logo v-else key="logo" :size="76" />
-          </Transition>
-          <h1 class="title-1">{{ titles[step] }}</h1>
-          <p class="subheadline secondary">{{ subtitles }}</p>
-        </header>
+              <header class="hero">
+                <span v-if="pane === 'done'" class="done-mark"><Icon name="checkmark" :size="40" :weight="2.6" /></span>
+                <Logo v-else :size="76" />
+                <h1 class="title-1">{{ titles[step] }}</h1>
+                <p class="subheadline secondary">{{ subtitles }}</p>
+              </header>
 
-        <Transition name="push" mode="out-in">
-          <!-- Pick how -->
-          <div v-if="step === 'start'" key="start" class="stack">
-            <div class="actions">
-              <button v-if="hasPasskeys" class="btn btn-prominent block" type="button" :disabled="!!busy" @click="signInWithPasskey()">
-                <Spinner v-if="busy === 'passkey'" :size="18" style="color: #fff" />
-                <Icon v-else name="passkey" :size="21" :weight="2" />
-                Continuar con passkey
-              </button>
-              <button class="btn btn-glass block" type="button" @click="go('email')">
-                <Icon name="envelope" :size="21" />
-                Continuar con correo
-              </button>
-              <button v-if="!wide" class="btn btn-glass block" type="button" @click="go('qr')">
-                <Icon name="qrcode" :size="21" />
-                Usar otro dispositivo
-              </button>
+              <!-- Pick how -->
+              <div v-if="step === 'start'" class="stack">
+                <div class="actions">
+                  <button v-if="hasPasskeys" class="btn btn-prominent block" type="button" :disabled="!!busy" @click="signInWithPasskey()">
+                    <Spinner v-if="busy === 'passkey'" :size="18" style="color: #fff" />
+                    <Icon v-else name="passkey" :size="21" :weight="2" />
+                    Continue with passkey
+                  </button>
+                  <button class="btn btn-glass block" type="button" @click="go('email')">
+                    <Icon name="envelope" :size="21" />
+                    Continue with email
+                  </button>
+                  <button v-if="!wide" class="btn btn-glass block" type="button" @click="go('qr')">
+                    <Icon name="qrcode" :size="21" />
+                    Use another device
+                  </button>
+                </div>
+              </div>
+
+              <!-- Email -->
+              <form v-else-if="step === 'email'" class="stack" @submit.prevent="continueWithEmail">
+                <ListSection>
+                  <ListRow>
+                    <input
+                      ref="emailInput"
+                      v-model.trim="email"
+                      class="row-input"
+                      type="email"
+                      name="username"
+                      placeholder="name@example.com"
+                      autocomplete="username webauthn"
+                      autocapitalize="off"
+                      spellcheck="false"
+                      aria-label="Email"
+                    />
+                  </ListRow>
+                </ListSection>
+                <button class="btn btn-prominent block" type="submit" :disabled="!email">Continue</button>
+                <button v-if="hasPasskeys && email.includes('@')" class="btn btn-plain block" type="button" :disabled="!!busy" @click="signInWithPasskey(email)">
+                  Use a passkey for this email
+                </button>
+              </form>
+
+              <!-- Password -->
+              <form v-else-if="step === 'password'" class="stack" @submit.prevent="signInWithPassword">
+                <input type="email" name="username" autocomplete="username" :value="email" hidden />
+                <ListSection>
+                  <ListRow>
+                    <input
+                      ref="passwordInput"
+                      v-model="password"
+                      class="row-input"
+                      type="password"
+                      name="password"
+                      placeholder="Password"
+                      autocomplete="current-password"
+                      aria-label="Password"
+                    />
+                  </ListRow>
+                </ListSection>
+                <button class="btn btn-prominent block" type="submit" :disabled="!password || !!busy">
+                  <Spinner v-if="busy === 'password'" :size="18" style="color: #fff" />
+                  <span v-else>Sign in</span>
+                </button>
+                <button v-if="hasPasskeys" class="btn btn-plain block" type="button" :disabled="!!busy" @click="signInWithPasskey(email)">
+                  Use a passkey
+                </button>
+              </form>
+
+              <!-- TOTP -->
+              <div v-else-if="step === 'totp'" class="stack">
+                <label class="code" :class="{ busy: busy === 'totp' }">
+                  <input
+                    ref="codeInput"
+                    v-model="code"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
+                    maxlength="6"
+                    aria-label="Verification code"
+                    :disabled="busy === 'totp'"
+                  />
+                  <span v-for="i in 6" :key="i" class="digit" :class="{ filled: code.length >= i, current: code.length === i - 1 }">
+                    {{ code[i - 1] || '' }}
+                  </span>
+                </label>
+                <div class="center-spinner"><Spinner v-if="busy === 'totp'" :size="22" /></div>
+              </div>
+
+              <!-- QR, on narrow screens -->
+              <div v-else-if="step === 'qr'" class="stack">
+                <QrPanel @approved="finish" />
+              </div>
+
+              <!-- Signed in: keep it? -->
+              <div v-else class="stack">
+                <ListSection>
+                  <ListRow title="Keep me signed in">
+                    <template #trailing><Toggle v-model="remember" label="Keep me signed in" :disabled="step === 'leaving'" /></template>
+                  </ListRow>
+                  <template #footer>
+                    {{ remember
+                      ? "You'll stay signed in for 30 days after your last visit. Turn this off on a shared computer."
+                      : "You'll be signed out when you close the browser or after 12 hours without using it." }}
+                  </template>
+                </ListSection>
+                <button class="btn btn-prominent block" type="button" :disabled="!!busy || step === 'leaving'" @click="leave(remember)">
+                  <Spinner v-if="busy === 'continue' || step === 'leaving'" :size="18" style="color: #fff" />
+                  <span v-else>Continue</span>
+                </button>
+              </div>
+
+              <p v-if="error" class="error footnote" :class="{ shake: shaking }" role="alert">
+                <Icon name="warning" :size="16" :weight="2" />
+                {{ error }}
+              </p>
             </div>
+          </Transition>
+        </section>
 
-            <ListSection>
-              <ListRow title="Mantener la sesión iniciada">
-                <template #trailing><Toggle v-model="remember" label="Mantener la sesión iniciada" /></template>
-              </ListRow>
-              <template #footer>
-                {{ remember
-                  ? 'Seguirás dentro durante 30 días desde la última vez que entres. Desactívalo en un ordenador compartido.'
-                  : 'La sesión se cerrará al cerrar el navegador o tras 12 horas sin usarla.' }}
-              </template>
-            </ListSection>
-          </div>
-
-          <!-- Email -->
-          <form v-else-if="step === 'email'" key="email" class="stack" @submit.prevent="continueWithEmail">
-            <ListSection>
-              <ListRow>
-                <input
-                  ref="emailInput"
-                  v-model.trim="email"
-                  class="row-input"
-                  type="email"
-                  name="username"
-                  placeholder="nombre@correo.com"
-                  autocomplete="username webauthn"
-                  autocapitalize="off"
-                  spellcheck="false"
-                  aria-label="Correo"
-                />
-              </ListRow>
-            </ListSection>
-            <button class="btn btn-prominent block" type="submit" :disabled="!email">Continuar</button>
-            <button v-if="hasPasskeys && email.includes('@')" class="btn btn-plain block" type="button" :disabled="!!busy" @click="signInWithPasskey(email)">
-              Usar una passkey para este correo
-            </button>
-          </form>
-
-          <!-- Password -->
-          <form v-else-if="step === 'password'" key="password" class="stack" @submit.prevent="signInWithPassword">
-            <input type="email" name="username" autocomplete="username" :value="email" hidden />
-            <ListSection>
-              <ListRow>
-                <input
-                  ref="passwordInput"
-                  v-model="password"
-                  class="row-input"
-                  type="password"
-                  name="password"
-                  placeholder="Contraseña"
-                  autocomplete="current-password"
-                  aria-label="Contraseña"
-                />
-              </ListRow>
-            </ListSection>
-            <button class="btn btn-prominent block" type="submit" :disabled="!password || !!busy">
-              <Spinner v-if="busy === 'password'" :size="18" style="color: #fff" />
-              <span v-else>Iniciar sesión</span>
-            </button>
-            <button v-if="hasPasskeys" class="btn btn-plain block" type="button" :disabled="!!busy" @click="signInWithPasskey(email)">
-              Usar una passkey
-            </button>
-          </form>
-
-          <!-- TOTP -->
-          <div v-else-if="step === 'totp'" key="totp" class="stack">
-            <label class="code" :class="{ busy: busy === 'totp' }">
-              <input
-                ref="codeInput"
-                v-model="code"
-                inputmode="numeric"
-                autocomplete="one-time-code"
-                maxlength="6"
-                aria-label="Código de verificación"
-                :disabled="busy === 'totp'"
-              />
-              <span v-for="i in 6" :key="i" class="digit" :class="{ filled: code.length >= i, current: code.length === i - 1 }">
-                {{ code[i - 1] || '' }}
-              </span>
-            </label>
-            <div class="center-spinner"><Spinner v-if="busy === 'totp'" :size="22" /></div>
-          </div>
-
-          <!-- QR, on narrow screens -->
-          <div v-else-if="step === 'qr'" key="qr" class="stack">
-            <QrPanel @approved="finish" />
-          </div>
-
-          <div v-else key="done" class="stack" />
-        </Transition>
-
-        <p v-if="error" class="error footnote" :class="{ shake: shaking }" role="alert">
-          <Icon name="warning" :size="16" :weight="2" />
-          {{ error }}
-        </p>
-      </section>
-
-      <Transition name="fade">
-        <aside v-if="wide && step === 'start'" class="qr-side">
-          <h2 class="title-3">Inicia sesión con tu iPhone</h2>
+        <aside v-if="split" class="qr-side">
+          <h2 class="title-3">Sign in with your iPhone</h2>
           <QrPanel @approved="finish" />
         </aside>
-      </Transition>
-    </div>
+      </div>
+    </Transition>
 
-    <footer class="legal footnote tertiary">TPCloud · {{ new Date().getFullYear() }}</footer>
+    <footer class="legal footnote tertiary">
+      Made by <a href="https://www.migueltaibo.com" target="_blank" rel="noopener">Miguel Taibo</a>
+    </footer>
   </main>
 </template>
 
@@ -391,6 +414,7 @@ onBeforeUnmount(() => { media.removeEventListener('change', onMedia); stopCondit
 .top { height: 56px; display: flex; align-items: center; }
 .wide .top { height: 44px; }
 
+.pane { display: flex; flex-direction: column; }
 .hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; margin: 8px 0 30px; }
 .hero h1 { margin-top: 12px; }
 .hero p { max-width: 340px; overflow-wrap: anywhere; }
@@ -452,4 +476,23 @@ onBeforeUnmount(() => { media.removeEventListener('change', onMedia); stopCondit
 .center-spinner { height: 24px; display: grid; place-items: center; }
 
 .legal { padding: 12px 0 18px; }
+.legal a { color: var(--label-2); text-decoration: none; font-weight: 500; transition: color 0.2s; }
+.legal a:hover { color: var(--accent); }
+
+/* Moving between steps: the old one fades out quickly, the new one rises in. */
+.step-enter-active { transition: opacity 0.28s var(--ease), transform 0.34s var(--ease); }
+.step-leave-active { transition: opacity 0.14s ease-in; }
+.step-enter-from { opacity: 0; transform: translateY(10px); }
+.step-leave-to { opacity: 0; }
+/* Leaving or reaching the two-column start screen: the whole layout crossfades instead of jumping. */
+.swap-enter-active { transition: opacity 0.3s var(--ease), transform 0.34s var(--ease); }
+.swap-leave-active { transition: opacity 0.16s ease-in; }
+.swap-enter-from { opacity: 0; transform: scale(0.985); }
+.swap-leave-to { opacity: 0; }
+/* The inner step transition stays still while the whole layout swaps. */
+.swap-enter-active .step-enter-active, .swap-leave-active .step-leave-active { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .step-enter-active, .swap-enter-active { transition: opacity 0.2s; }
+  .step-enter-from, .swap-enter-from { transform: none; }
+}
 </style>

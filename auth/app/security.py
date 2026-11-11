@@ -70,7 +70,7 @@ class FailureLimiter:
     def check(self, *keys: str) -> None:
         now = time.monotonic()
         if any(len(self._recent(k, now)) >= self.limit for k in keys):
-            raise HTTPException(status_code=429, detail="Demasiados intentos. Espera unos minutos.")
+            raise HTTPException(status_code=429, detail="Too many attempts. Wait a few minutes.")
 
     def fail(self, *keys: str) -> None:
         now = time.monotonic()

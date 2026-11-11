@@ -79,35 +79,35 @@ onBeforeUnmount(() => {
     <div class="qr-frame" :class="{ dimmed: state !== 'pending' }">
       <div v-if="svg" class="qr-code" v-html="svg" />
       <span class="qr-mark" aria-hidden="true">
-        <svg width="22" height="22" viewBox="0 0 32 32"><rect x="7" y="7" width="18" height="4" rx="2" fill="#fff" /><circle cx="16" cy="17.5" r="3" fill="#fff" /><circle cx="16" cy="24.5" r="2.2" fill="#fff" /></svg>
+        <svg width="24" height="24" viewBox="0 0 32 32"><rect x="8" y="5.6" width="16" height="4.4" rx="2.2" fill="#fff" /><circle cx="16" cy="16.2" r="3.2" fill="#fff" /><circle cx="16" cy="24.4" r="2.4" fill="#fff" /></svg>
       </span>
       <Transition name="fade">
         <div v-if="state !== 'pending'" class="qr-state">
           <Spinner v-if="state === 'loading'" :size="28" />
           <template v-else-if="state === 'scanned'">
             <span class="state-icon blue"><Icon name="iphone" :size="30" /></span>
-            <p class="headline">Confirma en tu iPhone</p>
+            <p class="headline">Confirm on your iPhone</p>
           </template>
           <template v-else-if="state === 'approved'">
             <span class="state-icon green"><Icon name="checkmark" :size="30" :weight="2.6" /></span>
-            <p class="headline">Aprobado</p>
+            <p class="headline">Approved</p>
           </template>
           <template v-else-if="state === 'denied' || state === 'error'">
             <span class="state-icon red"><Icon name="xmark" :size="28" :weight="2.6" /></span>
-            <p class="headline">{{ state === 'denied' ? 'Rechazado' : 'No se pudo crear el código' }}</p>
-            <button class="btn btn-bordered small" type="button" @click="start">Generar otro</button>
+            <p class="headline">{{ state === 'denied' ? 'Declined' : "Couldn't create the code" }}</p>
+            <button class="btn btn-bordered small" type="button" @click="start">Get a new one</button>
           </template>
         </div>
       </Transition>
     </div>
 
     <ol v-if="state !== 'scanned'" class="steps subheadline">
-      <li><span>1</span>Abre la cámara o la app TPCloud en un iPhone con la sesión iniciada.</li>
-      <li><span>2</span>Apunta al código.</li>
-      <li><span>3</span>Comprueba el dispositivo y confirma.</li>
+      <li><span>1</span>Open the Camera or the TPCloud app on an iPhone that is signed in.</li>
+      <li><span>2</span>Point it at the code.</li>
+      <li><span>3</span>Check the device and confirm.</li>
     </ol>
-    <p v-else class="subheadline secondary center">Revisa en el iPhone qué dispositivo y desde dónde pide entrar antes de aprobarlo.</p>
-    <p v-if="state === 'pending'" class="footnote tertiary center">El código se renueva en {{ countdown }}</p>
+    <p v-else class="subheadline secondary center">On your iPhone, check which device is asking to sign in and from where before you approve it.</p>
+    <p v-if="state === 'pending'" class="footnote tertiary center">The code refreshes in {{ countdown }}</p>
   </div>
 </template>
 
