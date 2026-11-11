@@ -1,267 +1,130 @@
 <script setup>
+import { computed, ref } from 'vue'
+import { Blinds, ChevronDown, ChevronUp, Lock, Pause } from 'lucide-vue-next'
 
-    import { ref, watch, nextTick } from 'vue'
+import Sheet from '@/ui/Sheet.vue'
+import BlindsControl from './BlindsControl.vue'
 
-    import { ChevronUp, ChevronDown, ChevronRight, Pause, Settings, Blinds, Lock } from 'lucide-vue-next'
-    import { positions, handlePositions, getAnim, setPending, isPending } from '@/config/useBlindAnimations'
+import { useDevices } from '@/config/devices'
+import { positions } from '@/config/useBlindAnimations'
+import { blindStatus, moveBlind, stopBlind } from '@/config/blindControl'
 
-    import { api } from '@/config/api'
-    import { useDevices } from '@/config/devices'
-    import { navigateToDevice } from '@/config/sections.js'
+// Every blind as a tile, like Home's accessories: how open it is, and up / stop / down right there.
+// Tapping the tile opens its sheet with the big slider.
+const store = useDevices()
+const blinds = computed(() => Object.entries(store.blinds).map(([id, d]) => ({ id, ...d })))
 
-    import Btn from '@/components/Btn.vue'
-    import BlindSlider from '@/components/BlindSlider.vue'
+const selectedId = ref(null)
+const open = computed({
+    get: () => !!selectedId.value && !!store.blinds[selectedId.value],
+    set: v => { if (!v) selectedId.value = null },
+})
 
-    const store = useDevices()
-
-    const loading       = ref({})
-    const pressing      = ref({})
-    const positionInput = ref({})
-    const dragging      = {}
-
-    // WS update: recalibrate anchor while moving; auto-detect direction when motor is
-    // running but velocity is unknown (e.g. blind was started from another view)
-    watch(() => store.blinds, (blinds) => {
-        for (const [id, device] of Object.entries(blinds)) {
-            if (dragging[id]) continue
-            const newPos     = device.state?.position ?? 0
-            const motorState = device.state?.motor_state ?? 0
-            const a = getAnim(id, newPos)
-            const prevRealPos = a.realPos
-            a.realPos = newPos
-
-            if (motorState === 0) {
-                // Motor idle: snap everything
-                setPending(id, false)
-                a.velocity = 0; a.displayPos = newPos; a.handlePos = newPos
-                a.moveStartPos = newPos; a.moveStartTime = Date.now()
-                positions[id] = newPos; handlePositions[id] = newPos
-            } else if (a.velocity !== 0) {
-                // Already animating: just recalibrate the prediction anchor
-                a.moveStartPos = newPos; a.moveStartTime = Date.now()
-            } else if (isPending(id)) {
-                // Waiting for slider set to confirm: don't touch display
-            } else if (prevRealPos !== newPos) {
-                // Motor moving but velocity unknown (e.g. started from another view).
-                // Infer direction from position delta and start predictive animation.
-                const isGoingUp = newPos > prevRealPos
-                a.velocity = isGoingUp
-                    ? 100 / ((device?.prefs?.up_time   ?? 3000) * 10)
-                    : -(100 / ((device?.prefs?.down_time ?? 3000) * 10))
-                a.displayPos = newPos; a.handlePos = newPos
-                a.moveStartPos = newPos; a.moveStartTime = Date.now()
-                positions[id] = newPos; handlePositions[id] = newPos
-            } else {
-                // First update while motor may be running, no delta yet: snap once
-                a.displayPos = newPos; a.handlePos = newPos
-                positions[id] = newPos; handlePositions[id] = newPos
-            }
-        }
-    }, { immediate: true, deep: true })
-
-    const sendCommand = async (id, cmd, val = null) => {
-        loading.value[id] = true
-        try { await api.sendCommand(id, cmd, val) }
-        catch (e) { console.error('TPHome - BlindsSection:', e) }
-        finally { loading.value[id] = false }
-    }
-
-    const pressBtn = (key, action) => {
-        pressing.value[key] = false
-        nextTick(() => {
-            pressing.value[key] = true
-            setTimeout(() => { pressing.value[key] = false }, 440)
-        })
-        action()
-    }
-
-    const handleMove = (id, dir) => pressBtn(`${id}-${dir}`, () => {
-        const device  = store.blinds[id]
-        const a       = getAnim(id, positions[id])
-        const timeKey = dir === 'up' ? 'up_time' : 'down_time'
-        const sign    = dir === 'up' ? 1 : -1
-        setPending(id, false)
-        a.velocity = sign * 100 / ((device?.prefs?.[timeKey] ?? 3000) * 10)
-        a.moveStartPos = a.displayPos; a.moveStartTime = Date.now()
-        sendCommand(id, dir)
-    })
-
-    const handleStop = (id) => pressBtn(`${id}-stop`, () => {
-        const a = getAnim(id)
-        a.velocity = 0; a.displayPos = a.realPos; a.handlePos = a.realPos
-        a.moveStartPos = a.realPos
-        positions[id] = a.realPos; handlePositions[id] = a.realPos
-        setPending(id, false)
-        sendCommand(id, 'stop')
-    })
-
-    const handleSettings = (id) => pressBtn(`${id}-cfg`, () => navigateToDevice(id))
-
-    function sendPosition(id) {
-        const raw = positionInput.value[id]
-        if (raw === '' || raw == null) return
-        const pos = Math.min(100, Math.max(0, Number(raw)))
-        positionInput.value[id] = ''
-        onBlindDragEnd(id, pos)
-    }
-
-    function onBlindDragStart(id, pos) {
-        dragging[id] = true
-        const a = getAnim(id, pos)
-        a.velocity = 0; setPending(id, false)
-        a.displayPos = pos; a.handlePos = pos
-        positions[id] = pos; handlePositions[id] = pos
-    }
-
-    function onBlindDragMove(id, pos) {
-        const a = getAnim(id)
-        a.displayPos = pos; a.handlePos = pos
-        positions[id] = pos; handlePositions[id] = pos
-    }
-
-    function onBlindDragEnd(id, pos) {
-        dragging[id] = false
-        const a = getAnim(id)
-
-        a.handlePos = pos; handlePositions[id] = pos
-        a.displayPos = a.realPos; a.moveStartPos = a.realPos; a.moveStartTime = Date.now()
-        positions[id] = a.realPos
-
-        const device = store.blinds[id]
-        if (pos < a.realPos) {
-            a.velocity = -(100 / ((device?.prefs?.down_time ?? 3000) * 10))
-            setPending(id, true)
-        } else if (pos > a.realPos) {
-            a.velocity = 100 / ((device?.prefs?.up_time ?? 3000) * 10)
-            setPending(id, true)
-        } else {
-            a.velocity = 0; setPending(id, false)
-        }
-
-        sendCommand(id, 'set', pos)
-    }
-
+const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position ?? 0)
 </script>
 
 <template>
+    <div class="view">
+        <div class="page">
+            <header class="page-header">
+                <h1 class="large-title">Persianas</h1>
+            </header>
 
-    <div class="h-full overflow-y-auto overflow-x-hidden pt-28 pb-32 px-5 md:pt-8 md:pb-8 md:px-8">
+            <div v-if="!blinds.length" class="empty">
+                <Blinds :size="44" :stroke-width="1.5" class="empty-icon" />
+                <h3>No hay persianas</h3>
+                <p class="subheadline">Cuando configures una en Dispositivos aparecerá aquí.</p>
+            </div>
 
-        <!-- Empty state -->
-        <div v-if="Object.keys(store.blinds).length === 0"
-             class="flex flex-col items-center justify-center h-full gap-4 text-tp-muted">
-            <Blinds class="w-12 h-12 opacity-20" />
-            <p class="text-sm tracking-wide">No hay persianas disponibles</p>
-        </div>
-
-        <!-- Cards grid -->
-        <div v-else class="flex flex-wrap justify-start md:justify-center gap-4">
-            <div
-                v-for="(device, id) in store.blinds"
-                :key="id"
-                class="blind-card transition-opacity duration-300 select-none w-[calc(50%-8px)] md:w-48 shrink-0"
-                :class="{ 'opacity-50 pointer-events-none': loading[id] }"
-            >
-                <!-- Header -->
-                <div class="flex items-start justify-between mb-4 gap-2">
-                    <div class="flex items-start gap-2 flex-1 min-w-0">
-                        <div class="w-2 h-2 rounded-full shrink-0 mt-[3px] transition-all duration-300"
-                             :class="device.connection?.online
-                                 ? 'bg-tp-on shadow-[0_0_6px_var(--color-tp-on)]'
-                                 : 'bg-tp-off'">
-                        </div>
-                        <h3 class="text-sm font-semibold text-tp-text leading-tight max-w-[60px]">{{ device.name }}</h3>
-                        <Lock v-if="device.locked" class="w-3 h-3 shrink-0 mt-[2px] text-tp-muted" />
+            <div v-else class="grid">
+                <div
+                    v-for="b in blinds"
+                    :key="b.id"
+                    class="tile"
+                    :class="{ open: pos(b.id) > 0, offline: !b.connection?.online }"
+                    role="button"
+                    tabindex="0"
+                    @click="selectedId = b.id"
+                    @keydown.enter="selectedId = b.id"
+                >
+                    <div class="tile-top">
+                        <span class="tile-icon">
+                            <Blinds :size="22" :stroke-width="2" />
+                            <i class="level" :style="{ height: `${100 - pos(b.id)}%` }" />
+                        </span>
+                        <Lock v-if="b.locked" :size="15" :stroke-width="2.2" class="lock" />
                     </div>
-                    <div class="flex items-baseline gap-0.5 shrink-0">
-                        <span class="text-sm font-mono font-bold text-tp-text tabular-nums leading-none">{{ Math.round(positions[id] ?? 0) }}</span>
-                        <span class="text-[9px] font-bold text-tp-accent leading-none mb-0.5">%</span>
+                    <div class="tile-text">
+                        <span class="headline name">{{ b.name }}</span>
+                        <span class="footnote secondary">{{ b.locked ? 'Bloqueada' : blindStatus(b, positions[b.id]) }}</span>
                     </div>
-                </div>
-
-                <!-- Control area: slider left, buttons right -->
-                <div class="flex gap-2 items-start">
-
-                    <BlindSlider
-                        class="flex-1 h-[180px]"
-                        :class="{ locked: device.locked }"
-                        :fill-pos="positions[id] ?? 0"
-                        :handle-pos="handlePositions[id] ?? 0"
-                        @drag-start="onBlindDragStart(id, $event)"
-                        @drag-move="onBlindDragMove(id, $event)"
-                        @drag-end="onBlindDragEnd(id, $event)"
-                    />
-
-                    <!-- Buttons column -->
-                    <div class="flex flex-col justify-between items-center h-[180px]">
-                        <Btn :class="{ locked: device.locked }" :pressing="pressing[`${id}-up`]" @click="handleMove(id, 'up')">
-                            <ChevronUp class="w-[18px] h-[18px] text-tp-text/80" />
-                        </Btn>
-                        <Btn :class="{ locked: device.locked }" :pressing="pressing[`${id}-stop`]" @click="handleStop(id)">
-                            <Pause class="w-[15px] h-[15px] fill-current text-tp-text/80" />
-                        </Btn>
-                        <Btn :class="{ locked: device.locked }" :pressing="pressing[`${id}-down`]" @click="handleMove(id, 'down')">
-                            <ChevronDown class="w-[18px] h-[18px] text-tp-text/80" />
-                        </Btn>
-                        <Btn muted :pressing="pressing[`${id}-cfg`]" @click="handleSettings(id)">
-                            <Settings class="w-[15px] h-[15px] text-tp-text" />
-                        </Btn>
+                    <div class="tile-actions" @click.stop>
+                        <button type="button" aria-label="Subir" :disabled="b.locked" @click="moveBlind(b.id, 'up')"><ChevronUp :size="20" :stroke-width="2.4" /></button>
+                        <button type="button" aria-label="Parar" :disabled="b.locked" @click="stopBlind(b.id)"><Pause :size="16" :stroke-width="2.4" fill="currentColor" /></button>
+                        <button type="button" aria-label="Bajar" :disabled="b.locked" @click="moveBlind(b.id, 'down')"><ChevronDown :size="20" :stroke-width="2.4" /></button>
                     </div>
-                </div>
-
-                <!-- Position input -->
-                <div class="flex items-center gap-2 mt-3" :class="{ locked: device.locked }">
-                    <input
-                        v-model="positionInput[id]"
-                        type="number"
-                        min="0"
-                        max="100"
-                        placeholder="0 – 100"
-                        class="pos-input"
-                        @keydown.enter="sendPosition(id)"
-                    />
-                    <Btn @click="sendPosition(id)">
-                        <ChevronRight class="w-[18px] h-[18px] text-tp-text/80" />
-                    </Btn>
                 </div>
             </div>
         </div>
+
+        <Sheet v-model:open="open" :title="selectedId ? store.blinds[selectedId]?.name : ''">
+            <BlindsControl v-if="selectedId" :id="selectedId" @close="selectedId = null" />
+        </Sheet>
     </div>
 </template>
 
 <style scoped>
-.blind-card {
-    padding: 16px;
-    border-radius: 22px;
-    background: rgba(255, 255, 255, 0.065);
-    backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
-    border: 0.5px solid rgba(255, 255, 255, 0.14);
-    box-shadow:
-        0 8px 32px rgba(0, 0, 0, 0.35),
-        inset 0 1px 0 rgba(255, 255, 255, 0.12),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+    gap: 14px;
 }
-
-.pos-input {
-    flex: 1;
+@media (max-width: 480px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } }
+.tile {
     min-width: 0;
-    height: 40px;
-    padding: 0 10px;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.14);
-    border: none;
-    font-size: 0.8125rem;
-    color: var(--color-tp-text);
-    outline: none;
-    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+    border-radius: var(--radius-card);
+    background: var(--cell);
+    cursor: pointer;
+    transition: transform 0.3s var(--spring), background 0.3s, opacity 0.3s;
 }
-
-/* Locked by an admin: the API refuses movement anyway, this just shows it */
-.locked { opacity: 0.3; pointer-events: none; }
-
-.pos-input::placeholder { color: var(--color-tp-muted); }
-.pos-input::-webkit-outer-spin-button,
-.pos-input::-webkit-inner-spin-button { -webkit-appearance: none; }
-.pos-input[type=number] { -moz-appearance: textfield; }
+.tile:active { transform: scale(0.97); }
+@media (hover: hover) { .tile:hover { transform: translateY(-2px); } }
+.tile.offline { opacity: 0.55; }
+.tile-top { display: flex; align-items: flex-start; justify-content: space-between; }
+.tile-icon {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 50%;
+    color: var(--label-2);
+    background: var(--fill-3);
+    transition: color 0.3s, background 0.3s;
+}
+.tile.open .tile-icon { color: #fff; background: var(--accent); }
+.tile-icon svg { position: relative; z-index: 1; }
+.level { position: absolute; inset: 0 0 auto; background: rgba(0, 0, 0, 0.18); transition: height 0.2s linear; }
+.tile:not(.open) .level { display: none; }
+.lock { color: var(--label-3); }
+.tile-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tile-actions button {
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    color: var(--label);
+    background: var(--fill-3);
+    transition: transform 0.2s var(--spring), background 0.2s;
+}
+.tile-actions button:hover:not(:disabled) { background: var(--fill-2); }
+.tile-actions button:active:not(:disabled) { transform: scale(0.9); }
+.tile-actions button:disabled { opacity: 0.35; }
 </style>

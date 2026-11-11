@@ -1,331 +1,251 @@
 <script setup>
+import { computed, onMounted, ref, watch } from 'vue'
+import { Blinds, ChevronLeft, Cpu, Lightbulb } from 'lucide-vue-next'
 
-    import { ref, computed, watch, onMounted } from 'vue'
-    import { Lightbulb, Blinds, Trash2, Radio, Info, ChevronRight, Crosshair, Cpu, ChevronLeft, Save, Zap, Lock, LockOpen } from 'lucide-vue-next'
-    import { useDevices } from '@/config/devices'
-    import { api } from '@/config/api'
-    import { pendingDeviceId } from '@/config/sections.js'
-    import MapPopup from './MapPopup.vue'
-    import Btn from '@/components/Btn.vue'
-    import DeviceLogs from '@/components/DeviceLogs.vue'
-    import { useDeviceDetail } from '@/config/useDeviceDetail'
+import ListSection from '@/ui/ListSection.vue'
+import ListRow     from '@/ui/ListRow.vue'
+import Toggle      from '@/ui/Toggle.vue'
+import Spinner     from '@/ui/Spinner.vue'
+import MapPopup    from './MapPopup.vue'
+import DeviceLogs  from '@/components/DeviceLogs.vue'
 
-    const store = useDevices()
+import { useDevices } from '@/config/devices'
+import { api } from '@/config/api'
+import { pendingDeviceId } from '@/config/sections'
+import { useDeviceDetail } from '@/config/useDeviceDetail'
+import { session } from '@/config/user'
 
-    // --- List view ---
+// Every switch: the new ones waiting to be placed, the configured ones by kind, and a device's
+// own screen (actions, preferences, where it is on the plan, firmware and its MQTT log).
+const store = useDevices()
+const isAdmin = computed(() => session.user?.is_admin === true) // the API checks again on every call
 
-    const pendingDevices  = ref([])
-    const selectedPending = ref(null)
+// ---- List ----
 
-    async function fetchPending() {
-        try {
-            pendingDevices.value = (await api.getPending()).map(m => ({ mac: m }))
-        } catch (e) {
-            console.error('TPHome - Error fetching pending devices:', e)
-        }
+const pendingDevices  = ref([])
+const selectedPending = ref(null)
+
+async function fetchPending() {
+    try { pendingDevices.value = (await api.getPending()).map(mac => ({ mac })) }
+    catch (e) { console.error('TPHome - Error fetching pending devices:', e) }
+}
+function onConfigDone() { selectedPending.value = null; fetchPending(); store.setup() }
+
+onMounted(fetchPending)
+
+const groups = computed(() => [
+    { label: 'Persianas', icon: Blinds,    devices: Object.entries(store.storage.blinds ?? {}).map(([id, d]) => ({ id, ...d, category: 'blinds' })) },
+    { label: 'Luces',     icon: Lightbulb, devices: Object.entries(store.storage.lights ?? {}).map(([id, d]) => ({ id, ...d, category: 'lights' })) },
+].filter(g => g.devices.length))
+
+// ---- Detail ----
+
+const {
+    selectedDevice, devicePrefs, deviceMap,
+    firmwareList, selectedFirmware,
+    savingPrefs, savingMap, flashingFirmware,
+    prefLabels, mapLabels, timeKeys, percentKeys,
+    prefsChanged, mapChanged,
+    open: openDevice, close: closeDevice,
+    ping, getInfo, toggleLock, resetPosition, deleteDevice,
+    savePrefs, saveMap, flashFirmware,
+} = useDeviceDetail()
+
+watch(pendingDeviceId, id => {
+    if (!id) return
+    for (const [category, devices] of Object.entries(store.storage)) {
+        if (id in devices) { openDevice({ ...devices[id], id, category }); break }
     }
+    pendingDeviceId.value = null
+}, { immediate: true })
 
-    function startConfig(device) { selectedPending.value = device }
-    function onConfigDone()      { selectedPending.value = null; fetchPending(); store.setup() }
-    function onConfigCancel()    { selectedPending.value = null }
+const live = computed(() => {
+    const d = selectedDevice.value
+    return d ? store.storage[d.category]?.[d.id] ?? d : null
+})
+const locked = computed(() => !!live.value?.locked)
 
-    // Only shows the lock action, the API checks is_admin again on every call
-    const isAdmin = ref(false)
-
-    async function fetchUser() {
-        try {
-            const res = await fetch('/auth/passkey/me')
-            if (res.ok) isAdmin.value = (await res.json()).is_admin === true
-        } catch {}
-    }
-
-    onMounted(() => { fetchPending(); fetchUser() })
-
-    const deviceGroups = computed(() => [
-        { label: 'Persianas', devices: Object.entries(store.storage.blinds ?? {}).map(([id, d]) => ({ id, ...d, category: 'blinds' })) },
-        { label: 'Luces',     devices: Object.entries(store.storage.lights ?? {}).map(([id, d]) => ({ id, ...d, category: 'lights' })) },
-    ].filter(g => g.devices.length > 0))
-
-    // --- Detail view ---
-
-    const {
-        selectedDevice, devicePrefs, deviceMap,
-        firmwareList, selectedFirmware,
-        savingPrefs, savingMap, flashingFirmware,
-        focusedPrefKey, prefLabels, mapLabels,
-        timeKeys, percentKeys, prefsChanged, mapChanged,
-        formatPrefDisplay, startEditPref,
-        open:          openDevice,
-        close:         closeDevice,
-        ping:          pingDevice,
-        getInfo:       getDeviceInfo,
-        toggleLock,
-        resetPosition,
-        deleteDevice,
-        savePrefs,
-        saveMap,
-        flashFirmware,
-    } = useDeviceDetail()
-
-    watch(pendingDeviceId, (id) => {
-        if (!id) return
-        for (const [category, devices] of Object.entries(store.storage)) {
-            if (id in devices) { openDevice({ ...devices[id], id, category }); break }
-        }
-        pendingDeviceId.value = null
-    }, { immediate: true })
-
-    const selectedLocked = computed(() => {
-        const d = selectedDevice.value
-        return !!(d && store.storage[d.category]?.[d.id]?.locked)
-    })
-
+// Times and percentages are stored in hundredths; they're edited in seconds and percent.
+const scaled = key => timeKeys.value.has(key) || percentKeys.value.has(key)
+const unit = key => (timeKeys.value.has(key) ? 's' : percentKeys.value.has(key) ? '%' : '')
+const shown = key => (scaled(key) ? (Number(devicePrefs[key]) / 100).toString() : devicePrefs[key])
+function setPref(key, raw) {
+    if (scaled(key)) devicePrefs[key] = Math.round(Number(String(raw).replace(',', '.')) * 100)
+    else devicePrefs[key] = raw
+}
 </script>
 
 <template>
+    <div class="view">
+        <Transition name="push" mode="out-in">
+            <!-- One device -->
+            <div v-if="selectedDevice" :key="selectedDevice.id" class="page">
+                <div class="bar">
+                    <button class="back" type="button" @click="closeDevice">
+                        <ChevronLeft :size="22" :stroke-width="2.4" />Dispositivos
+                    </button>
+                </div>
 
-    <div class="h-full flex flex-col">
+                <header class="device-head">
+                    <span class="device-icon">
+                        <component :is="selectedDevice.category === 'blinds' ? Blinds : Lightbulb" :size="30" :stroke-width="1.8" />
+                    </span>
+                    <h1 class="title-1">{{ live.name }}</h1>
+                    <div class="badges">
+                        <span class="mono secondary">{{ selectedDevice.id }}</span>
+                        <span class="badge" :class="live.connection?.online ? 'green' : 'red'">{{ live.connection?.online ? 'Conectado' : 'Sin conexión' }}</span>
+                        <span v-if="locked" class="badge orange">Bloqueado</span>
+                    </div>
+                </header>
 
-        <!-- Desktop header -->
-        <div v-if="selectedDevice" class="hidden md:flex items-center gap-4 px-8 h-[72px] shrink-0">
-            <Btn :pressing="false" @click="closeDevice">
-                <ChevronLeft class="w-[18px] h-[18px] text-tp-text/80" />
-            </Btn>
-            <component :is="selectedDevice.category === 'blinds' ? Blinds : Lightbulb" class="w-5 h-5 text-white shrink-0" />
-            <span class="text-lg font-semibold text-tp-text">{{ selectedDevice.name }}</span>
-            <div class="w-2 h-2 rounded-full shrink-0" :class="selectedDevice.connection?.online ? 'bg-tp-on shadow-[0_0_6px_var(--color-tp-on)]' : 'bg-tp-off'"></div>
-        </div>
+                <div class="columns">
+                    <div>
+                        <ListSection header="Acciones">
+                            <ListRow icon="network" tint="green" title="Ping" clickable @click="ping()" />
+                            <ListRow icon="refresh" tint="blue" title="Actualizar información" clickable @click="getInfo()" />
+                            <ListRow
+                                v-if="isAdmin && selectedDevice.category === 'blinds'"
+                                icon="lock"
+                                tint="orange"
+                                :title="locked ? 'Desbloquear' : 'Bloquear'"
+                                clickable
+                                @click="toggleLock()"
+                            />
+                            <ListRow v-if="selectedDevice.category === 'blinds'" icon="location" tint="indigo" title="Reiniciar posición" clickable @click="resetPosition()" />
+                            <ListRow v-if="!locked" title="Eliminar dispositivo" clickable destructive @click="deleteDevice()" />
+                        </ListSection>
 
-        <!-- LIST VIEW -->
-        <div v-if="!selectedDevice" class="flex-1 overflow-y-auto px-5 md:px-8 pt-28 md:pt-6 pb-32 md:pb-8 flex flex-col gap-8">
+                        <ListSection v-if="Object.keys(devicePrefs).length" header="Preferencias">
+                            <ListRow v-for="(value, key) in devicePrefs" :key="key" :title="prefLabels[key] ?? key">
+                                <template #trailing>
+                                    <Toggle v-if="typeof value === 'boolean'" v-model="devicePrefs[key]" :label="prefLabels[key] ?? key" />
+                                    <span v-else class="field">
+                                        <input
+                                            class="row-input trailing"
+                                            type="text"
+                                            :inputmode="typeof value === 'number' ? 'decimal' : 'text'"
+                                            :value="shown(key)"
+                                            @change="setPref(key, $event.target.value)"
+                                        />
+                                        <span v-if="unit(key)" class="unit">{{ unit(key) }}</span>
+                                    </span>
+                                </template>
+                            </ListRow>
+                        </ListSection>
+                        <button v-if="prefsChanged || savingPrefs" class="btn btn-prominent block save" type="button" :disabled="savingPrefs" @click="savePrefs()">
+                            <Spinner v-if="savingPrefs" :size="18" style="color: #fff" />
+                            <span v-else>Guardar y enviar</span>
+                        </button>
+                    </div>
 
-            <section v-if="pendingDevices.length > 0">
-                <p class="text-base font-semibold text-white px-1 pb-3 pt-1">Sin configurar</p>
-                <div class="rounded-2xl overflow-hidden bg-[#111113] device-list">
-                    <div
-                        v-for="device in pendingDevices"
-                        :key="device.mac"
-                        class="flex items-center gap-4 px-4 py-3 select-none"
-                        @click="startConfig(device)"
+                    <div>
+                        <ListSection v-if="Object.keys(deviceMap).length" header="Posición en el plano">
+                            <ListRow v-for="(value, key) in deviceMap" :key="key" :title="mapLabels[key] ?? key">
+                                <template #trailing>
+                                    <input v-model="deviceMap[key]" class="row-input trailing" inputmode="numeric" />
+                                </template>
+                            </ListRow>
+                        </ListSection>
+                        <button v-if="mapChanged || savingMap" class="btn btn-prominent block save" type="button" :disabled="savingMap" @click="saveMap()">
+                            <Spinner v-if="savingMap" :size="18" style="color: #fff" />
+                            <span v-else>Guardar posición</span>
+                        </button>
+
+                        <ListSection header="Firmware" :footer="firmwareList.length ? 'Elige una versión e instálala por OTA.' : 'No hay firmwares subidos.'">
+                            <ListRow
+                                v-for="fw in firmwareList"
+                                :key="fw.version"
+                                :title="fw.name"
+                                :subtitle="`v${fw.version} · ${fw.chip}`"
+                                small-subtitle
+                                clickable
+                                @click="selectedFirmware = selectedFirmware === fw.version ? null : fw.version"
+                            >
+                                <template #trailing>
+                                    <span v-if="fw.active" class="badge green">Activo</span>
+                                    <span class="check" :class="{ on: selectedFirmware === fw.version }" />
+                                </template>
+                            </ListRow>
+                        </ListSection>
+                        <button v-if="selectedFirmware || flashingFirmware" class="btn btn-prominent block save" type="button" :disabled="flashingFirmware" @click="flashFirmware()">
+                            <Spinner v-if="flashingFirmware" :size="18" style="color: #fff" />
+                            <span v-else>Instalar v{{ selectedFirmware }}</span>
+                        </button>
+                    </div>
+                </div>
+
+                <section class="section">
+                    <div class="section-header"><span>Actividad MQTT</span></div>
+                    <DeviceLogs :device-id="selectedDevice.id" />
+                </section>
+            </div>
+
+            <!-- The list -->
+            <div v-else key="list" class="page">
+                <header class="page-header">
+                    <h1 class="large-title">Dispositivos</h1>
+                </header>
+
+                <ListSection v-if="pendingDevices.length" header="Sin configurar" footer="Interruptores nuevos que ya se han conectado. Elige cuál es en el plano.">
+                    <ListRow
+                        v-for="d in pendingDevices"
+                        :key="d.mac"
+                        :title="d.mac"
+                        subtitle="Toca para colocarlo"
+                        small-subtitle
+                        clickable
+                        chevron
+                        @click="selectedPending = d"
                     >
-                        <Cpu class="w-4 h-4 shrink-0 text-tp-muted" />
-                        <span class="font-mono text-xs text-tp-muted flex-1">{{ device.mac }}</span>
-                        <ChevronRight class="w-4 h-4 shrink-0 text-tp-muted/50" />
-                    </div>
+                        <template #leading><span class="row-icon" style="background: var(--gray)"><Cpu :size="18" :stroke-width="2" /></span></template>
+                    </ListRow>
+                </ListSection>
+
+                <div v-if="!groups.length && !pendingDevices.length" class="empty">
+                    <Cpu :size="44" :stroke-width="1.5" class="empty-icon" />
+                    <h3>Sin dispositivos</h3>
+                    <p class="subheadline">Enciende un interruptor nuevo y aparecerá aquí para configurarlo.</p>
                 </div>
-            </section>
 
-            <section>
-                <div v-if="deviceGroups.length === 0" class="text-sm text-tp-muted/50 italic px-1">
-                    No hay dispositivos configurados.
-                </div>
-                <div v-for="group in deviceGroups" :key="group.label" class="mb-6">
-                    <p class="text-base font-semibold text-white px-1 pb-3 pt-1">{{ group.label }}</p>
-                    <div class="rounded-2xl overflow-hidden bg-[#111113] device-list">
-                        <div
-                            v-for="device in group.devices"
-                            :key="device.id"
-                            class="flex items-center gap-4 px-4 py-3 select-none"
-                            @click="openDevice(device)"
-                        >
-                            <div class="w-2 h-2 rounded-full shrink-0" :class="device.connection?.online ? 'bg-tp-on shadow-[0_0_6px_var(--color-tp-on)]' : 'bg-tp-off'"></div>
-                            <span class="font-mono text-xs text-tp-muted shrink-0 hidden md:block">{{ device.id }}</span>
-                            <span class="text-sm text-tp-text flex-1 truncate">{{ device.name }}</span>
-                            <Lock v-if="device.locked" class="w-3.5 h-3.5 shrink-0 text-tp-muted" />
-                            <ChevronRight class="w-4 h-4 shrink-0 text-tp-muted/50" />
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <MapPopup :device="selectedPending" @done="onConfigDone" @cancel="onConfigCancel" />
-
-        </div>
-
-        <!-- DETAIL VIEW -->
-        <div v-else class="flex-1 overflow-y-auto px-5 md:px-8 pt-24 md:pt-0 pb-32 md:pb-8 flex flex-col gap-6">
-
-            <!-- Mobile back + title -->
-            <div class="md:hidden flex items-center gap-3 pt-4">
-                <Btn :pressing="false" @click="closeDevice">
-                    <ChevronLeft class="w-[18px] h-[18px] text-tp-text/80" />
-                </Btn>
-                <span class="text-lg font-semibold text-tp-text">{{ selectedDevice.name }}</span>
+                <ListSection v-for="g in groups" :key="g.label" :header="g.label">
+                    <ListRow
+                        v-for="d in g.devices"
+                        :key="d.id"
+                        :title="d.name"
+                        :subtitle="d.locked ? `${d.id} · Bloqueado` : d.id"
+                        small-subtitle
+                        :value="d.connection?.online ? '' : 'Sin conexión'"
+                        clickable
+                        chevron
+                        @click="openDevice(d)"
+                    >
+                        <template #leading>
+                            <span class="row-icon dev-icon" :style="{ background: d.connection?.online ? 'var(--accent)' : 'var(--gray)' }">
+                                <component :is="g.icon" :size="18" :stroke-width="2" />
+                            </span>
+                        </template>
+                    </ListRow>
+                </ListSection>
             </div>
+        </Transition>
 
-            <!-- Actions -->
-            <div class="pt-2">
-                <p class="text-base font-semibold text-white px-1 pb-3">Acciones</p>
-                <div class="rounded-2xl overflow-hidden bg-[#111113] device-list">
-                    <button @click="pingDevice()" class="action-row">
-                        <Radio class="w-4 h-4 shrink-0" /><span>Ping</span>
-                    </button>
-                    <button @click="getDeviceInfo()" class="action-row">
-                        <Info class="w-4 h-4 shrink-0" /><span>Actualizar información</span>
-                    </button>
-                    <button v-if="isAdmin && selectedDevice.category === 'blinds'" @click="toggleLock()" class="action-row">
-                        <component :is="selectedLocked ? LockOpen : Lock" class="w-4 h-4 shrink-0" />
-                        <span>{{ selectedLocked ? 'Desbloquear' : 'Bloquear' }}</span>
-                    </button>
-                    <button v-if="selectedDevice.category === 'blinds'" @click="resetPosition()" class="action-row">
-                        <Crosshair class="w-4 h-4 shrink-0" /><span>Reiniciar posición</span>
-                    </button>
-                    <button v-if="!selectedLocked" @click="deleteDevice()" class="action-row action-row-danger">
-                        <Trash2 class="w-4 h-4 shrink-0" /><span>Eliminar dispositivo</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Prefs + Map + Firmware -->
-            <div class="flex flex-col md:flex-row gap-6 items-start">
-
-                <!-- Prefs editor -->
-                <div v-if="Object.keys(devicePrefs).length > 0" class="flex-1 min-w-0">
-                    <p class="text-base font-semibold text-white px-1 pb-3">Preferencias</p>
-                    <div class="rounded-2xl overflow-hidden bg-[#111113] device-list mb-3">
-                        <div
-                            v-for="(value, key) in devicePrefs"
-                            :key="key"
-                            class="flex items-center gap-4 px-4 py-3"
-                        >
-                            <span class="text-sm text-tp-text flex-1">{{ prefLabels[key] ?? key }}</span>
-                            <div
-                                v-if="typeof value === 'boolean'"
-                                class="pref-checkbox"
-                                :class="devicePrefs[key] ? 'pref-checkbox--on' : ''"
-                                @click="devicePrefs[key] = !devicePrefs[key]"
-                            />
-                            <div
-                                v-else-if="(timeKeys.has(key) || percentKeys.has(key)) && focusedPrefKey !== key"
-                                class="field-input field-input-display w-20"
-                                @click="startEditPref(key)"
-                            >{{ formatPrefDisplay(key, devicePrefs[key]) }}</div>
-                            <input
-                                v-else
-                                v-model="devicePrefs[key]"
-                                class="field-input w-20"
-                                :data-pref-input="key"
-                                :type="typeof value === 'number' ? 'number' : 'text'"
-                                @blur="focusedPrefKey = null"
-                            />
-                        </div>
-                    </div>
-                    <Transition name="btn-fade">
-                        <button v-if="prefsChanged || savingPrefs" @click="savePrefs()" class="action-primary">
-                            <Save class="w-4 h-4 shrink-0" />
-                            <span>{{ savingPrefs ? 'Guardando…' : 'Guardar y enviar' }}</span>
-                        </button>
-                    </Transition>
-                </div>
-
-                <!-- Map editor -->
-                <div v-if="Object.keys(deviceMap).length > 0" class="flex-1 min-w-0">
-                    <p class="text-base font-semibold text-white px-1 pb-3">Posición</p>
-                    <div class="rounded-2xl overflow-hidden bg-[#111113] device-list mb-3">
-                        <div
-                            v-for="(value, key) in deviceMap"
-                            :key="key"
-                            class="flex items-center gap-4 px-4 py-3"
-                        >
-                            <span class="text-sm text-tp-text flex-1">{{ mapLabels[key] ?? key }}</span>
-                            <input v-model="deviceMap[key]" type="number" class="field-input w-20" />
-                        </div>
-                    </div>
-                    <Transition name="btn-fade">
-                        <button v-if="mapChanged || savingMap" @click="saveMap()" class="action-primary">
-                            <Save class="w-4 h-4 shrink-0" />
-                            <span>{{ savingMap ? 'Guardando…' : 'Guardar y enviar' }}</span>
-                        </button>
-                    </Transition>
-                </div>
-
-                <!-- Firmware selector -->
-                <div class="flex-1 min-w-0">
-                    <p class="text-base font-semibold text-white px-1 pb-3">Firmware</p>
-                    <div v-if="firmwareList.length === 0" class="text-sm text-tp-muted/50 italic px-1 mb-3">
-                        No hay firmwares disponibles.
-                    </div>
-                    <div v-else class="rounded-2xl overflow-hidden bg-[#111113] device-list mb-3">
-                        <div
-                            v-for="fw in firmwareList"
-                            :key="fw.version"
-                            class="flex items-center gap-4 px-4 py-3 select-none"
-                            @click="selectedFirmware = selectedFirmware === fw.version ? null : fw.version"
-                        >
-                            <div class="w-4 h-4 rounded-full border border-tp-muted/40 flex items-center justify-center shrink-0">
-                                <div v-if="selectedFirmware === fw.version" class="w-2 h-2 rounded-full bg-tp-accent"></div>
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <p class="text-sm text-tp-text truncate">{{ fw.name }}</p>
-                                <p class="text-xs font-mono text-tp-muted">v{{ fw.version }} · {{ fw.chip }}</p>
-                            </div>
-                            <span v-if="fw.active" class="text-xs text-tp-on font-mono uppercase tracking-wider shrink-0">Activo</span>
-                        </div>
-                    </div>
-                    <Transition name="btn-fade">
-                        <button v-if="selectedFirmware || flashingFirmware" @click="flashFirmware()" class="action-primary">
-                            <Zap class="w-4 h-4 shrink-0" />
-                            <span>{{ flashingFirmware ? 'Subiendo…' : 'Subir firmware' }}</span>
-                        </button>
-                    </Transition>
-                </div>
-
-            </div>
-
-            <!-- Logs -->
-            <div>
-                <p class="text-base font-semibold text-white px-1 pb-3">Actividad MQTT</p>
-                <DeviceLogs :device-id="selectedDevice.id" />
-            </div>
-
-        </div>
-
+        <MapPopup :device="selectedPending" @done="onConfigDone" @cancel="selectedPending = null" />
     </div>
-
 </template>
 
 <style scoped>
-    .action-row {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        width: 100%;
-        padding: 12px 16px;
-        font-size: 0.875rem;
-        color: var(--color-tp-muted);
-        transition: color 0.15s ease;
-        text-align: left;
-    }
-    .action-row:hover { color: var(--color-tp-text); }
-
-    .field-input-display {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-    }
-
-    .pref-checkbox {
-        position: relative;
-        width: 20px;
-        height: 20px;
-        background: rgba(255, 255, 255, 0.06);
-        border: 0.5px solid rgba(255, 255, 255, 0.12);
-        border-radius: 8px;
-        transition: background 0.15s ease, border-color 0.15s ease;
-        flex-shrink: 0;
-    }
-    .pref-checkbox--on {
-        background: var(--color-tp-accent);
-        border-color: var(--color-tp-accent);
-    }
-
-    .btn-fade-enter-active,
-    .btn-fade-leave-active {
-        transition: opacity 0.2s ease, transform 0.2s ease;
-    }
-    .btn-fade-enter-from,
-    .btn-fade-leave-to {
-        opacity: 0;
-        transform: translateY(4px);
-    }
+.bar { margin: 0 0 6px; }
+.back { display: inline-flex; align-items: center; gap: 2px; height: 40px; padding: 0 14px 0 8px; border-radius: 999px; font-size: 17px; color: var(--accent); background: var(--fill-3); }
+.back:hover { background: var(--fill-2); }
+.device-head { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 4px 0 26px; text-align: center; }
+.device-icon { width: 72px; height: 72px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: var(--accent); margin-bottom: 6px; }
+.badges { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+.columns { display: grid; gap: 0 24px; }
+@media (min-width: 1100px) { .columns { grid-template-columns: 1fr 1fr; align-items: start; } }
+.save { margin: -12px 0 26px; }
+.field { display: inline-flex; align-items: center; gap: 4px; max-width: 120px; }
+.field .row-input { width: 80px; }
+.unit { color: var(--label-2); font-size: 15px; }
+.check { width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--label-3); transition: box-shadow 0.2s; }
+.check.on { box-shadow: inset 0 0 0 7px var(--accent); }
 </style>

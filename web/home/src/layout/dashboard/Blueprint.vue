@@ -1,130 +1,71 @@
 <script setup>
+import { computed, ref } from 'vue'
+import { Map } from 'lucide-vue-next'
 
-    import { ref, computed } from 'vue'
-    import { useDevices } from '@/config/devices'
-    import { useBlueprint } from '@/config/blueprint'
+import Sheet from '@/ui/Sheet.vue'
+import Plan from '@/components/blueprint/Plan.vue'
+import BlindsControl from './BlindsControl.vue'
 
-    import LightsLayer   from '@/components/blueprint/Lights.vue'
-    import BlindsLayer   from '@/components/blueprint/Blinds.vue'
-    import HouseLayer    from '@/components/blueprint/Map.vue'
+import { useDevices } from '@/config/devices'
+import { useBlueprint } from '@/config/blueprint'
 
-    import BlindsControl from './BlindsControl.vue'
+// The house from above: every blind where it really is, drawn as closed as it is. Tap one to move it.
+const store = useDevices()
+const map = useBlueprint()
 
-    const store = useDevices()
-    const map = useBlueprint()
+const selectedId = ref(null)
+const open = computed({
+    get: () => !!selectedId.value && !!store.blinds[selectedId.value],
+    set: v => { if (!v) selectedId.value = null },
+})
 
-    const selectedId = ref(null)
-    const selectedBlind = computed(() =>
-        selectedId.value ? store.blinds[selectedId.value] : null
-    )
-
+const summary = computed(() => {
+    const all = Object.values(store.blinds)
+    if (!all.length) return ''
+    const online = all.filter(d => d.connection?.online).length
+    const opened = all.filter(d => (d.state?.position ?? 0) > 0).length
+    const parts = [`${opened} de ${all.length} persianas abiertas`]
+    if (online < all.length) parts.push(`${all.length - online} sin conexión`)
+    return parts.join(' · ')
+})
 </script>
 
 <template>
+    <div class="view">
+        <div class="page">
+            <header class="page-header">
+                <h1 class="large-title">Plano</h1>
+                <p v-if="summary" class="subheadline secondary">{{ summary }}</p>
+            </header>
 
-    <div class="h-full w-full overflow-hidden min-h-0">
-
-        <!-- Blueprint -->
-        <div class="flex items-center justify-center p-5 md:p-10 h-full">
-            <svg
-                :viewBox="map.storage.viewBox ?? '0 0 0 0'"
-                class="w-full h-auto max-w-3xl"
-                xmlns="http://www.w3.org/2000/svg"
-            >
-                <HouseLayer />
-                <LightsLayer />
-                <BlindsLayer @select="selectedId = $event" />
-            </svg>
+            <div v-if="map.storage.viewBox" class="plan-card">
+                <Plan @select="selectedId = $event" />
+                <p class="footnote tertiary hint">Toca una persiana para moverla.</p>
+            </div>
+            <div v-else class="empty">
+                <Map :size="44" :stroke-width="1.5" class="empty-icon" />
+                <h3>Sin plano</h3>
+                <p class="subheadline">La API todavía no tiene el plano de la casa.</p>
+            </div>
         </div>
 
-        <!-- Popup (bottom sheet on mobile, centered modal on desktop) -->
-        <Teleport to="body">
-            <Transition name="popup">
-                <div
-                    v-if="selectedBlind"
-                    class="blinds-popup-overlay"
-                    @click.self="selectedId = null"
-                >
-                    <div class="blinds-popup">
-                        <BlindsControl :id="selectedId" :device="selectedBlind" @close="selectedId = null" />
-                    </div>
-                </div>
-            </Transition>
-        </Teleport>
-
+        <Sheet v-model:open="open" :title="selectedId ? store.blinds[selectedId]?.name : ''">
+            <BlindsControl v-if="selectedId" :id="selectedId" @close="selectedId = null" />
+        </Sheet>
     </div>
-
 </template>
 
 <style scoped>
-.blinds-popup-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
+.plan-card {
     display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    padding-bottom: 2rem;
-    background: rgba(0, 0, 0, 0.32);
-    backdrop-filter: blur(7px);
-    -webkit-backdrop-filter: blur(7px);
+    flex-direction: column;
+    align-items: center;
+    padding: clamp(16px, 3vw, 32px);
+    border-radius: var(--radius-card);
+    background: var(--cell);
 }
-
-@media (min-width: 768px) {
-    .blinds-popup-overlay {
-        align-items: center;
-        padding-bottom: 0;
-    }
-}
-
-.blinds-popup {
-    width: 92vw;
-    max-width: 24rem;
-    border-radius: 32px;
-    overflow: hidden;
-    background: rgba(26, 26, 28, 0.88);
-    backdrop-filter: blur(40px) saturate(180%);
-    -webkit-backdrop-filter: blur(40px) saturate(180%);
-    border: 0.5px solid rgba(255, 255, 255, 0.14);
-    box-shadow:
-        0 24px 80px rgba(0, 0, 0, 0.65),
-        inset 0 1px 0 rgba(255, 255, 255, 0.12),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
-}
-
-.popup-enter-active {
-    transition: opacity 0.40s ease;
-}
-.popup-leave-active {
-    transition: opacity 0.42s ease;
-}
-.popup-enter-from,
-.popup-leave-to {
-    opacity: 0;
-}
-
-.popup-enter-active .blinds-popup,
-.popup-leave-active .blinds-popup {
-    transform-origin: 50% 100%;
-}
-@media (min-width: 768px) {
-    .blinds-popup {
-        max-width: 400px;
-    }
-    .popup-enter-active .blinds-popup,
-    .popup-leave-active .blinds-popup {
-        transform-origin: 50% 50%;
-    }
-}
-.popup-enter-active .blinds-popup {
-    transition: transform 0.50s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.28s ease;
-}
-.popup-leave-active .blinds-popup {
-    transition: transform 0.42s cubic-bezier(0.4, 0, 0.6, 1), opacity 0.38s ease;
-}
-.popup-enter-from .blinds-popup,
-.popup-leave-to .blinds-popup {
-    transform: scale(0.08);
-    opacity: 0;
-}
+/* The whole house fits on screen under the title, without scrolling. */
+.plan-card :deep(.plan) { max-height: calc(100dvh - 250px); width: auto; max-width: 100%; }
+@media (max-width: 767px) { .plan-card :deep(.plan) { width: 100%; max-height: none; } }
+.hint { margin-top: 14px; text-align: center; }
 </style>

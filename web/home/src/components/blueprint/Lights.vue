@@ -1,63 +1,46 @@
 <script setup>
+import { computed } from 'vue'
+import { useDevices } from '@/config/devices'
+import { api } from '@/config/api'
 
-    import { computed } from 'vue'
-    import { useDevices } from '@/config/devices'
-    import { api } from '@/config/api'
+// Lights on the plan. Their firmware is still in development, so in control mode this only shows
+// what the API reports and sends a toggle.
+const props = defineProps({
+    mode:   { type: String, default: 'control' },
+    picked: { type: String, default: null },
+})
+const emit = defineEmits(['pick'])
 
-    const props = defineProps({
-        mode: { type: String, default: 'control' }
-    })
-    const emit = defineEmits(['pick'])
+const store = useDevices()
+const lights = computed(() => (props.mode === 'config' ? (store.storage.lights ?? {}) : store.lights))
 
-    const store = useDevices()
-
-    const lights = computed(() =>
-        props.mode === 'config'
-            ? (store.storage.lights ?? {})
-            : store.lights
-    )
-
-    const onClick = (id) => {
-        if (props.mode === 'config') return emit('pick', id)
-        api.sendCommand(id, 'toggle')
-    }
-
-    const circleClass = (light) => {
-        if (props.mode === 'config') return 'fill-tp-surface/50 stroke-tp-accent/50'
-        return light.state.on
-            ? 'fill-[#ffe08a12] stroke-[#ffe08a]'
-            : 'fill-tp-surface/50 stroke-tp-border/20'
-    }
-
-    const dotClass = (light) => {
-        if (props.mode === 'config') return 'fill-tp-accent'
-        return light.state.on ? 'fill-[#ffe08a]' : 'fill-muted'
-    }
-
+const onClick = id => {
+    if (props.mode === 'config') return emit('pick', id)
+    api.sendCommand(id, 'toggle')
+}
 </script>
 
 <template>
-
     <g
         v-for="(light, id) in lights"
         :key="id"
         :transform="`translate(${light.map.x}, ${light.map.y})`"
-        class="cursor-pointer select-none"
+        class="light"
+        :class="{ on: mode === 'control' && light.state?.on, config: mode === 'config', picked: picked === id }"
         @click="onClick(id)"
     >
-
-        <!-- Hit area (invisible, larger for accessibility) -->
         <circle r="14" fill="transparent" />
-
-        <!-- Outline circle -->
-        <circle
-            r="10"
-            :class="['transition-all duration-300 stroke-2', circleClass(light)]"
-        />
-
-        <!-- Inline circle -->
-        <circle r="3" :class="dotClass(light)" />
-
+        <circle r="10" class="ring" />
+        <circle r="3" class="dot" />
     </g>
-
 </template>
+
+<style scoped>
+.light { cursor: pointer; }
+.ring { fill: var(--plan-track); stroke: var(--plan-wall); stroke-width: 1.5; transition: fill 0.3s, stroke 0.3s; }
+.dot { fill: var(--label-3); transition: fill 0.3s; }
+.on .ring { fill: color-mix(in srgb, var(--yellow) 18%, transparent); stroke: var(--yellow); }
+.on .dot, .config .dot { fill: var(--yellow); }
+.config .ring { stroke: var(--accent); }
+.picked .ring { fill: var(--accent); }
+</style>

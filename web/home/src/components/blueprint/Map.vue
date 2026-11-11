@@ -171,8 +171,8 @@
     <path
         :d="wallSegments.interiorPath"
         fill="none"
-        class="stroke-2"
-        style="stroke: rgba(255,255,255,0.80);"
+        stroke-width="2"
+        style="stroke: var(--plan-wall);"
         stroke-linecap="round"
         mask="url(#door-mask)"
     />
@@ -181,8 +181,8 @@
     <path
         :d="exteriorOutlinePath"
         fill="none"
-        class="stroke-2"
-        style="stroke: rgba(255,255,255,0.80);"
+        stroke-width="2"
+        style="stroke: var(--plan-wall);"
         stroke-linecap="round"
         mask="url(#door-mask)"
     />
@@ -190,10 +190,9 @@
     <!-- Room labels -->
     <g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', sans-serif"
        font-size="11"
-       font-weight="500"
-       fill="rgba(255,255,255,0.68)"
-       letter-spacing="1.4"
-       class="uppercase pointer-events-none">
+       font-weight="600"
+       letter-spacing="1.2"
+       style="fill: var(--plan-label); text-transform: uppercase; pointer-events: none;">
         <text
             v-for="(label, i) in map.storage.labels"
             :key="i"

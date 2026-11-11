@@ -1,234 +1,167 @@
 <script setup>
+import { computed, onMounted, ref } from 'vue'
+import { Check, HardDriveDownload, MoreHorizontal, Trash2 } from 'lucide-vue-next'
 
-    import { ref, onMounted } from 'vue'
-    import { Upload, Cpu, Trash2, Check, ChevronDown } from 'lucide-vue-next'
-    import { api } from '@/config/api'
+import ListSection from '@/ui/ListSection.vue'
+import ListRow     from '@/ui/ListRow.vue'
+import Segmented   from '@/ui/Segmented.vue'
+import Spinner     from '@/ui/Spinner.vue'
 
-    const firmwares = ref([])
-    const uploading = ref(false)
-    const uploadStatus = ref('')
-    const expandedId = ref(null)
+import { api } from '@/config/api'
+import { ask, toast } from '@/ui/dialog.js'
+import { openMenu } from '@/menu.js'
 
-    const form = ref({
-        name: '',
-        chip: '',
-        target: 'blinds',
-        version: '',
-        notes: ''
+// The binaries the switches update from: upload a new one, mark which is active, delete old ones.
+const firmwares = ref([])
+const uploading = ref(false)
+const fileInput = ref(null)
+const selectedFile = ref(null)
+const form = ref({ name: '', chip: '', target: 'blinds', version: '', notes: '' })
+
+const targets = [
+    { value: 'blinds', label: 'Persianas' },
+    { value: 'lights', label: 'Luces' },
+    { value: 'switches', label: 'Interruptores' },
+]
+const targetName = t => targets.find(x => x.value === t)?.label ?? t
+const canUpload = computed(() => selectedFile.value && form.value.name && form.value.chip && form.value.version && !uploading.value)
+
+onMounted(load)
+
+async function load() {
+    try { firmwares.value = await api.getFirmwares() }
+    catch (e) { console.error('TPHome - Error loading firmwares:', e) }
+}
+
+function onFile(e) {
+    const file = e.target.files[0]
+    selectedFile.value = file && file.name.endsWith('.bin') ? file : null
+    if (file && !selectedFile.value) toast('Tiene que ser un archivo .bin', 'warning')
+    e.target.value = ''
+}
+
+async function upload() {
+    if (!canUpload.value) return
+    uploading.value = true
+    try {
+        await api.uploadFirmware(selectedFile.value, { ...form.value })
+        form.value = { name: '', chip: '', target: 'blinds', version: '', notes: '' }
+        selectedFile.value = null
+        toast('Firmware subido')
+        await load()
+    } catch (e) {
+        console.error('TPHome - Upload error:', e)
+        toast('No se pudo subir', 'warning')
+    } finally {
+        uploading.value = false
+    }
+}
+
+async function activate(fw) {
+    try { await api.activateFirmware(fw.id); toast(`v${fw.version} es ahora la activa`); await load() }
+    catch (e) { console.error('TPHome - Activate error:', e); toast('No se pudo activar', 'warning') }
+}
+
+async function remove(fw) {
+    const ok = await ask({
+        title: `¿Eliminar ${fw.name} v${fw.version}?`,
+        message: 'Los interruptores ya no podrán instalar esta versión.',
+        actions: [
+            { label: 'Cancelar', role: 'cancel', value: false },
+            { label: 'Eliminar', role: 'destructive', value: true },
+        ],
     })
+    if (!ok) return
+    try { await api.deleteFirmware(fw.id); await load() }
+    catch (e) { console.error('TPHome - Delete error:', e); toast('No se pudo eliminar', 'warning') }
+}
 
-    const selectedFile = ref(null)
+function menu(e, fw) {
+    openMenu(e.currentTarget, [
+        !fw.active && { label: 'Marcar como activa', icon: Check, action: () => activate(fw) },
+        { label: 'Eliminar', icon: Trash2, danger: true, action: () => remove(fw) },
+    ])
+}
 
-    onMounted(loadFirmwares)
-
-    async function loadFirmwares() {
-        try {
-            firmwares.value = await api.getFirmwares()
-        } catch (error) {
-            console.error('TPHome - Error loading firmwares:', error)
-        }
-    }
-
-    function onFileChange(event) {
-        const file = event.target.files[0]
-        selectedFile.value = (file && file.name.endsWith('.bin')) ? file : null
-    }
-
-    async function handleUpload() {
-        if (!selectedFile.value || !form.value.name || !form.value.chip || !form.value.version) return
-
-        uploading.value = true
-        uploadStatus.value = ''
-
-        try {
-            await api.uploadFirmware(selectedFile.value, { ...form.value })
-            form.value = { name: '', chip: '', target: 'blinds', version: '', notes: '' }
-            selectedFile.value = null
-            uploadStatus.value = 'ok'
-            await loadFirmwares()
-        } catch (error) {
-            console.error('TPHome - Upload error:', error)
-            uploadStatus.value = 'error'
-        } finally {
-            uploading.value = false
-        }
-    }
-
-    async function activate(id) {
-        try {
-            await api.activateFirmware(id)
-            await loadFirmwares()
-        } catch (error) {
-            console.error('TPHome - Activate error:', error)
-        }
-    }
-
-    async function remove(id) {
-        if (!confirm('¿Eliminar este firmware?')) return
-        try {
-            await api.deleteFirmware(id)
-            if (expandedId.value === id) expandedId.value = null
-            await loadFirmwares()
-        } catch (error) {
-            console.error('TPHome - Delete error:', error)
-        }
-    }
-
-    function toggleExpanded(id) {
-        expandedId.value = expandedId.value === id ? null : id
-    }
-
+const when = d => new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
 </script>
 
 <template>
+    <div class="view">
+        <div class="page">
+            <header class="page-header">
+                <h1 class="large-title">Firmware</h1>
+            </header>
 
-    <div class="h-full overflow-y-auto px-5 md:px-8 pt-28 md:pt-6 pb-32 md:pb-8 space-y-8">
-
-        <!-- Upload section -->
-        <section>
-            <p class="text-base font-semibold text-white px-1 pb-3">Subir firmware</p>
-
-            <div class="rounded-2xl overflow-hidden bg-[#111113] device-list mb-3">
-
-                <div class="px-4 py-3">
-                    <label class="flex items-center gap-4 cursor-pointer">
-                        <span class="text-sm text-tp-text flex-1">Archivo .bin</span>
-                        <span class="text-xs font-mono text-tp-muted truncate max-w-[140px]">
-                            {{ selectedFile ? selectedFile.name : 'Ninguno' }}
-                        </span>
-                        <span class="text-xs text-tp-accent bg-tp-accent/10 px-2.5 py-1 rounded-lg shrink-0">Elegir</span>
-                        <input type="file" accept=".bin" @change="onFileChange" class="hidden" />
-                    </label>
-                </div>
-
-                <div class="flex items-center gap-4 px-4 py-3">
-                    <span class="text-sm text-tp-text flex-1">Nombre</span>
-                    <input v-model="form.name" type="text" placeholder="Persiana v2.1" class="field-input w-40" />
-                </div>
-
-                <div class="flex items-center gap-4 px-4 py-3">
-                    <span class="text-sm text-tp-text flex-1">Versión</span>
-                    <input v-model="form.version" type="text" placeholder="2.1.0" class="field-input w-20" />
-                </div>
-
-                <div class="flex items-center gap-4 px-4 py-3">
-                    <span class="text-sm text-tp-text flex-1">Chip</span>
-                    <input v-model="form.chip" type="text" placeholder="BK7231N" class="field-input w-24" />
-                </div>
-
-                <div class="flex items-center gap-4 px-4 py-3">
-                    <span class="text-sm text-tp-text flex-1">Target</span>
-                    <select v-model="form.target" class="field-input w-32">
-                        <option value="blinds">Persianas</option>
-                        <option value="lights">Luces</option>
-                        <option value="switches">Interruptores</option>
-                    </select>
-                </div>
-
-                <div class="px-4 py-3">
-                    <p class="text-sm text-tp-muted mb-2">Notas</p>
-                    <textarea
-                        v-model="form.notes"
-                        placeholder="Changelog o notas..."
-                        rows="2"
-                        class="w-full bg-transparent text-sm text-tp-text placeholder:text-tp-muted/40 resize-none outline-none"
-                    />
-                </div>
-
-            </div>
-
-            <div class="flex items-center gap-3">
-                <button
-                    @click="handleUpload"
-                    :disabled="uploading || !selectedFile || !form.name || !form.chip || !form.version"
-                    class="action-primary disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                    <Upload class="w-4 h-4 shrink-0" />
-                    <span>{{ uploading ? 'Subiendo...' : 'Subir firmware' }}</span>
-                </button>
-                <span v-if="uploadStatus === 'ok'" class="text-xs text-tp-on">Subido correctamente</span>
-                <span v-if="uploadStatus === 'error'" class="text-xs text-tp-off">Error al subir</span>
-            </div>
-        </section>
-
-        <!-- Firmware list -->
-        <section>
-            <p class="text-base font-semibold text-white px-1 pb-3">
-                Firmwares
-                <span class="text-tp-accent font-mono ml-1.5">{{ firmwares.length }}</span>
-            </p>
-
-            <div v-if="firmwares.length === 0" class="text-sm text-tp-muted/50 italic px-1">
-                No hay firmwares subidos.
-            </div>
-
-            <div v-else class="rounded-2xl overflow-hidden bg-[#111113] device-list">
-                <div
-                    v-for="fw in firmwares"
-                    :key="fw.id"
-                    :class="{ 'bg-tp-accent/5': fw.active }"
-                >
-                    <div
-                        class="flex items-center gap-4 px-4 py-3 cursor-pointer select-none"
-                        @click="toggleExpanded(fw.id)"
-                    >
-                        <Cpu class="w-4 h-4 shrink-0 text-tp-accent/70" />
-                        <div class="flex-1 min-w-0">
-                            <p class="text-sm text-tp-text truncate">{{ fw.name }}</p>
-                            <p class="text-xs font-mono text-tp-muted">v{{ fw.version }} · {{ fw.chip }}</p>
+            <div class="columns">
+                <section>
+                    <ListSection header="Subir firmware">
+                        <ListRow title="Archivo" clickable @click="fileInput.click()">
+                            <template #trailing>
+                                <span class="row-value file">{{ selectedFile ? selectedFile.name : 'Elegir .bin…' }}</span>
+                            </template>
+                        </ListRow>
+                        <ListRow title="Nombre">
+                            <template #trailing><input v-model="form.name" class="row-input trailing" placeholder="Persiana" /></template>
+                        </ListRow>
+                        <ListRow title="Versión">
+                            <template #trailing><input v-model="form.version" class="row-input trailing" placeholder="2.2.0" /></template>
+                        </ListRow>
+                        <ListRow title="Chip">
+                            <template #trailing><input v-model="form.chip" class="row-input trailing" placeholder="ESP8266" /></template>
+                        </ListRow>
+                        <div class="row target">
+                            <Segmented v-model="form.target" :options="targets" />
                         </div>
-                        <span v-if="fw.active" class="text-xs text-tp-on font-mono uppercase tracking-wider shrink-0">Activo</span>
-                        <ChevronDown
-                            class="w-4 h-4 shrink-0 text-tp-muted transition-transform duration-200"
-                            :class="{ 'rotate-180': expandedId === fw.id }"
-                        />
+                        <div class="row notes">
+                            <textarea v-model="form.notes" class="row-input" rows="2" placeholder="Notas o cambios" />
+                        </div>
+                    </ListSection>
+                    <input ref="fileInput" type="file" accept=".bin" hidden @change="onFile" />
+                    <button class="btn btn-prominent block upload" type="button" :disabled="!canUpload" @click="upload">
+                        <Spinner v-if="uploading" :size="18" style="color: #fff" />
+                        <span v-else>Subir</span>
+                    </button>
+                </section>
+
+                <section>
+                    <ListSection v-if="firmwares.length" header="Versiones" footer="La activa es la que se ofrece al instalar desde un dispositivo.">
+                        <ListRow
+                            v-for="fw in firmwares"
+                            :key="fw.id"
+                            :title="`${fw.name} v${fw.version}`"
+                            :subtitle="[fw.chip, targetName(fw.target), when(fw.uploaded_at), fw.notes].filter(Boolean).join(' · ')"
+                            small-subtitle
+                        >
+                            <template #leading>
+                                <span class="row-icon" :style="{ background: fw.active ? 'var(--green)' : 'var(--gray)' }"><HardDriveDownload :size="17" :stroke-width="2" /></span>
+                            </template>
+                            <template #trailing>
+                                <span v-if="fw.active" class="badge green">Activa</span>
+                                <button class="more" type="button" aria-label="Más" @click="menu($event, fw)"><MoreHorizontal :size="18" :stroke-width="2.2" /></button>
+                            </template>
+                        </ListRow>
+                    </ListSection>
+                    <div v-else class="empty">
+                        <HardDriveDownload :size="44" :stroke-width="1.5" class="empty-icon" />
+                        <h3>Sin firmwares</h3>
+                        <p class="subheadline">Sube un .bin para poder actualizar los interruptores.</p>
                     </div>
-
-                    <div class="expand-content" :class="{ 'expand-open': expandedId === fw.id }">
-                        <div class="px-4 pb-2 space-y-1">
-                            <p class="text-xs text-tp-muted/60"><span class="text-tp-muted">Target:</span> {{ fw.target }}</p>
-                            <p class="text-xs text-tp-muted/60"><span class="text-tp-muted">Subido:</span> {{ new Date(fw.uploaded_at).toLocaleString() }}</p>
-                            <p v-if="fw.notes" class="text-xs text-tp-muted/60"><span class="text-tp-muted">Notas:</span> {{ fw.notes }}</p>
-                        </div>
-                        <div class="flex items-center gap-2 px-4 pb-3">
-                            <button
-                                v-if="!fw.active"
-                                @click.stop="activate(fw.id)"
-                                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-tp-on/10 text-tp-on hover:bg-tp-on/20 transition-all cursor-pointer"
-                            >
-                                <Check class="w-3.5 h-3.5" />Activar
-                            </button>
-                            <button
-                                @click.stop="remove(fw.id)"
-                                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-tp-off/10 text-tp-off hover:bg-tp-off/20 transition-all cursor-pointer"
-                            >
-                                <Trash2 class="w-3.5 h-3.5" />Eliminar
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                </section>
             </div>
-        </section>
-
+        </div>
     </div>
-
 </template>
 
 <style scoped>
-    select.field-input {
-        appearance: none;
-        -webkit-appearance: none;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 8px center;
-        padding-right: 24px;
-    }
-    select.field-input option { background: #111113; }
-
-    .expand-content {
-        max-height: 0;
-        overflow: hidden;
-        transition: max-height 0.4s ease-out;
-    }
-    .expand-open { max-height: 200px; }
+.columns { display: grid; gap: 0 24px; }
+@media (min-width: 1100px) { .columns { grid-template-columns: 1fr 1fr; align-items: start; } }
+.file { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
+.row-input.trailing { width: 150px; }
+.target { padding-top: 10px; padding-bottom: 10px; }
+.target .segmented { width: 100%; }
+.notes textarea { resize: none; font-size: 17px; padding: 6px 0; }
+.upload { margin: -12px 0 26px; }
+.more { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: var(--accent); background: var(--fill-3); }
+.more:hover { background: var(--fill-2); }
 </style>

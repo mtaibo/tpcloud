@@ -1,13 +1,10 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
+import './ui/styles.css'
+import App from './App.vue'
 import { socket_manager } from './config/socket'
 
-import App from './App.vue'
-import './main.css'
-
-const app = createApp(App)
-app.use(createPinia())
-app.mount('#app')
+createApp(App).use(createPinia()).mount('#app')
 
 socket_manager.connect()

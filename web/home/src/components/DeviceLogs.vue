@@ -1,69 +1,71 @@
 <script setup>
-    import { ref, onMounted, onUnmounted, watch } from 'vue'
-    import { api } from '@/config/api'
-    import { onEvent } from '@/config/socket'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
+import Spinner from '@/ui/Spinner.vue'
+import { api } from '@/config/api'
+import { onEvent } from '@/config/socket'
 
-    const props = defineProps({
-        deviceId: { type: String, required: true }
-    })
+// A device's MQTT traffic, newest first, live from the WebSocket.
+const props = defineProps({ deviceId: { type: String, required: true } })
 
-    const logs    = ref([])
-    const loading = ref(false)
+const logs    = ref([])
+const loading = ref(false)
 
-    async function fetchLogs() {
-        loading.value = true
-        try {
-            logs.value = await api.getLogs(props.deviceId)
-        } catch (e) {
-            console.error('DeviceLogs error:', e)
-        } finally {
-            loading.value = false
-        }
-    }
+async function fetchLogs() {
+    loading.value = true
+    try { logs.value = await api.getLogs(props.deviceId) }
+    catch (e) { console.error('DeviceLogs error:', e) }
+    finally { loading.value = false }
+}
 
-    onMounted(async () => {
-        await fetchLogs()
-        const unsub = onEvent('device_log', (data) => {
-            if (data.device_id === props.deviceId) logs.value.unshift(data)
-        })
-        onUnmounted(unsub)
-    })
+let unsub = null
+onMounted(() => {
+    fetchLogs()
+    unsub = onEvent('device_log', data => { if (data.device_id === props.deviceId) logs.value.unshift(data) })
+})
+onUnmounted(() => unsub?.())
+watch(() => props.deviceId, fetchLogs)
 
-    watch(() => props.deviceId, fetchLogs)
+const time = ts => new Date(ts).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
-    function formatTime(ts) {
-        return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    }
-
-    function labelColor(label) {
-        const green  = ['BOOT', 'MQTT_CONNECTED', 'PING']
-        const red    = ['LWT_OFFLINE']
-        const orange = ['FLASH_WRITE']
-        const blue   = ['UP', 'DOWN', 'STOP', 'SET_POSITION', 'GET_INFO', 'OTA', 'REBOOT', 'RESET_MEM', 'SET_PREFS', 'SET_POS', 'GET_STATE']
-        if (green.includes(label))  return 'text-tp-on'
-        if (red.includes(label))    return 'text-red-400'
-        if (orange.includes(label)) return 'text-orange-400'
-        if (blue.includes(label))   return 'text-tp-accent'
-        return 'text-tp-muted/70'
-    }
+const colours = {
+    green:  ['BOOT', 'MQTT_CONNECTED', 'PING'],
+    red:    ['LWT_OFFLINE'],
+    orange: ['FLASH_WRITE'],
+    blue:   ['UP', 'DOWN', 'STOP', 'SET_POSITION', 'GET_INFO', 'OTA', 'REBOOT', 'RESET_MEM', 'SET_PREFS', 'SET_POS', 'GET_STATE'],
+}
+const colour = label => Object.keys(colours).find(c => colours[c].includes(label)) ?? ''
 </script>
 
 <template>
-    <div class="rounded-2xl overflow-hidden bg-[#111113]">
-        <div v-if="loading" class="px-4 py-3 text-xs text-tp-muted/50 italic">Cargando logs…</div>
-        <div v-else-if="logs.length === 0" class="px-4 py-3 text-xs text-tp-muted/50 italic">Sin actividad registrada.</div>
-        <div v-else class="max-h-80 overflow-y-auto divide-y divide-white/5">
-            <div v-for="log in logs" :key="log.id" class="flex items-baseline gap-3 px-4 py-2 font-mono text-xs">
-                <span class="text-tp-muted/50 shrink-0">{{ formatTime(log.timestamp) }}</span>
-                <span class="shrink-0" :class="log.direction === 'rx' ? 'text-tp-muted' : 'text-tp-accent'">
-                    {{ log.direction === 'rx' ? '↓' : '↑' }}
-                </span>
-                <span class="font-semibold shrink-0 w-28 uppercase tracking-wide" :class="labelColor(log.event_label)">
-                    {{ log.event_label }}
-                </span>
-                <span class="text-tp-muted/70 flex-1 truncate">{{ log.event_detail }}</span>
-                <span class="text-tp-muted/30 shrink-0">{{ log.payload_hex }}</span>
+    <div class="card logs">
+        <div v-if="loading && !logs.length" class="state"><Spinner :size="20" /></div>
+        <p v-else-if="!logs.length" class="state subheadline secondary">Sin actividad registrada.</p>
+        <div v-else class="list">
+            <div v-for="log in logs" :key="log.id ?? `${log.timestamp}${log.event_label}`" class="log mono">
+                <span class="time">{{ time(log.timestamp) }}</span>
+                <span class="dir" :class="log.direction">{{ log.direction === 'rx' ? '↓' : '↑' }}</span>
+                <span class="label" :class="colour(log.event_label)">{{ log.event_label }}</span>
+                <span class="detail">{{ log.event_detail }}</span>
+                <span class="hex">{{ log.payload_hex }}</span>
             </div>
         </div>
     </div>
 </template>
+
+<style scoped>
+.state { display: grid; place-items: center; padding: 18px; }
+.list { max-height: 360px; overflow-y: auto; }
+.log { display: flex; align-items: baseline; gap: 12px; padding: 8px 20px; font-size: 12px; white-space: nowrap; }
+.log + .log { border-top: 0.5px solid var(--separator); }
+.time { color: var(--label-3); }
+.dir { color: var(--label-2); }
+.dir.tx { color: var(--accent); }
+.label { width: 118px; flex-shrink: 0; font-weight: 600; color: var(--label-2); }
+.label.green { color: var(--green); }
+.label.red { color: var(--red); }
+.label.orange { color: var(--orange); }
+.label.blue { color: var(--blue); }
+.detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--label-2); }
+.hex { color: var(--label-3); }
+@media (max-width: 600px) { .hex { display: none; } .label { width: 96px; } }
+</style>

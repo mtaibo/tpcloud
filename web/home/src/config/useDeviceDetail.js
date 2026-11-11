@@ -1,6 +1,17 @@
 import { ref, reactive, computed, nextTick } from 'vue'
 import { api } from '@/config/api'
 import { useDevices } from '@/config/devices'
+import { ask, toast } from '@/ui/dialog.js'
+
+// Asks before something that can't be undone; resolves to true to go ahead.
+const confirmAction = (title, message, label, destructive = false) => ask({
+    title,
+    message,
+    actions: [
+        { label: 'Cancelar', role: 'cancel', value: false },
+        { label, role: destructive ? 'destructive' : 'default', value: true },
+    ],
+})
 
 export function useDeviceDetail() {
 
@@ -77,40 +88,41 @@ export function useDeviceDetail() {
     function close() { selectedDevice.value = null }
 
     async function ping() {
-        try { await api.sendCommand(selectedDevice.value.id, 'ping') }
-        catch (e) { console.error('TPHome - Ping error:', e) }
+        try { await api.sendCommand(selectedDevice.value.id, 'ping'); toast('Ping enviado') }
+        catch (e) { console.error('TPHome - Ping error:', e); toast('No se pudo enviar el ping', 'warning') }
     }
 
     async function getInfo() {
-        try { await api.getDeviceInfo(selectedDevice.value.id) }
-        catch (e) { console.error('TPHome - Info error:', e) }
+        try { await api.getDeviceInfo(selectedDevice.value.id); toast('Información pedida') }
+        catch (e) { console.error('TPHome - Info error:', e); toast('No se pudo pedir la información', 'warning') }
     }
 
     async function toggleLock() {
         const { id, name, category } = selectedDevice.value
         const locked = !store.storage[category]?.[id]?.locked
-        const question = locked
-            ? `¿Bloquear ${name}? Se apagarán sus luces y no se podrá mover ni con los botones ni desde aquí hasta que un administrador la desbloquee.`
-            : `¿Desbloquear ${name}?`
-        if (!confirm(question)) return
+        const ok = locked
+            ? await confirmAction(`¿Bloquear ${name}?`, 'Se apagarán sus luces y no se podrá mover ni con los botones ni desde aquí hasta que un administrador la desbloquee.', 'Bloquear', true)
+            : await confirmAction(`¿Desbloquear ${name}?`, 'Se podrá volver a mover con sus botones y desde aquí.', 'Desbloquear')
+        if (!ok) return
         try {
             await api.setLocked(id, locked)
             store.storage[category][id].locked = locked
+            toast(locked ? 'Bloqueada' : 'Desbloqueada')
         } catch (e) {
             const detail = e.response?.data?.detail
-            alert(detail ? `No se pudo ${locked ? 'bloquear' : 'desbloquear'}: ${detail}` : 'No se pudo cambiar el bloqueo')
+            toast(detail ? `No se pudo ${locked ? 'bloquear' : 'desbloquear'}: ${detail}` : 'No se pudo cambiar el bloqueo', 'warning')
             console.error('TPHome - Lock error:', e)
         }
     }
 
     async function resetPosition() {
-        if (!confirm(`¿Reiniciar posición de ${selectedDevice.value.id} al 50%?`)) return
-        try { await api.resetPosition(selectedDevice.value.id) }
+        if (!await confirmAction(`¿Reiniciar la posición de ${selectedDevice.value.name}?`, 'El interruptor dará por hecho que la persiana está al 50 %, sin moverla.', 'Reiniciar')) return
+        try { await api.resetPosition(selectedDevice.value.id); toast('Posición reiniciada al 50 %') }
         catch (e) { console.error('TPHome - Reset position error:', e) }
     }
 
     async function deleteDevice() {
-        if (!confirm(`¿Borrar ${selectedDevice.value.name}?`)) return
+        if (!await confirmAction(`¿Eliminar ${selectedDevice.value.name}?`, 'Desaparecerá de la casa y del plano. El interruptor tendrá que volver a configurarse.', 'Eliminar', true)) return
         try {
             await api.deleteDevice(selectedDevice.value.id)
             close()
@@ -134,7 +146,8 @@ export function useDeviceDetail() {
             store.storage[category][id].prefs = parsed
             await api.sendPrefs(id, parsed)
             resetObj(originalPrefs, parsed)
-        } catch (e) { console.error('TPHome - Save prefs error:', e) }
+            toast('Preferencias guardadas y enviadas')
+        } catch (e) { console.error('TPHome - Save prefs error:', e); toast('No se pudieron guardar', 'warning') }
         finally { savingPrefs.value = false }
     }
 
@@ -147,15 +160,17 @@ export function useDeviceDetail() {
             await api.patchDeviceConfig(id, 'map', parsed)
             store.storage[category][id].map = parsed
             resetObj(originalMap, parsed)
-        } catch (e) { console.error('TPHome - Save map error:', e) }
+            toast('Posición en el plano guardada')
+        } catch (e) { console.error('TPHome - Save map error:', e); toast('No se pudo guardar', 'warning') }
         finally { savingMap.value = false }
     }
 
     async function flashFirmware() {
         if (!selectedFirmware.value) return
+        if (!await confirmAction(`¿Instalar la versión ${selectedFirmware.value} en ${selectedDevice.value.name}?`, 'El interruptor la descargará y se reiniciará.', 'Instalar')) return
         flashingFirmware.value = true
-        try { await api.sendOTA(selectedDevice.value.id, selectedFirmware.value) }
-        catch (e) { console.error('TPHome - OTA error:', e) }
+        try { await api.sendOTA(selectedDevice.value.id, selectedFirmware.value); toast('Actualización enviada') }
+        catch (e) { console.error('TPHome - OTA error:', e); toast('No se pudo enviar la actualización', 'warning') }
         finally { flashingFirmware.value = false }
     }
 
