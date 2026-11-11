@@ -33,7 +33,7 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
     /// isn't corrupt, just incomplete, and the next wake continues where this one stopped.
     static let refillBatchSize = 12
 
-    static let storeBaseURL = URL(string: "https://store.migueltaibo.com")!
+    static let storeBaseURL = TPServer.current.storeURL
     private static let backgroundSessionIdentifier = "com.migueltaibo.tpapp.photos.upload"
     private static let ownerEmailDefaultsKey = "PhotoBackgroundUploader.ownerEmail"
 

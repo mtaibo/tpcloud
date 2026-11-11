@@ -6,11 +6,12 @@ import TPPhotosFeature
 
 @main
 struct TPAppApp: App {
-    private static let authBaseURL = URL(string: "https://login.migueltaibo.com")!
-    private static let storeBaseURL = URL(string: "https://store.migueltaibo.com")!
-    private static let homeBaseURL = URL(string: "https://tphome.migueltaibo.com")!
-    private static let homeWSURL = URL(string: "wss://tphome.migueltaibo.com/api/ws")!
-    private static let adminBaseURL = URL(string: "https://admin.migueltaibo.com")!
+    private static let server = TPServer.current
+    private static let authBaseURL = server.authURL
+    private static let storeBaseURL = server.storeURL
+    private static let homeBaseURL = server.homeURL
+    private static let homeWSURL = server.homeWebSocketURL
+    private static let adminBaseURL = server.adminURL
 
     @StateObject private var session = AuthSession(baseURL: authBaseURL)
     private let accountClient = CloudAccountClient(client: HTTPClient(baseURL: authBaseURL))

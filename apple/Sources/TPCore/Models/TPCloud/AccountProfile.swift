@@ -9,7 +9,8 @@ public struct AccountProfile: Decodable, Equatable, Sendable {
 }
 
 public struct AccountSession: Decodable, Equatable, Sendable, Identifiable {
-    public let sessionId: String
+    /// The session's row id; the session token itself never leaves the server.
+    public let id: Int
     public let createdAt: String
     public let expiresAt: String
     public let ipAddress: String?
@@ -17,6 +18,4 @@ public struct AccountSession: Decodable, Equatable, Sendable, Identifiable {
     public let location: String?
     public let authMethod: String
     public let current: Bool
-
-    public var id: String { sessionId }
 }

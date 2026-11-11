@@ -6,16 +6,19 @@ public protocol SessionCookieStore: Sendable {
 }
 
 public struct HTTPCookieSessionStore: SessionCookieStore {
-    private let storage: HTTPCookieStorage
-    private let domain: String
+    /// Host-only and Secure (the `__Host-` prefix makes the browser enforce both), set by auth.
+    public static let cookieName = "__Host-tpcloud_session"
 
-    public init(storage: HTTPCookieStorage = .shared, domain: String = "migueltaibo.com") {
+    private let storage: HTTPCookieStorage
+    private let host: String
+
+    public init(storage: HTTPCookieStorage = .shared, host: String = TPServer.current.host) {
         self.storage = storage
-        self.domain = domain
+        self.host = host
     }
 
     public var hasSessionCookie: Bool {
-        sessionCookies.contains { $0.name == "session_id" }
+        sessionCookies.contains { $0.name == Self.cookieName }
     }
 
     public func clear() {
@@ -25,6 +28,6 @@ public struct HTTPCookieSessionStore: SessionCookieStore {
     }
 
     private var sessionCookies: [HTTPCookie] {
-        (storage.cookies ?? []).filter { $0.domain.hasSuffix(domain) }
+        (storage.cookies ?? []).filter { $0.domain == host }
     }
 }

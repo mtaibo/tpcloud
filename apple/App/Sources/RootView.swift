@@ -129,9 +129,10 @@ struct RootView: View {
 }
 
 #Preview {
-    let authURL = URL(string: "https://login.migueltaibo.com")!
-    let storeURL = URL(string: "https://store.migueltaibo.com")!
-    let homeURL = URL(string: "https://tphome.migueltaibo.com")!
+    let server = TPServer.current
+    let authURL = server.authURL
+    let storeURL = server.storeURL
+    let homeURL = server.homeURL
     let photosClient = PhotosClient(client: HTTPClient(baseURL: storeURL))
     RootView(
         session: AuthSession(baseURL: authURL),
@@ -139,11 +140,11 @@ struct RootView: View {
         storeClient: StoreClient(client: HTTPClient(baseURL: storeURL)),
         homeStore: HomeStore(
             client: HomeClient(client: HTTPClient(baseURL: homeURL)),
-            wsClient: HomeWebSocketClient(url: URL(string: "wss://tphome.migueltaibo.com/api/ws")!)
+            wsClient: HomeWebSocketClient(url: server.homeWebSocketURL)
         ),
         photosClient: photosClient,
         photoGalleryStore: PhotoGalleryStore(client: photosClient),
         photoSyncStore: PhotoSyncStore(client: photosClient),
-        adminStore: AdminStore(client: AdminClient(client: HTTPClient(baseURL: URL(string: "https://admin.migueltaibo.com")!)))
+        adminStore: AdminStore(client: AdminClient(client: HTTPClient(baseURL: server.adminURL)))
     )
 }

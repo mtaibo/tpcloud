@@ -23,7 +23,7 @@ extension TPCoreTestsRoot {
                 "totp_enabled": false,
                 "sessions": [
                     {
-                        "session_id": "s1",
+                        "id": 1,
                         "created_at": "2026-01-01T00:00:00Z",
                         "expires_at": "2026-02-01T00:00:00Z",
                         "ip_address": "1.2.3.4",
@@ -48,7 +48,7 @@ extension TPCoreTestsRoot {
             totpEnabled: false,
             sessions: [
                 AccountSession(
-                    sessionId: "s1",
+                    id: 1,
                     createdAt: "2026-01-01T00:00:00Z",
                     expiresAt: "2026-02-01T00:00:00Z",
                     ipAddress: "1.2.3.4",
@@ -143,12 +143,12 @@ extension TPCoreTestsRoot {
 
     @Test func revokesSession() async throws {
         StubURLProtocol.handler = { request in
-            #expect(request.url?.path == "/auth/account/session/s1")
+            #expect(request.url?.path == "/auth/account/session/1")
             #expect(request.httpMethod == "DELETE")
             return jsonResponse(request.url!, status: 200, json: #"{"status":"revocada"}"#)
         }
 
-        try await makeClient().revokeSession("s1")
+        try await makeClient().revokeSession(1)
     }
 }
 

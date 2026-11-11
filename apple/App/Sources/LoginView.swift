@@ -201,5 +201,5 @@ private extension View {
 }
 
 #Preview {
-    LoginView(session: AuthSession(baseURL: URL(string: "https://login.migueltaibo.com")!))
+    LoginView(session: AuthSession(baseURL: TPServer.current.authURL))
 }

@@ -352,7 +352,7 @@ public struct AccountView: View {
         }
     }
 
-    private func revokeSession(_ id: String) async {
+    private func revokeSession(_ id: Int) async {
         do {
             try await accountClient.revokeSession(id)
             await loadProfile()

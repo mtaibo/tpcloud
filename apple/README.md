@@ -16,7 +16,7 @@
 
 ---
 
-tpapp is the native iOS and macOS client for everything I self-host under `migueltaibo.com`. It replaces the Vue web frontends of [tpcloud](https://github.com/mtaibo/tpcloud), [tpstore](https://github.com/mtaibo/tpstore) and [tphome](https://github.com/mtaibo/tphome) with a single SwiftUI app (installed as **TPCloud**), talking to the same FastAPI backends without changing a line on the server.
+tpapp is the native iOS and macOS client for everything I self-host with [tpcloud](https://github.com/mtaibo/tpcloud). It replaces the Vue web frontends of [tpcloud](https://github.com/mtaibo/tpcloud), [tpstore](https://github.com/mtaibo/tpstore) and [tphome](https://github.com/mtaibo/tphome) with a single SwiftUI app (installed as **TPCloud**), talking to the same FastAPI backends without changing a line on the server.
 
 ## Why a native app
 
@@ -92,8 +92,8 @@ Account management against [tpcloud](https://github.com/mtaibo/tpcloud)'s auth s
                                               │ HTTPS · WSS
            ┌──────────────────────┬───────────┴────────────┐
            ▼                      ▼                        ▼
-  login.migueltaibo.com  store.migueltaibo.com  tphome.migueltaibo.com
-       tpcloud auth            tpstore api            tphome api
+        /auth               /store/api               /home/api
+     tpcloud auth           tpstore api              tphome api
 ```
 
 The whole thing is a Swift package first. Every module builds and tests with `swift build` / `swift test`, no Xcode needed. The `App/` folder is just a thin XcodeGen shell that turns those modules into the iOS and macOS apps, so Xcode only matters for signing and running on a device.
@@ -168,4 +168,4 @@ make app      # or: build the macOS app, install it to /Applications and launch 
 make device   # or: build the iOS app, install it on the connected iPhone and launch it
 ```
 
-The app points at my own servers (`*.migueltaibo.com`), so it needs an account on [tpcloud](https://github.com/mtaibo/tpcloud) to sign in.
+Every module is a path under one server address (`TPServer`, in TPCore), for now my own, so it needs an account on [tpcloud](https://github.com/mtaibo/tpcloud) to sign in. `make testflight` archives the iOS app and uploads it to App Store Connect.

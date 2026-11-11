@@ -42,7 +42,7 @@ public struct CloudAccountClient: Sendable {
         let _: StatusResponse = try await client.delete("/auth/account/totp", body: TOTPCodeBody(code: code))
     }
 
-    public func revokeSession(_ sessionId: String) async throws {
-        let _: StatusResponse = try await client.delete("/auth/account/session/\(sessionId)")
+    public func revokeSession(_ id: Int) async throws {
+        let _: StatusResponse = try await client.delete("/auth/account/session/\(id)")
     }
 }
