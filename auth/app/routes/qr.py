@@ -12,7 +12,7 @@ import secrets
 import time
 from dataclasses import dataclass, field
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session as DBSession, select
 
@@ -42,6 +42,7 @@ class QRRequest:
     location: str | None = None
     user_id: int | None = None
     approved_by: str | None = None
+    remember: bool = True
 
 
 _requests = ExpiringDict(ttl=QR_LIFETIME + 10, max_size=2000)
@@ -97,9 +98,8 @@ def poll(request: Request, background_tasks: BackgroundTasks, session: DBSession
     if not user:
         return {"status": "expired"}
     response = JSONResponse({"status": "approved"})
-    # The choice was made on the phone that approved it (its page promises 30 days), so this
-    # browser stays signed in and isn't asked again.
-    start_session(session, background_tasks, request, response, user, "qr", True, approved_by=item.approved_by)
+    # "Keep it signed in" was chosen on the phone that approved it, so this browser isn't asked.
+    start_session(session, background_tasks, request, response, user, "qr", item.remember, approved_by=item.approved_by)
     clear_cookie(response, QR_COOKIE)
     return response
 
@@ -132,6 +132,7 @@ def details(request_id: str, user: User = Depends(require_login)):
 def approve(
     request_id: str,
     request: Request,
+    body: dict | None = Body(default=None),
     user: User = Depends(require_login),
     db: DBSession = Depends(get_session),
 ):
@@ -139,6 +140,7 @@ def approve(
     if not item or item.status in ("approved", "denied"):
         raise HTTPException(status_code=410, detail="Este código ya no es válido. Genera otro en la pantalla de inicio de sesión.")
     approver = _approver(request, db)
+    item.remember = bool((body or {}).get("remember", True))
     item.status = "approved"
     item.user_id = user.id
     item.approved_by = approver.device_info if approver else device_for_request(request)["label"]

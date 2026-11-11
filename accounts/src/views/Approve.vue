@@ -5,6 +5,7 @@ import Icon from '@ui/Icon.vue'
 import ListSection from '@ui/ListSection.vue'
 import ListRow from '@ui/ListRow.vue'
 import Spinner from '@ui/Spinner.vue'
+import Toggle from '@ui/Toggle.vue'
 import { api } from '@ui/api.js'
 import { deviceIcon } from '@ui/format.js'
 
@@ -16,6 +17,7 @@ const state = ref('loading') // loading | ready | approved | denied | gone
 const message = ref('')
 const busy = ref('')
 const left = ref(0)
+const remember = ref(true) // keep the other browser signed in
 let timer = null
 
 const where = computed(() => {
@@ -46,7 +48,10 @@ onBeforeUnmount(() => clearInterval(timer))
 async function decide(approve) {
   busy.value = approve ? 'approve' : 'deny'
   try {
-    await api(`/auth/qr/${encodeURIComponent(route.params.id)}/${approve ? 'approve' : 'deny'}`, { method: 'POST' })
+    await api(`/auth/qr/${encodeURIComponent(route.params.id)}/${approve ? 'approve' : 'deny'}`, {
+      method: 'POST',
+      body: approve ? { remember: remember.value } : undefined,
+    })
     state.value = approve ? 'approved' : 'denied'
   } catch (e) {
     state.value = 'gone'
@@ -65,13 +70,24 @@ async function decide(approve) {
       <div class="hero">
         <span class="device"><Icon :name="deviceIcon(request.device.kind)" :size="46" :weight="1.5" /></span>
         <h1 class="title-1">¿Iniciar sesión en {{ request.device.label }}?</h1>
-        <p class="subheadline secondary">Entrará en tu cuenta <strong>{{ request.account.email }}</strong> y seguirá dentro 30 días.</p>
+        <p class="subheadline secondary">Entrará en tu cuenta <strong>{{ request.account.email }}</strong>.</p>
       </div>
 
       <ListSection>
         <ListRow icon="location" tint="red" title="Desde" :value="where" wrap-value />
         <ListRow icon="network" tint="teal" title="IP" :value="request.ip_address" />
         <ListRow icon="clock" tint="orange" title="Caduca en" :value="`${left} s`" />
+      </ListSection>
+
+      <ListSection>
+        <ListRow title="Mantener la sesión iniciada">
+          <template #trailing><Toggle v-model="remember" label="Mantener la sesión iniciada" :disabled="!!busy" /></template>
+        </ListRow>
+        <template #footer>
+          {{ remember
+            ? 'Seguirá dentro 30 días desde la última vez que lo use. Desactívalo si es un ordenador compartido.'
+            : 'Se cerrará al cerrar el navegador o tras 12 horas sin usarlo.' }}
+        </template>
       </ListSection>
 
       <div class="warning">
