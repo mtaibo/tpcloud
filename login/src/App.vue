@@ -80,6 +80,16 @@ function finish() {
   step.value = 'done'
 }
 
+// Let in from a phone: the phone already decided how long this stays signed in, so go straight on
+// while the QR panel shows "Approved".
+async function finishFromQr() {
+  stopConditional()
+  error.value = ''
+  let next = '/'
+  try { next = (await post('/auth/login/continue')).next || '/' } catch { /* home it is */ }
+  window.location.replace(next)
+}
+
 async function leave(rememberChoice) {
   if (busy.value) return
   busy.value = 'continue'
@@ -370,7 +380,7 @@ onBeforeUnmount(() => { media.removeEventListener('change', onMedia); stopCondit
 
               <!-- QR, on narrow screens -->
               <div v-else-if="step === 'qr'" class="stack">
-                <QrPanel @approved="finish" />
+                <QrPanel @approved="finishFromQr" />
               </div>
 
               <!-- Signed in: keep it? -->
@@ -401,7 +411,7 @@ onBeforeUnmount(() => { media.removeEventListener('change', onMedia); stopCondit
 
         <aside v-if="split" class="qr-side">
           <h2 class="title-3">Sign in with your iPhone</h2>
-          <QrPanel @approved="finish" />
+          <QrPanel @approved="finishFromQr" />
         </aside>
       </div>
     </Transition>

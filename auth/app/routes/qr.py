@@ -97,7 +97,9 @@ def poll(request: Request, background_tasks: BackgroundTasks, session: DBSession
     if not user:
         return {"status": "expired"}
     response = JSONResponse({"status": "approved"})
-    start_session(session, background_tasks, request, response, user, "qr", False, approved_by=item.approved_by)
+    # The choice was made on the phone that approved it (its page promises 30 days), so this
+    # browser stays signed in and isn't asked again.
+    start_session(session, background_tasks, request, response, user, "qr", True, approved_by=item.approved_by)
     clear_cookie(response, QR_COOKIE)
     return response
 
