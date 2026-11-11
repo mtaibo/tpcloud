@@ -910,7 +910,7 @@ onUnmounted(() => {
           @touchcancel="cancelPress"
         >
           <span class="cell col-name">
-            <ItemIcon :entry="entry" :size="phone ? 44 : 20" :thumb="thumbSrc(entry)" :video="kindOf(entry) === 'video'" />
+            <ItemIcon :entry="entry" :size="phone ? 44 : 26" :thumb="thumbSrc(entry)" :video="kindOf(entry) === 'video'" />
             <span class="name-stack">
               <span class="name">{{ entry.name }}</span>
               <span v-if="phone" class="row-sub">{{ subtitle(entry) }}</span>
@@ -1130,7 +1130,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: minmax(200px, 1fr) 190px 100px 160px;
   align-items: center;
-  height: 30px;
+  height: 36px;
   border-radius: 8px;
   outline: none;
   cursor: default;
@@ -1139,7 +1139,7 @@ onUnmounted(() => {
 .list-row.selected { background: var(--accent) !important; color: #fff; }
 .list-row.selected .cell { color: #fff; }
 .cell { min-width: 0; padding: 0 10px; font-size: 13px; letter-spacing: -0.08px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cell.col-name { display: flex; align-items: center; gap: 8px; color: var(--label); }
+.cell.col-name { display: flex; align-items: center; gap: 10px; color: var(--label); }
 .cell.col-size { text-align: right; }
 .name-stack { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; }
 .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
