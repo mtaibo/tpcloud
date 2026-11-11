@@ -20,7 +20,7 @@ targets:
       Release: Config/Shared.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.migueltaibo.tpapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.migueltaibo.tpcloud
         INFOPLIST_FILE: Sources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -63,7 +63,7 @@ targets:
       Release: Config/Shared.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.migueltaibo.tpapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.migueltaibo.tpcloud
         # Without the iPhone's background modes, launch screen and orientations.
         INFOPLIST_FILE: Mac/Info.plist
         GENERATE_INFOPLIST_FILE: NO

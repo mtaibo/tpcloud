@@ -8,7 +8,7 @@ import UIKit
 
 extension UTType {
     /// A file or folder dragged inside the app; declared in the app's Info.plist.
-    static let storeItem = UTType(exportedAs: "com.migueltaibo.tpapp.store-item", conformingTo: .data)
+    static let storeItem = UTType(exportedAs: "com.migueltaibo.tpcloud.store-item", conformingTo: .data)
 }
 
 /// What a drag carries inside the app: enough to move the item with `/api/files/move`.

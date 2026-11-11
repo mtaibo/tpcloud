@@ -8,7 +8,7 @@ import Foundation
 /// batch), so this only matters when the chain has gone fully idle: right after sign-in, before
 /// anything has ever been enqueued, or if the system ever drops every outstanding background task.
 public enum PhotoBackupScheduler {
-    public static let taskIdentifier = "com.migueltaibo.tpapp.photobackup"
+    public static let taskIdentifier = "com.migueltaibo.tpcloud.photobackup"
 
     /// Must run before the app finishes launching, per `BGTaskScheduler`'s own requirement — call
     /// from the app delegate's `didFinishLaunching`, never from a SwiftUI `.task`/view lifecycle,

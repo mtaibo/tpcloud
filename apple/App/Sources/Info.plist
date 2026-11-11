@@ -30,9 +30,9 @@
 	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.migueltaibo.tpapp.photobackup</string>
-		<string>com.migueltaibo.tpapp.photobackup.continued.*</string>
-		<string>com.migueltaibo.tpapp.storeupload.continued.*</string>
+		<string>com.migueltaibo.tpcloud.photobackup</string>
+		<string>com.migueltaibo.tpcloud.photobackup.continued.*</string>
+		<string>com.migueltaibo.tpcloud.storeupload.continued.*</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
@@ -51,7 +51,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.migueltaibo.tpapp.store-item</string>
+			<string>com.migueltaibo.tpcloud.store-item</string>
 			<key>UTTypeDescription</key>
 			<string>TPCloud Store Item</string>
 			<key>UTTypeConformsTo</key>

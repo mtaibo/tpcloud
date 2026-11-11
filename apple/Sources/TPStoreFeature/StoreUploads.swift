@@ -147,7 +147,7 @@ final class StoreUploadQueue {
         // Keeps the batch going once the app is in the background or the screen locks, with its
         // progress in the system's own UI; without it iOS suspends the app within seconds.
         let continuedTask = ContinuedProcessingTask(
-            identifierPrefix: "com.migueltaibo.tpapp.storeupload.continued",
+            identifierPrefix: "com.migueltaibo.tpcloud.storeupload.continued",
             title: "Uploading to Store",
             itemName: "files"
         )

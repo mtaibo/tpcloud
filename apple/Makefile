@@ -39,11 +39,11 @@ device: generate
 	@# Over Wi-Fi the first connection is often reset; a second try goes through.
 	xcrun devicectl device install app --device $(DEVICE) $(DEVICE_APP) \
 		|| (sleep 2 && xcrun devicectl device install app --device $(DEVICE) $(DEVICE_APP))
-	xcrun devicectl device process launch --device $(DEVICE) com.migueltaibo.tpapp
+	xcrun devicectl device process launch --device $(DEVICE) com.migueltaibo.tpcloud
 
 # Archives the iPhone and Mac apps and uploads both to App Store Connect (TestFlight). Needs Xcode signed
 # in with the developer account and the app created in App Store Connect with bundle id
-# com.migueltaibo.tpapp (iOS and macOS). Every upload needs a build number higher than the last: it
+# com.migueltaibo.tpcloud (iOS and macOS). Every upload needs a build number higher than the last: it
 # defaults to the current date and time, BUILD=<n> overrides it. The marketing version is in Shared.xcconfig.
 BUILD ?= $(shell date +%y%m%d%H%M)
 # Fixed once, so the iPhone and the Mac uploads share a number.

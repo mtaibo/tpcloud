@@ -12,7 +12,7 @@ public struct LoginCredentialStore: Sendable {
 
     private let service: String
 
-    public init(service: String = "com.migueltaibo.tpapp.login") {
+    public init(service: String = "com.migueltaibo.tpcloud.login") {
         self.service = service
     }
 

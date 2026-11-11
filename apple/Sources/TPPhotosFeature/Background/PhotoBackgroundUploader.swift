@@ -34,7 +34,7 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
     static let refillBatchSize = 12
 
     static let storeBaseURL = TPServer.current.storeURL
-    private static let backgroundSessionIdentifier = "com.migueltaibo.tpapp.photos.upload"
+    private static let backgroundSessionIdentifier = "com.migueltaibo.tpcloud.photos.upload"
     private static let ownerEmailDefaultsKey = "PhotoBackgroundUploader.ownerEmail"
 
     private let ledger = PhotoUploadLedger()

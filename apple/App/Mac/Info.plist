@@ -28,7 +28,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.migueltaibo.tpapp.store-item</string>
+			<string>com.migueltaibo.tpcloud.store-item</string>
 			<key>UTTypeDescription</key>
 			<string>TPCloud Store Item</string>
 			<key>UTTypeConformsTo</key>

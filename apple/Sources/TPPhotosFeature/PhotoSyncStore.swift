@@ -61,7 +61,7 @@ public final class PhotoSyncStore: ObservableObject {
     /// usually succeed on the next try, so they shouldn't count as a failed photo straight away.
     private static let networkAttempts = 3
 
-    private static let logger = Logger(subsystem: "com.migueltaibo.tpapp", category: "PhotoBackup")
+    private static let logger = Logger(subsystem: "com.migueltaibo.tpcloud", category: "PhotoBackup")
 
     public init(client: PhotosClient) {
         self.client = client
@@ -113,7 +113,7 @@ public final class PhotoSyncStore: ObservableObject {
         defer { PhotoBackgroundUploader.shared.setPaused(false) }
 
         let continuedTask = ContinuedProcessingTask(
-            identifierPrefix: "com.migueltaibo.tpapp.photobackup.continued",
+            identifierPrefix: "com.migueltaibo.tpcloud.photobackup.continued",
             title: "Photo Backup",
             itemName: "photos"
         )
