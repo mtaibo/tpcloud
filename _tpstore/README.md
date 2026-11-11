@@ -40,7 +40,7 @@ FastAPI backend for everything: file operations, resumable uploads, thumbnails, 
 <td width="33%" valign="top">
 
 ### 🗂️ [`frontend`](frontend/)
-The storage browser at `/store`. Folders with custom icons, favourites, drag-and-drop uploads with a transfer panel, image, video and audio viewers, share management, and a mobile layout.
+The storage browser at `/store`, drawn after Finder on the desktop and Files on the phone, in light and dark: icon and list views with sortable columns, keyboard selection, Quick Look for photos and videos, folders with custom symbols, favourites, drag-and-drop uploads with a transfer panel, and share links managed from sheets. Its look comes from tpcloud's shared `ui/`.
 
 **Vue 3 · Vite · Nginx**
 
