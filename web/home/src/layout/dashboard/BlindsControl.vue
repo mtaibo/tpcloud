@@ -22,7 +22,7 @@ const disabled = computed(() => !!device.value?.locked)
 </script>
 
 <template>
-    <div v-if="device" class="control">
+    <div v-if="device" class="control blind-control">
         <span v-if="device.locked" class="badge orange"><Lock :size="12" :stroke-width="2.4" />Bloqueada por un administrador</span>
 
         <div class="stage">
@@ -50,11 +50,16 @@ const disabled = computed(() => !!device.value?.locked)
     </div>
 </template>
 
+<style>
+/* A blind's sheet only holds the bar and three buttons, so on a wide screen it's narrow too. */
+@media (min-width: 700px) { .sheet:has(.blind-control) { max-width: 340px; } }
+</style>
+
 <style scoped>
 .control { --round: 56px; --gap: 14px; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 8px 0 12px; }
 .stage { display: flex; align-items: center; justify-content: center; gap: 22px; }
-/* As tall as the three buttons, and as wide as one. */
-.slider { width: var(--round); height: calc(3 * var(--round) + 2 * var(--gap)); border-radius: calc(var(--round) / 2); }
+/* As tall as the three buttons, and twice as wide as one. */
+.slider { width: calc(2 * var(--round)); height: calc(3 * var(--round) + 2 * var(--gap)); border-radius: calc(var(--round) / 2); }
 .buttons { display: flex; flex-direction: column; gap: var(--gap); }
 .round {
     width: var(--round);
