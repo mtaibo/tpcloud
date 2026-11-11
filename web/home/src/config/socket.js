@@ -8,7 +8,8 @@ const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.ho
 let socket = null
 let reconnectTimer = null
 
-export const apiOnline = ref(true)
+// Red until the first socket opens, so the sidebar's light never claims a connection it doesn't have.
+export const apiOnline = ref(false)
 
 const _listeners = {}
 
@@ -61,7 +62,9 @@ function connect() {
         apiOnline.value = true
         const devices = useDevices()
         const map = useBlueprint()
+        // After a reconnect, catch up with whatever moved while the socket was down.
         if (devices.unconfigured) await devices.setup()
+        else await devices.update()
         if (map.unconfigured) await map.setup()
     }
 
