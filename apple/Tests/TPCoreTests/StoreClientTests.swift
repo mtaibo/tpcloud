@@ -167,7 +167,7 @@ extension TPCoreTestsRoot {
             [
                 {
                     "token": "abc123",
-                    "url": "https://share.migueltaibo.com/abc123",
+                    "url": "https://cloud.migueltaibo.com/share/abc123",
                     "location": "external",
                     "path": "docs/a.txt",
                     "hidden": false,
@@ -186,7 +186,7 @@ extension TPCoreTestsRoot {
         #expect(shares == [
             ShareLink(
                 token: "abc123",
-                url: "https://share.migueltaibo.com/abc123",
+                url: "https://cloud.migueltaibo.com/share/abc123",
                 location: .external,
                 path: "docs/a.txt",
                 hidden: false,
@@ -212,7 +212,7 @@ extension TPCoreTestsRoot {
             return jsonResponse(request.url!, status: 200, json: #"""
             {
                 "token": "xyz",
-                "url": "https://share.migueltaibo.com/xyz",
+                "url": "https://cloud.migueltaibo.com/share/xyz",
                 "location": "external",
                 "path": "docs/a.txt",
                 "hidden": true,
@@ -241,7 +241,7 @@ extension TPCoreTestsRoot {
             return jsonResponse(request.url!, status: 200, json: #"""
             {
                 "token": "xyz",
-                "url": "https://share.migueltaibo.com/xyz",
+                "url": "https://cloud.migueltaibo.com/share/xyz",
                 "location": "external",
                 "path": "docs/a.txt",
                 "hidden": true,
