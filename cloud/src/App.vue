@@ -8,7 +8,6 @@ import NavBar from '@ui/NavBar.vue'
 import Spinner from '@ui/Spinner.vue'
 import { api, signOut } from '@ui/api.js'
 import { ask } from '@ui/dialog.js'
-import { ago, methodNames } from '@ui/format.js'
 
 const user = ref(null)
 const profile = ref(null)
@@ -33,11 +32,6 @@ const today = computed(() => {
 })
 const others = computed(() => (profile.value?.sessions.length ?? 1) - 1)
 const failures = computed(() => activity.value.filter(e => e.kind === 'failed' && Date.now() - new Date(e.at) < 7 * 86400000).length)
-const lastSignIns = computed(() => activity.value.filter(e => e.kind === 'signin').slice(0, 3))
-
-function place(e) {
-  return e.location && e.location !== e.ip_address ? e.location : e.ip_address
-}
 
 onMounted(async () => {
   window.history.replaceState(null, '', '/')
@@ -107,18 +101,6 @@ async function confirmSignOut() {
         />
       </ListSection>
 
-      <ListSection v-if="lastSignIns.length" header="Últimos inicios de sesión">
-        <template #action><a href="/accounts/activity" class="btn-plain">Ver todo</a></template>
-        <ListRow
-          v-for="e in lastSignIns"
-          :key="e.id"
-          :title="e.device_info || 'Dispositivo desconocido'"
-          :subtitle="`${place(e)} · ${methodNames[e.method] || e.method}`"
-          small-subtitle
-          :value="ago(e.at)"
-        />
-      </ListSection>
-
       <ListSection>
         <ListRow title="Cerrar sesión" clickable destructive centered @click="confirmSignOut" />
       </ListSection>
@@ -127,6 +109,12 @@ async function confirmSignOut() {
     <AlertHost />
   </template>
 </template>
+
+<style>
+/* The dashboard is one screen: no bounce, and if a short window ever needs to scroll, no bar. */
+html { overscroll-behavior: none; scrollbar-width: none; }
+html::-webkit-scrollbar { display: none; }
+</style>
 
 <style scoped>
 .splash { min-height: 100dvh; display: grid; place-items: center; }
