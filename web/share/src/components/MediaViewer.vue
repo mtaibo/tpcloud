@@ -70,151 +70,104 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <div class="viewer-backdrop" @click.self="emit('close')" @touchstart.passive="onTouchStart" @touchend="onTouchEnd">
-      <div class="viewer-top">
-        <span class="viewer-counter">{{ index + 1 }} / {{ items.length }}</span>
-        <div class="viewer-actions">
-          <button v-if="canSaveToPhotos" class="viewer-btn" title="Save to Photos" @click="emit('save', current)">
-            <ImageDown class="viewer-icon" />
-          </button>
-          <button class="viewer-btn" title="Download original" @click="emit('download', current)">
-            <Download class="viewer-icon" />
-          </button>
-          <button class="viewer-btn" title="Close" @click="emit('close')">
-            <X class="viewer-icon" />
-          </button>
+    <div class="look" @click.self="emit('close')" @touchstart.passive="onTouchStart" @touchend="onTouchEnd">
+      <header class="look-bar">
+        <button type="button" class="look-btn" aria-label="Cerrar" @click="emit('close')"><X :size="20" :stroke-width="2.2" /></button>
+        <div class="look-title">
+          <span class="look-name">{{ current?.name }}</span>
+          <span v-if="items.length > 1" class="look-count">{{ index + 1 }} de {{ items.length }}</span>
         </div>
+        <div class="look-actions">
+          <button v-if="canSaveToPhotos" type="button" class="look-btn" aria-label="Guardar en Fotos" @click="emit('save', current)"><ImageDown :size="19" /></button>
+          <button type="button" class="look-btn" aria-label="Descargar el original" @click="emit('download', current)"><Download :size="19" /></button>
+        </div>
+      </header>
+
+      <div class="stage" @click.self="emit('close')">
+        <video
+          v-if="currentIsVideo"
+          :key="current.name"
+          class="media"
+          :src="urls.preview(current)"
+          :poster="urls.poster(current)"
+          controls
+          autoplay
+          playsinline
+          preload="auto"
+        />
+        <template v-else-if="current">
+          <span v-if="!imageLoaded" class="spinner-wrap"><span class="ring" /></span>
+          <img
+            :key="current.name"
+            class="media"
+            :class="{ loaded: imageLoaded }"
+            :src="urls.preview(current)"
+            :alt="current.name"
+            @load="imageLoaded = true"
+          />
+        </template>
       </div>
 
-      <video
-        v-if="currentIsVideo"
-        :key="current.name"
-        class="viewer-media"
-        :src="urls.preview(current)"
-        :poster="urls.poster(current)"
-        controls
-        autoplay
-        playsinline
-        preload="auto"
-      />
-      <template v-else-if="current">
-        <div v-if="!imageLoaded" class="viewer-spinner" />
-        <img
-          :key="current.name"
-          class="viewer-media"
-          :class="{ loaded: imageLoaded }"
-          :src="urls.preview(current)"
-          :alt="current.name"
-          @load="imageLoaded = true"
-          @click.self="emit('close')"
-        />
-      </template>
-
-      <button v-if="hasPrev" class="viewer-nav viewer-nav--prev" title="Previous" @click="prev">
-        <ChevronLeft class="viewer-icon" />
-      </button>
-      <button v-if="hasNext" class="viewer-nav viewer-nav--next" title="Next" @click="next">
-        <ChevronRight class="viewer-icon" />
-      </button>
-
-      <span class="viewer-name">{{ current?.name }}</span>
+      <button v-if="hasPrev" type="button" class="arrow left" aria-label="Anterior" @click="prev"><ChevronLeft :size="26" :stroke-width="2.2" /></button>
+      <button v-if="hasNext" type="button" class="arrow right" aria-label="Siguiente" @click="next"><ChevronRight :size="26" :stroke-width="2.2" /></button>
     </div>
   </Teleport>
 </template>
 
 <style scoped>
-.viewer-backdrop {
+.look {
   position: fixed;
   inset: 0;
-  z-index: 10000;
-  background: rgba(0, 0, 0, 0.94);
+  z-index: 150;
   display: flex;
+  flex-direction: column;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  animation: look-in 0.25s var(--ease);
+}
+@keyframes look-in { from { opacity: 0; } }
+.look-bar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 96px 1fr 96px;
   align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  gap: 8px;
+  padding: calc(12px + env(safe-area-inset-top)) 14px 10px;
 }
-
-.viewer-media {
-  max-width: 92vw;
-  max-height: calc(100dvh - 140px);
-  object-fit: contain;
-  border-radius: 6px;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-img.viewer-media { opacity: 0; transition: opacity 0.15s ease; }
-img.viewer-media.loaded { opacity: 1; }
-
-.viewer-spinner {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  border: 2.5px solid rgba(255, 255, 255, 0.15);
-  border-top-color: rgba(255, 255, 255, 0.7);
+.look-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.look-title { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
+.look-name { max-width: 100%; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.look-count { font-size: 12px; color: rgba(255, 255, 255, 0.6); }
+.look-btn, .arrow {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.25);
+  transition: background 0.15s, transform 0.2s var(--spring);
 }
+.look-btn:hover, .arrow:hover { background: rgba(255, 255, 255, 0.24); }
+.look-btn:active, .arrow:active { transform: scale(0.92); }
+.stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; padding: 8px 72px calc(28px + env(safe-area-inset-bottom)); }
+.media { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 10px; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5); user-select: none; -webkit-user-drag: none; }
+img.media { opacity: 0; transition: opacity 0.25s; }
+img.media.loaded { opacity: 1; }
+.spinner-wrap { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.ring { width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, 0.2); border-top-color: #fff; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-.viewer-top {
-  position: absolute;
-  top: max(16px, env(safe-area-inset-top));
-  left: 20px;
-  right: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.viewer-counter {
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.6);
-}
-.viewer-actions { display: flex; gap: 8px; }
-
-.viewer-btn,
-.viewer-nav {
-  width: 38px;
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.1);
-  border: 0.5px solid rgba(255, 255, 255, 0.15);
-  border-radius: 50%;
-  color: rgba(255, 255, 255, 0.85);
-  transition: background 0.12s, color 0.12s;
-}
-.viewer-btn:hover,
-.viewer-nav:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
-
-.viewer-nav {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-}
-.viewer-nav--prev { left: 16px; }
-.viewer-nav--next { right: 16px; }
-
-.viewer-icon { width: 17px; height: 17px; stroke-width: 2.25; }
-
-.viewer-name {
-  position: absolute;
-  bottom: max(20px, env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.8125rem;
-  color: rgba(255, 255, 255, 0.5);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 80vw;
-  pointer-events: none;
-}
-
+.arrow { position: absolute; top: 50%; margin-top: -22px; }
+.arrow.left { left: 16px; }
+.arrow.right { right: 16px; }
 @media (max-width: 767px) {
-  .viewer-media { max-width: 100vw; border-radius: 0; }
-  .viewer-nav { display: none; }
+  .stage { padding: 8px 0 calc(16px + env(safe-area-inset-bottom)); }
+  .media { border-radius: 0; }
+  .arrow { display: none; }
 }
 </style>

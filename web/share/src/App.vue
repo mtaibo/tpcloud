@@ -4,6 +4,9 @@ import PasswordWall from './components/PasswordWall.vue'
 import ShareBrowser from './components/ShareBrowser.vue'
 import ShareLanding from './components/ShareLanding.vue'
 import FileViewer from './components/FileViewer.vue'
+import ContextMenu from './components/ContextMenu.vue'
+import Spinner from './ui/Spinner.vue'
+import FileIcon from './components/FileIcon.vue'
 
 const token = window.location.pathname.replace(/^\/share\/?/, '').split('/')[0]
 
@@ -33,18 +36,18 @@ onMounted(async () => {
           }
         }
       } catch {}
-      error.value = 'This link does not exist.'
+      error.value = 'Este enlace no existe o ya no está compartido.'
       loading.value = false
       return
     }
     if (!res.ok) {
-      error.value = 'Failed to load share'
+      error.value = 'No se ha podido abrir el enlace.'
       loading.value = false
       return
     }
     shareInfo.value = await res.json()
   } catch {
-    error.value = 'Connection error'
+    error.value = 'No hay conexión. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -72,10 +75,14 @@ function onAuthenticated(st) {
     :file-url="`/share/api/open/${token}`"
   />
   <ShareLanding v-else-if="!loading && !token" />
-  <div v-else-if="loading" class="center-msg">Loading…</div>
-  <div v-else-if="error" class="center-msg err">{{ error }}</div>
+  <div v-else-if="loading" class="center"><Spinner :size="26" /></div>
+  <div v-else-if="error" class="center">
+    <FileIcon :entry="{ type: 'share-link', name: '' }" :size="84" class="faded" />
+    <h1 class="title-2">Enlace no disponible</h1>
+    <p class="subheadline secondary">{{ error }}</p>
+  </div>
   <template v-else-if="shareInfo">
-    <PasswordWall v-if="needsPassword" :token="token" @authenticated="onAuthenticated" />
+    <PasswordWall v-if="needsPassword" :token="token" :label="shareInfo.label" @authenticated="onAuthenticated" />
     <FileViewer
       v-else-if="shareInfo.is_file"
       :filename="shareInfo.label"
@@ -84,16 +91,15 @@ function onAuthenticated(st) {
     />
     <ShareBrowser v-else :token="token" :share-info="shareInfo" :session-token="sessionToken" />
   </template>
+  <ContextMenu />
 </template>
 
+<style>
+html, body, #app { height: 100%; }
+.photo, .folder-tile, .file-row, .tile { -webkit-user-select: none; user-select: none; }
+</style>
+
 <style scoped>
-.center-msg {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100dvh;
-  font-size: 0.9rem;
-  color: #636366;
-}
-.err { color: #ff453a; }
+.center { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; }
+.faded { opacity: 0.5; margin-bottom: 8px; }
 </style>

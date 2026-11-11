@@ -1,14 +1,19 @@
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
-import { ChevronLeft, ChevronRight, MoreHorizontal, LayoutGrid, List, FolderDown, Download, ExternalLink, ImageDown } from 'lucide-vue-next'
-import ShareFileRow from './ShareFileRow.vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { ChevronLeft, ChevronRight, Download, ExternalLink, Eye, FolderDown, ImageDown, LayoutGrid, List, MoreHorizontal } from 'lucide-vue-next'
+import Spinner from '../ui/Spinner.vue'
+import { openMenu } from '../menu.js'
+import { kindName } from '../fileTypes.js'
+import { formatDate, formatSize } from '../utils/formatSize.js'
+import { canSaveToPhotos, downloadLink, isMedia, isVideo, shareFileUrls } from '../media.js'
+import { vLongPress } from '../longPress.js'
+import FileIcon from './FileIcon.vue'
 import ShareGalleryThumb from './ShareGalleryThumb.vue'
 import MediaViewer from './MediaViewer.vue'
 import SaveToPhotos from './SaveToPhotos.vue'
-import { getFileIcon, getIconColor } from '../fileTypes.js'
-import { isMedia, isVideo, canSaveToPhotos, shareFileUrls, downloadLink } from '../media.js'
-import { vLongPress } from '../longPress.js'
 
+// A shared folder as its visitors see it: the folder up top with what they can do with it,
+// photos and videos in a grid like Photos, everything else in a list like Files.
 const props = defineProps({
   token: String,
   shareInfo: Object,
@@ -17,45 +22,55 @@ const props = defineProps({
 
 const currentPath = ref('')
 const entries = ref([])
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
-// Until the visitor picks a view, a folder that's mostly photos and videos opens as a gallery.
-const storedGalleryMode = localStorage.getItem('share-gallery-mode')
-const galleryMode = ref(storedGalleryMode === '1')
+const scrolled = ref(false)
+// Until the visitor picks a view, a folder that's mostly photos and videos opens as a grid.
+const storedView = localStorage.getItem('share-view') ?? (localStorage.getItem('share-gallery-mode') === '1' ? 'grid' : null)
+const view = ref(storedView || 'grid')
 const urls = shareFileUrls(props.token, props.sessionToken, () => currentPath.value)
 
-const navHistory = ref([''])
-const navIndex = ref(0)
-const canGoBack = computed(() => navIndex.value > 0)
-const canGoForward = computed(() => navIndex.value < navHistory.value.length - 1)
+const history = ref([''])
+const historyIndex = ref(0)
 
-const contextMenu = ref(null)
-const moreBtn = ref(null)
-const menuVisible = ref(false)
-const menuPos = ref({ x: 0, y: 0 })
-const activeEntry = ref(null)
-
-const mediaEntries = computed(() => entries.value.filter(isMedia))
 const viewerIndex = ref(null)
-// What the Save to Photos sheet is saving; null when it's closed.
 const saveItems = ref(null)
 
-const breadcrumbs = computed(() => currentPath.value.split('/').filter(Boolean))
 const rootLabel = computed(() => props.shareInfo?.label || props.token)
-const currentFolderName = computed(() => {
-  if (!currentPath.value) return rootLabel.value
-  const parts = currentPath.value.split('/').filter(Boolean)
-  return parts[parts.length - 1]
+const crumbs = computed(() => currentPath.value.split('/').filter(Boolean))
+const title = computed(() => crumbs.value.at(-1) || rootLabel.value)
+const parentPath = computed(() => (crumbs.value.length ? crumbs.value.slice(0, -1).join('/') : null))
+
+const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' })
+const sorted = computed(() => [...entries.value].sort((a, b) => {
+  const da = a.type === 'directory'
+  const db = b.type === 'directory'
+  return da !== db ? (da ? -1 : 1) : collator.compare(a.name, b.name)
+}))
+const folders = computed(() => sorted.value.filter(e => e.type === 'directory'))
+const media = computed(() => sorted.value.filter(isMedia))
+const others = computed(() => sorted.value.filter(e => e.type === 'file' && !isMedia(e)))
+const files = computed(() => sorted.value.filter(e => e.type === 'file'))
+
+const summary = computed(() => {
+  const parts = []
+  const photos = media.value.filter(e => !isVideo(e)).length
+  const videos = media.value.length - photos
+  if (folders.value.length) parts.push(folders.value.length === 1 ? '1 carpeta' : `${folders.value.length} carpetas`)
+  if (photos) parts.push(photos === 1 ? '1 foto' : `${photos} fotos`)
+  if (videos) parts.push(videos === 1 ? '1 vídeo' : `${videos} vídeos`)
+  if (others.value.length) parts.push(others.value.length === 1 ? '1 archivo' : `${others.value.length} archivos`)
+  const bytes = files.value.reduce((n, e) => n + (e.size || 0), 0)
+  return [parts.join(', ') || 'Vacía', bytes ? formatSize(bytes) : ''].filter(Boolean).join(' · ')
 })
-const menuStyle = computed(() => ({ left: menuPos.value.x + 'px', top: menuPos.value.y + 'px' }))
 
 function authHeaders() {
   return props.sessionToken ? { 'X-Share-Session': props.sessionToken } : {}
 }
 
-function toggleGallery() {
-  galleryMode.value = !galleryMode.value
-  localStorage.setItem('share-gallery-mode', galleryMode.value ? '1' : '0')
+function setView(v) {
+  view.value = v
+  localStorage.setItem('share-view', v)
 }
 
 function zipUrl(path) {
@@ -68,146 +83,70 @@ async function loadDir(path) {
   loading.value = true
   error.value = ''
   try {
-    const params = new URLSearchParams({ path })
-    const res = await fetch(`/share/api/share/${props.token}/files/list?${params}`, {
-      headers: authHeaders(),
-    })
-    if (!res.ok) { error.value = 'Failed to load files'; return }
+    const res = await fetch(`/share/api/share/${props.token}/files/list?${new URLSearchParams({ path })}`, { headers: authHeaders() })
+    if (!res.ok) { error.value = 'No se ha podido abrir esta carpeta.'; return }
     const data = await res.json()
     entries.value = data.entries
     currentPath.value = path
-    if (storedGalleryMode === null && data.entries.length) {
-      galleryMode.value = data.entries.filter(isMedia).length * 2 >= data.entries.length
-    }
+    if (!storedView && data.entries.length) view.value = data.entries.filter(isMedia).length * 2 >= data.entries.length ? 'grid' : 'list'
+    document.querySelector('.share-scroll')?.scrollTo({ top: 0 })
   } catch {
-    error.value = 'Connection error'
+    error.value = 'No hay conexión. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
 }
 
-async function navigateTo(path, push = true) {
-  if (push) {
-    navHistory.value = navHistory.value.slice(0, navIndex.value + 1)
-    navHistory.value.push(path)
-    navIndex.value++
-  }
-  await loadDir(path)
+function navigateTo(path) {
+  history.value = history.value.slice(0, historyIndex.value + 1)
+  history.value.push(path)
+  historyIndex.value++
+  loadDir(path)
 }
 
-function goBack() {
-  if (!canGoBack.value) return
-  navIndex.value--
-  loadDir(navHistory.value[navIndex.value])
+function openFolder(entry) {
+  navigateTo(currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name)
 }
 
-function goForward() {
-  if (!canGoForward.value) return
-  navIndex.value++
-  loadDir(navHistory.value[navIndex.value])
+function back() {
+  if (parentPath.value !== null) navigateTo(parentPath.value)
 }
 
-function onOpen(entry) {
-  const newPath = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
-  navigateTo(newPath)
-}
-
-function navigateToCrumb(index) {
-  const parts = breadcrumbs.value.slice(0, index + 1)
-  navigateTo(parts.join('/'))
+function activate(entry) {
+  if (entry.type === 'directory') return openFolder(entry)
+  if (isMedia(entry)) viewerIndex.value = media.value.indexOf(entry)
+  else openInTab(entry)
 }
 
 // Downloads go straight to the browser's download manager instead of being read into memory
 // first, which with phone videos meant hundreds of megabytes held by the page before anything
 // was saved.
-function downloadEntry(entry) {
-  downloadLink(urls.download(entry), entry.name)
+function download(entry) {
+  if (entry.type === 'directory') {
+    const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
+    downloadLink(zipUrl(path), `${entry.name}.zip`)
+  } else {
+    downloadLink(urls.download(entry), entry.name)
+  }
 }
 
 function downloadZip() {
-  const name = breadcrumbs.value.at(-1) || rootLabel.value
-  downloadLink(zipUrl(currentPath.value), `${name}.zip`)
-}
-
-function saveAllToPhotos() {
-  hideMenu()
-  saveItems.value = mediaEntries.value
+  downloadLink(zipUrl(currentPath.value), `${title.value}.zip`)
 }
 
 // One download per file, spaced out so the browser doesn't drop any. It asks once whether the
 // page may download several files.
 async function downloadAll() {
-  hideMenu()
-  for (const entry of entries.value.filter(e => e.type === 'file')) {
-    downloadEntry(entry)
+  for (const entry of files.value) {
+    downloadLink(urls.download(entry), entry.name)
     await new Promise(resolve => setTimeout(resolve, 600))
   }
 }
 
-function showMenu(e) {
-  e.preventDefault()
-  activeEntry.value = null
-  _openMenu(e)
-}
-
-function showMenuForEntry(entry, e) {
-  e.preventDefault()
-  activeEntry.value = entry
-  _openMenu({ x: e.clientX, y: e.clientY })
-}
-
-// Holding a finger on a photo, video or folder: the same menu a right-click opens.
-function showMenuForEntryAt(entry, point) {
-  activeEntry.value = entry
-  _openMenu(point)
-}
-
-function _openMenu({ x, y }) {
-  menuPos.value = { x, y }
-  menuVisible.value = true
-  nextTick(() => {
-    if (!contextMenu.value) return
-    const rect = contextMenu.value.getBoundingClientRect()
-    menuPos.value = {
-      x: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
-      y: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)),
-    }
-  })
-}
-
-function hideMenu() { menuVisible.value = false }
-
-function showMoreMenu() {
-  activeEntry.value = null
-  menuPos.value = { x: -9999, y: -9999 }
-  menuVisible.value = true
-  nextTick(() => {
-    if (!contextMenu.value || !moreBtn.value) return
-    const btn = moreBtn.value.getBoundingClientRect()
-    const menu = contextMenu.value.getBoundingClientRect()
-    menuPos.value = {
-      x: Math.max(8, btn.right - menu.width),
-      y: Math.min(btn.bottom + 8, window.innerHeight - menu.height - 8),
-    }
-  })
-}
-
-function onFileActivate(entry) {
-  if (isMedia(entry)) {
-    viewerIndex.value = mediaEntries.value.indexOf(entry)
-  } else {
-    openInTab(entry)
-  }
-}
-
-function onMiddleClick(entry, e) {
-  if (e.button === 1 && entry.type === 'file') openInTab(entry)
-}
-
 async function openInTab(entry) {
   const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
-  const newTab = window.open('', '_blank')
-  if (!newTab) return
+  const tab = window.open('', '_blank')
+  if (!tab) return
   try {
     const tokenRes = await fetch(`/share/api/share/${props.token}/files/token`, {
       method: 'POST',
@@ -217,507 +156,312 @@ async function openInTab(entry) {
     if (tokenRes.ok) {
       const { token: fileToken } = await tokenRes.json()
       const infoRes = await fetch(`/share/api/open/${fileToken}/info`)
-      const ct = infoRes.ok ? (infoRes.headers.get('content-type') || '') : ''
-      if (ct.includes('application/json')) {
-        newTab.location.href = `/share/${fileToken}`
+      if ((infoRes.ok ? infoRes.headers.get('content-type') || '' : '').includes('application/json')) {
+        tab.location.href = `/share/${fileToken}`
         return
       }
     }
-  } catch {}
-  newTab.location.href = urls.view(entry)
+  } catch { /* fall back to the raw file */ }
+  tab.location.href = urls.view(entry)
 }
 
-function openActiveItem() {
-  onFileActivate(activeEntry.value)
-  hideMenu()
+function entryMenu(entry, at) {
+  openMenu(at, [
+    entry.type === 'file' && { label: 'Abrir', icon: Eye, action: () => activate(entry) },
+    entry.type === 'file' && !isMedia(entry) && { label: 'Abrir en otra pestaña', icon: ExternalLink, action: () => openInTab(entry) },
+    canSaveToPhotos && isMedia(entry) && { label: 'Guardar en Fotos', icon: ImageDown, action: () => { saveItems.value = [entry] } },
+    { label: entry.type === 'directory' ? 'Descargar como ZIP' : 'Descargar', icon: Download, action: () => download(entry) },
+  ], at instanceof Element ? '' : entry.name)
 }
 
-function saveActiveItem() {
-  saveItems.value = [activeEntry.value]
-  hideMenu()
+function folderMenu(at) {
+  openMenu(at, [
+    { label: 'Galería', icon: LayoutGrid, checked: view.value === 'grid', action: () => setView('grid') },
+    { label: 'Lista', icon: List, checked: view.value === 'list', action: () => setView('list') },
+    { separator: true },
+    canSaveToPhotos && media.value.length && { label: 'Guardar todo en Fotos', icon: ImageDown, action: () => { saveItems.value = media.value } },
+    files.value.length > 1 && { label: 'Descargar los archivos uno a uno', icon: Download, action: downloadAll },
+    { label: 'Descargar todo (ZIP)', icon: FolderDown, action: downloadZip },
+  ])
 }
 
-function downloadActiveItem() {
-  downloadEntry(activeEntry.value)
-  hideMenu()
+function onContext(entry, e) {
+  e.preventDefault()
+  e.stopPropagation()
+  entryMenu(entry, e)
 }
 
-function downloadFolderZip() {
-  const entry = activeEntry.value
-  hideMenu()
-  const path = currentPath.value ? `${currentPath.value}/${entry.name}` : entry.name
-  downloadLink(zipUrl(path), `${entry.name}.zip`)
+function onPress(entry, point) {
+  entryMenu(entry, { clientX: point.x, clientY: point.y })
 }
 
-function onDocClick(e) {
-  if (menuVisible.value && contextMenu.value && !contextMenu.value.contains(e.target)) hideMenu()
+function onScroll(e) { scrolled.value = e.target.scrollTop > 60 }
+
+function onKey(e) {
+  if (viewerIndex.value !== null || saveItems.value || document.querySelector('.menu')) return
+  if ((e.key === 'Backspace' || (e.metaKey && e.key === 'ArrowUp')) && parentPath.value !== null) back()
 }
 
 onMounted(() => {
-  document.addEventListener('click', onDocClick)
   loadDir('')
+  document.addEventListener('keydown', onKey)
 })
-onUnmounted(() => document.removeEventListener('click', onDocClick))
+onUnmounted(() => document.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <div class="browser">
-
-    <!-- Topbar -->
-    <div class="file-topbar">
-      <div class="nav-pill">
-        <button class="nav-btn" :disabled="!canGoBack" @click="goBack" title="Back">
-          <ChevronLeft class="nav-icon" />
-        </button>
-        <div class="nav-divider" />
-        <button class="nav-btn" :disabled="!canGoForward" @click="goForward" title="Forward">
-          <ChevronRight class="nav-icon" />
-        </button>
-      </div>
-
-      <span class="folder-name">{{ currentFolderName }}</span>
-
-      <button
-        class="more-btn"
-        :class="{ 'more-btn--active': galleryMode }"
-        :title="galleryMode ? 'List view' : 'Gallery view'"
-        @click="toggleGallery"
-      >
-        <LayoutGrid v-if="!galleryMode" class="more-icon" />
-        <List v-else class="more-icon" />
+  <div class="share">
+    <header class="bar" :class="{ scrolled }">
+      <button v-if="parentPath !== null" type="button" class="round glass-control" aria-label="Atrás" @click="back">
+        <ChevronLeft :size="22" :stroke-width="2.3" />
       </button>
-
-      <button ref="moreBtn" class="more-btn" @click.stop="showMoreMenu">
-        <MoreHorizontal class="more-icon" />
-      </button>
-    </div>
-
-    <!-- File area -->
-    <div class="file-area" @contextmenu="showMenu">
-
-      <div v-if="loading" class="state-center">
-        <span class="state-text">Loading…</span>
+      <span v-else class="brand"><FileIcon :entry="{ type: 'share-link', name: '' }" :size="26" /> TPCloud</span>
+      <span class="bar-title">{{ title }}</span>
+      <div class="bar-actions">
+        <div class="segmented-pill glass-control desktop" role="group" aria-label="Vista">
+          <button type="button" :class="{ on: view === 'grid' }" aria-label="Galería" @click="setView('grid')"><LayoutGrid :size="17" /></button>
+          <button type="button" :class="{ on: view === 'list' }" aria-label="Lista" @click="setView('list')"><List :size="18" /></button>
+        </div>
+        <button type="button" class="round glass-control" aria-label="Más" @click="folderMenu($event.currentTarget)"><MoreHorizontal :size="21" /></button>
       </div>
-      <div v-else-if="error" class="state-center">
-        <span class="state-text error">{{ error }}</span>
-      </div>
-      <div v-else-if="!entries.length" class="state-center">
-        <span class="state-text">Empty folder</span>
-      </div>
+    </header>
 
-      <!-- Gallery -->
-      <div v-else-if="galleryMode" class="gallery-grid">
-        <div
-          v-for="entry in entries"
-          :key="entry.name"
-          class="gallery-card"
-          @click="entry.type === 'directory' ? onOpen(entry) : onFileActivate(entry)"
-          @auxclick.prevent="onMiddleClick(entry, $event)"
-          @contextmenu.stop="showMenuForEntry(entry, $event)"
-          v-long-press="point => showMenuForEntryAt(entry, point)"
-        >
-          <div class="gallery-thumb">
-            <ShareGalleryThumb
-              v-if="isMedia(entry)"
-              :src="urls.thumbnail(entry)"
-              :alt="entry.name"
-              :is-video="isVideo(entry)"
-              :duration="entry.duration"
-            />
-            <component
-              v-else
-              :is="getFileIcon(entry)"
-              class="gallery-icon"
-              :style="{ color: getIconColor(entry) }"
-            />
+    <main class="share-scroll" @scroll.passive="onScroll" @contextmenu.prevent="folderMenu($event)">
+      <div class="inner">
+        <section class="hero">
+          <FileIcon :entry="{ type: 'directory', name: title }" :size="104" class="hero-icon" />
+          <h1 class="title-1 hero-title">{{ title }}</h1>
+          <nav v-if="crumbs.length" class="crumbs subheadline">
+            <button type="button" @click="navigateTo('')">{{ rootLabel }}</button>
+            <template v-for="(c, i) in crumbs.slice(0, -1)" :key="i">
+              <ChevronRight :size="13" :stroke-width="2.4" />
+              <button type="button" @click="navigateTo(crumbs.slice(0, i + 1).join('/'))">{{ c }}</button>
+            </template>
+          </nav>
+          <p class="subheadline secondary">{{ loading ? 'Cargando…' : summary }}</p>
+          <div v-if="!loading && entries.length" class="hero-actions">
+            <button type="button" class="btn btn-prominent" @click="downloadZip"><Download :size="19" :stroke-width="2.2" /> Descargar todo</button>
+            <button v-if="canSaveToPhotos && media.length" type="button" class="btn btn-glass" @click="saveItems = media"><ImageDown :size="19" /> Guardar en Fotos</button>
           </div>
-          <span class="gallery-name">{{ entry.name }}</span>
+        </section>
+
+        <div v-if="loading" class="state"><Spinner :size="26" /></div>
+        <div v-else-if="error" class="state">
+          <p class="headline">{{ error }}</p>
+          <button type="button" class="btn btn-bordered small" @click="loadDir(currentPath)">Reintentar</button>
         </div>
-      </div>
+        <div v-else-if="!entries.length" class="state">
+          <p class="headline">Esta carpeta está vacía</p>
+        </div>
 
-      <!-- List -->
-      <table v-else class="file-table">
-        <thead>
-          <tr>
-            <th class="th-name">Name</th>
-            <th class="th-size">Size</th>
-          </tr>
-        </thead>
-        <tbody>
-          <ShareFileRow
-            v-for="entry in entries"
-            :key="entry.name"
-            :entry="entry"
-            @open="onOpen"
-            @open-file="onFileActivate"
-            @open-tab="openInTab"
-            @download="downloadEntry"
-            @contextmenu.stop="showMenuForEntry(entry, $event)"
-            v-long-press="point => showMenuForEntryAt(entry, point)"
-          />
-        </tbody>
-      </table>
-    </div>
+        <!-- Grid: folders, then photos and videos like Photos, then other files -->
+        <template v-else-if="view === 'grid'">
+          <section v-if="folders.length" class="block">
+            <h2 class="section-header">Carpetas</h2>
+            <div class="folder-grid">
+              <button
+                v-for="f in folders"
+                :key="f.name"
+                v-long-press="p => onPress(f, p)"
+                type="button"
+                class="folder-tile"
+                @click="openFolder(f)"
+                @contextmenu="onContext(f, $event)"
+              >
+                <FileIcon :entry="f" :size="72" />
+                <span class="tile-name">{{ f.name }}</span>
+              </button>
+            </div>
+          </section>
 
-    <!-- Bottom bar with breadcrumbs -->
-    <div class="bottom-bar">
-      <div class="breadcrumbs">
-        <span
-          class="crumb"
-          :class="{ active: !breadcrumbs.length }"
-          @click="navigateTo('')"
-        >{{ rootLabel }}</span>
-        <template v-for="(seg, i) in breadcrumbs" :key="i">
-          <span class="crumb-sep">/</span>
-          <span
-            class="crumb"
-            :class="{ active: i === breadcrumbs.length - 1 }"
-            @click="navigateToCrumb(i)"
-          >{{ seg }}</span>
+          <section v-if="media.length" class="block">
+            <h2 v-if="folders.length || others.length" class="section-header">Fotos y vídeos</h2>
+            <div class="photo-grid">
+              <button
+                v-for="(m, i) in media"
+                :key="m.name"
+                v-long-press="p => onPress(m, p)"
+                type="button"
+                class="photo"
+                :aria-label="m.name"
+                @click="viewerIndex = i"
+                @auxclick.prevent="$event.button === 1 && openInTab(m)"
+                @contextmenu="onContext(m, $event)"
+              >
+                <ShareGalleryThumb :src="urls.thumbnail(m)" :alt="m.name" :is-video="isVideo(m)" :duration="m.duration" />
+              </button>
+            </div>
+          </section>
+
+          <section v-if="others.length" class="block">
+            <h2 v-if="folders.length || media.length" class="section-header">Archivos</h2>
+            <div class="card">
+              <button
+                v-for="f in others"
+                :key="f.name"
+                v-long-press="p => onPress(f, p)"
+                type="button"
+                class="row file-row"
+                @click="activate(f)"
+                @contextmenu="onContext(f, $event)"
+              >
+                <FileIcon :entry="f" :size="40" />
+                <span class="row-body">
+                  <span class="row-title">{{ f.name }}</span>
+                  <span class="row-subtitle small">{{ kindName(f) }} · {{ formatSize(f.size) }}</span>
+                </span>
+                <span class="dl" role="button" tabindex="0" aria-label="Descargar" @click.stop="download(f)" @keydown.enter.stop="download(f)"><Download :size="19" /></span>
+              </button>
+            </div>
+          </section>
         </template>
+
+        <!-- List: everything in one inset list -->
+        <section v-else class="block">
+          <div class="card">
+            <button
+              v-for="e in sorted"
+              :key="e.name"
+              v-long-press="p => onPress(e, p)"
+              type="button"
+              class="row file-row"
+              @click="activate(e)"
+              @auxclick.prevent="$event.button === 1 && e.type === 'file' && openInTab(e)"
+              @contextmenu="onContext(e, $event)"
+            >
+              <span v-if="isMedia(e)" class="mini-thumb"><ShareGalleryThumb :src="urls.thumbnail(e, 160)" :alt="e.name" :is-video="isVideo(e)" /></span>
+              <FileIcon v-else :entry="e" :size="40" />
+              <span class="row-body">
+                <span class="row-title">{{ e.name }}</span>
+                <span class="row-subtitle small">{{ e.type === 'directory' ? 'Carpeta' : `${formatDate(e.modified)} · ${formatSize(e.size)}` }}</span>
+              </span>
+              <ChevronRight v-if="e.type === 'directory'" :size="18" class="chev" />
+              <span v-else class="dl" role="button" tabindex="0" aria-label="Descargar" @click.stop="download(e)" @keydown.enter.stop="download(e)"><Download :size="19" /></span>
+            </button>
+          </div>
+        </section>
+
+        <footer class="foot footnote tertiary">Compartido con TPCloud</footer>
       </div>
-    </div>
-
-    <!-- Context menu -->
-    <Teleport to="body">
-      <Transition name="ctx">
-        <div v-if="menuVisible" ref="contextMenu" class="ctx-menu" :style="menuStyle">
-
-          <!-- File/folder entry menu -->
-          <template v-if="activeEntry">
-            <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="openActiveItem">
-              <ExternalLink class="ctx-icon" />
-              <span>Open</span>
-            </button>
-            <button v-if="canSaveToPhotos && isMedia(activeEntry)" class="ctx-item" @click="saveActiveItem">
-              <ImageDown class="ctx-icon" />
-              <span>Save to Photos</span>
-            </button>
-            <button class="ctx-item" @click="activeEntry.type === 'directory' ? downloadFolderZip() : downloadActiveItem()">
-              <Download class="ctx-icon" />
-              <span>{{ activeEntry.type === 'directory' ? 'Download as ZIP' : 'Download' }}</span>
-            </button>
-          </template>
-
-          <!-- Background menu -->
-          <template v-else>
-            <button v-if="canSaveToPhotos && mediaEntries.length" class="ctx-item" @click="saveAllToPhotos">
-              <ImageDown class="ctx-icon" />
-              <span>Save All to Photos</span>
-            </button>
-            <button v-if="entries.some(e => e.type === 'file')" class="ctx-item" @click="downloadAll">
-              <Download class="ctx-icon" />
-              <span>Download All</span>
-            </button>
-            <button class="ctx-item" @click="downloadZip(); hideMenu()">
-              <FolderDown class="ctx-icon" />
-              <span>Download as ZIP</span>
-            </button>
-          </template>
-
-        </div>
-      </Transition>
-    </Teleport>
+    </main>
 
     <MediaViewer
       v-if="viewerIndex !== null"
-      :items="mediaEntries"
+      :items="media"
       :start-index="viewerIndex"
       :urls="urls"
       @close="viewerIndex = null"
-      @download="downloadEntry"
-      @save="entry => (saveItems = [entry])"
+      @download="download"
+      @save="e => (saveItems = [e])"
     />
-
-    <SaveToPhotos
-      v-if="saveItems"
-      :items="saveItems"
-      :download-url="urls.download"
-      @close="saveItems = null"
-    />
-
+    <SaveToPhotos v-if="saveItems" :items="saveItems" :download-url="urls.download" @close="saveItems = null" />
   </div>
 </template>
 
 <style scoped>
-.browser {
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-/* ── Topbar ── */
-.file-topbar {
-  flex-shrink: 0;
+.share { height: 100dvh; display: flex; flex-direction: column; position: relative; }
+.bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
-  padding: 10px 1.25rem;
-  gap: 0;
+  justify-content: space-between;
+  gap: 10px;
+  height: calc(60px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 14px 0;
 }
-
-.nav-pill {
-  display: flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.07);
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-  flex-shrink: 0;
+.bar::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 -22px;
+  z-index: -1;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 85%, transparent) 50%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  opacity: 0;
+  transition: opacity 0.2s;
 }
-
-.nav-btn {
-  width: 40px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.85);
-  transition: background 0.12s, color 0.12s;
-}
-.nav-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
-.nav-btn:active:not(:disabled) { background: rgba(255, 255, 255, 0.04); }
-.nav-btn:disabled { color: rgba(255, 255, 255, 0.2); cursor: default; }
-
-.nav-divider {
-  width: 0.5px;
-  height: 14px;
-  background: rgba(255, 255, 255, 0.15);
-  flex-shrink: 0;
-}
-
-.nav-icon { width: 16px; height: 16px; stroke-width: 2.5; }
-
-.folder-name {
-  flex: 1;
-  font-size: 1rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.75);
-  margin-left: 0.75rem;
+.bar.scrolled::before { opacity: 1; }
+.brand { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; padding-left: 4px; }
+.bar-title {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, 4px);
+  max-width: 50%;
+  font-size: 17px;
+  font-weight: 600;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
 }
+.bar.scrolled .bar-title { opacity: 1; transform: translate(-50%, 0); }
+.bar-actions { display: flex; gap: 8px; }
+.glass-control {
+  background: var(--glass-strong);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.08), inset 0 0.5px 0 var(--glass-edge);
+  color: var(--label);
+}
+@media (prefers-color-scheme: dark) { .glass-control { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(255, 255, 255, 0.1); } }
+.round { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; transition: transform 0.2s var(--spring); }
+.round:active { transform: scale(0.92); }
+.segmented-pill { display: flex; align-items: center; height: 44px; padding: 0 4px; border-radius: 999px; }
+.segmented-pill button { width: 42px; height: 36px; display: grid; place-items: center; border-radius: 999px; }
+.segmented-pill button.on { background: var(--fill-2); }
+@media (max-width: 600px) { .desktop { display: none; } }
 
-.more-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  margin-left: auto;
-  background: rgba(255, 255, 255, 0.07);
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  color: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
-  transition: background 0.15s;
-}
-.more-btn:hover { background: rgba(255, 255, 255, 0.10); }
-.more-btn:active { background: rgba(255, 255, 255, 0.04); }
-.more-btn--active { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.22); }
-.more-icon { width: 16px; height: 16px; }
+.share-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.inner { max-width: 1080px; margin: 0 auto; padding: calc(70px + env(safe-area-inset-top)) 20px calc(40px + env(safe-area-inset-bottom)); }
 
-/* ── File area ── */
-.file-area {
-  flex: 1;
-  overflow-y: auto;
-  position: relative;
-}
+.hero { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 0 34px; text-align: center; }
+.hero-icon { filter: drop-shadow(0 10px 24px rgba(10, 132, 255, 0.25)); margin-bottom: 4px; }
+.hero-title { overflow-wrap: anywhere; max-width: 680px; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; color: var(--label-3); }
+.crumbs button { color: var(--accent); }
+.hero-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 14px; }
+.hero-actions .btn { gap: 8px; }
 
-.state-center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 10rem;
-}
-.state-text { font-size: 0.875rem; color: #525252; }
-.state-text.error { color: #ff453a; }
+.state { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; text-align: center; }
+.block { margin-bottom: 30px; }
+.block .section-header { padding-left: 4px; }
 
-/* List table */
-.file-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-.file-table thead th {
-  padding: 0.65rem 1.25rem;
-  font-size: 0.7rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #525252;
-  border-bottom: 0.5px solid rgba(255, 255, 255, 0.1);
-  user-select: none;
-}
-.th-name { text-align: left; width: 100%; }
-.th-size { text-align: right; white-space: nowrap; }
-
-/* Gallery */
-.gallery-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 12px;
-  padding: 16px 1.25rem;
-}
-
-.gallery-card {
+.folder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.folder-tile {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 10px 8px;
-  border-radius: 10px;
-  cursor: default;
-  transition: background 0.1s;
-  user-select: none;
+  padding: 16px 8px 14px;
+  border-radius: var(--radius-card);
+  background: var(--cell);
+  transition: transform 0.25s var(--spring);
 }
-.gallery-card:hover { background: rgba(255, 255, 255, 0.06); }
-/* No system callout on a long press (it would save the thumbnail); ours opens the menu instead. */
-.gallery-card,
-.file-table :deep(tr) {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-  transition: background 0.1s, transform 0.25s ease;
-}
-.gallery-card.long-pressing { transform: scale(0.94); }
-.file-table :deep(tr.long-pressing) { background: rgba(255, 255, 255, 0.06); }
+.folder-tile:active, .folder-tile.long-pressing { transform: scale(0.96); }
+@media (hover: hover) { .folder-tile:hover { transform: translateY(-2px); } }
+.tile-name { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
-.gallery-thumb {
-  width: 110px;
-  height: 110px;
-  border-radius: 8px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.05);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.gallery-icon { width: 44px; height: 44px; }
-.gallery-name {
-  font-size: 0.75rem;
-  color: #d1d1d6;
-  text-align: center;
-  word-break: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  line-height: 1.3;
-  max-width: 100%;
-}
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px; }
+@media (max-width: 600px) { .photo-grid { grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 0 -20px; } .photo { border-radius: 0; } }
+.photo { aspect-ratio: 1; border-radius: 8px; background: var(--fill-3); overflow: hidden; transition: opacity 0.15s, transform 0.25s; -webkit-touch-callout: none; }
+.photo:hover { opacity: 0.88; }
+.photo.long-pressing { transform: scale(0.95); }
 
-/* ── Bottom bar ── */
-.bottom-bar {
-  flex-shrink: 0;
-  padding: 0.65rem 1.25rem;
-  border-top: 0.5px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
-}
+.file-row { --inset: 74px; cursor: pointer; padding-top: 10px; padding-bottom: 10px; -webkit-touch-callout: none; }
+.file-row.long-pressing { background: var(--cell-pressed); }
+.mini-thumb { width: 40px; height: 40px; flex-shrink: 0; border-radius: 8px; overflow: hidden; background: var(--fill-3); }
+.mini-thumb :deep(.thumb-duration) { display: none; }
+.dl, .chev { flex-shrink: 0; color: var(--accent); }
+.chev { color: var(--label-3); }
+.dl { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; }
+.dl:hover { background: var(--fill-3); }
 
-.breadcrumbs {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: nowrap;
-  overflow: hidden;
-}
-
-.crumb {
-  font-size: 0.75rem;
-  color: #3a3a3c;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 160px;
-  cursor: default;
-  transition: color 0.12s;
-}
-.crumb:hover { color: #636366; }
-.crumb.active { color: #525252; }
-
-.crumb-sep { color: #2c2c2e; font-size: 0.7rem; flex-shrink: 0; }
-
-/* ── Mobile ── */
-@media (max-width: 767px) {
-  .file-topbar {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: calc(80px + env(safe-area-inset-top));
-    padding-top: env(safe-area-inset-top);
-    padding-left: 1.25rem;
-    padding-right: 1.25rem;
-    z-index: 100;
-    background: rgba(0, 0, 0, 0.65);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border-bottom: 0.5px solid rgba(255, 255, 255, 0.07);
-  }
-  .file-area {
-    padding-top: calc(80px + env(safe-area-inset-top));
-    padding-bottom: 60px;
-  }
-  .folder-name { font-size: 1.25rem; margin-left: 1.5rem; }
-  .bottom-bar { display: none; }
-  .th-size { display: none; }
-  .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; padding: 12px 1rem; }
-  .gallery-thumb { width: 88px; height: 88px; }
-}
-</style>
-
-<style>
-.ctx-menu {
-  position: fixed;
-  z-index: 9999;
-  min-width: 210px;
-  padding: 4px 0;
-  background: rgba(28, 28, 30, 0.9);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 0.5px solid rgba(255, 255, 255, 0.14);
-  border-radius: 10px;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.3), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
-}
-
-.ctx-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: calc(100% - 8px);
-  margin: 0 4px;
-  padding: 6px 10px;
-  font-size: 13px;
-  color: #e4e4e7;
-  background: none;
-  border: none;
-  border-radius: 6px;
-  text-align: left;
-  transition: background 0.08s, color 0.08s;
-  font-family: inherit;
-  letter-spacing: -0.01em;
-}
-.ctx-item:hover { background: #8E8E93; color: #fff; }
-.ctx-icon { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.7; }
-.ctx-item:hover .ctx-icon { opacity: 1; }
-
-.ctx-enter-active { transition: opacity 0.1s ease, transform 0.1s ease; }
-.ctx-leave-active { transition: opacity 0.08s ease, transform 0.08s ease; }
-.ctx-enter-from, .ctx-leave-to { opacity: 0; transform: scale(0.96) translateY(-4px); }
-
-@media (max-width: 767px) {
-  .ctx-menu { min-width: 260px; background: rgba(20, 20, 22, 0.97); backdrop-filter: blur(60px) saturate(220%); -webkit-backdrop-filter: blur(60px) saturate(220%); }
-  .ctx-item { font-size: 15px; padding: 8px 12px; gap: 12px; }
-  .ctx-icon { width: 16px; height: 16px; }
-}
+.foot { text-align: center; padding: 18px 0 0; }
 </style>

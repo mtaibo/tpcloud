@@ -1,14 +1,13 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   // Served under /share/ by the gateway.
   base: '/share/',
-  plugins: [vue(), tailwindcss()],
+  plugins: [vue()],
   server: {
     proxy: {
-      '/api': 'http://localhost:8001',
+      '/share/api': { target: 'http://localhost:8001', rewrite: p => p.replace(/^\/share/, '') },
     },
   },
 })

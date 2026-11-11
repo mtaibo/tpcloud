@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { X } from 'lucide-vue-next'
+import { Check, ImageDown, X } from 'lucide-vue-next'
 import { mimeType, isVideo } from '../media.js'
 import { formatSize } from '../utils/formatSize.js'
 
@@ -60,14 +60,14 @@ const batchLabel = computed(() => {
   const videos = batch.value.filter(isVideo).length
   const photos = batch.value.length - videos
   const parts = []
-  if (photos) parts.push(photos === 1 ? '1 photo' : `${photos} photos`)
-  if (videos) parts.push(videos === 1 ? '1 video' : `${videos} videos`)
-  return parts.join(' and ')
+  if (photos) parts.push(photos === 1 ? '1 foto' : `${photos} fotos`)
+  if (videos) parts.push(videos === 1 ? '1 vídeo' : `${videos} vídeos`)
+  return parts.join(' y ')
 })
 
 async function fetchFile(item, signal) {
   const res = await fetch(props.downloadUrl(item), { signal })
-  if (!res.ok || !res.body) throw new Error(`Couldn't download ${item.name}`)
+  if (!res.ok || !res.body) throw new Error(`No se pudo descargar «${item.name}»`)
   const reader = res.body.getReader()
   const chunks = []
   while (true) {
@@ -101,7 +101,7 @@ async function downloadBatch() {
     phase.value = 'ready'
   } catch (e) {
     if (e.name === 'AbortError') return
-    errorText.value = e.message || 'Download failed'
+    errorText.value = e.message || 'La descarga ha fallado'
     phase.value = 'error'
   }
 }
@@ -115,7 +115,7 @@ async function save() {
   } catch (e) {
     // Closing the sheet without saving: keep the batch ready to try again or skip.
     phase.value = 'ready'
-    if (e.name !== 'AbortError') errorText.value = e.message || "Couldn't open the share sheet"
+    if (e.name !== 'AbortError') errorText.value = e.message || 'No se pudo abrir el menú de compartir'
   }
 }
 
@@ -141,94 +141,62 @@ onUnmounted(() => abort?.abort())
 
 <template>
   <Teleport to="body">
-    <div class="save-backdrop" @click.self="close">
-      <div class="save-sheet" role="dialog" aria-label="Save to Photos">
-        <div class="save-header">
-          <span class="save-title">Save to Photos</span>
-          <button class="save-close" title="Close" @click="close"><X class="save-close-icon" /></button>
-        </div>
-
-        <template v-if="phase === 'done'">
-          <p class="save-text">
-            {{ savedCount === 1 ? 'Saved 1 item' : `Saved ${savedCount} items` }}. They're in your Photos now.
-          </p>
-          <button class="save-primary" @click="close">Done</button>
-        </template>
-
-        <template v-else>
-          <p class="save-text">
-            <template v-if="batches.length > 1">Part {{ batchIndex + 1 }} of {{ batches.length }} · </template>
-            {{ batchLabel }}
-            <span class="save-dim"> · {{ formatSize(batchBytes) }}</span>
-          </p>
-          <p v-if="batchIndex === 0 && batches.length > 1" class="save-hint">
-            {{ props.items.length }} items, {{ formatSize(totalBytes) }} in all. They go in parts so your phone
-            doesn't run out of memory; tap Save after each one.
-          </p>
-
-          <div class="save-bar"><div class="save-bar-fill" :style="{ width: `${progress * 100}%` }" /></div>
-
-          <p v-if="errorText" class="save-error">{{ errorText }}</p>
-
-          <div class="save-actions">
-            <button v-if="phase === 'error'" class="save-primary" @click="downloadBatch">Try Again</button>
-            <button v-else class="save-primary" :disabled="phase !== 'ready'" @click="save">
-              <template v-if="phase === 'downloading'">Downloading… {{ Math.round(progress * 100) }}%</template>
-              <template v-else>Save {{ batch.length === 1 ? '1 Item' : `${batch.length} Items` }}</template>
-            </button>
-            <button v-if="batches.length > 1 && phase !== 'downloading'" class="save-secondary" @click="next">Skip</button>
+    <Transition name="sheet" appear>
+      <div class="overlay" @click.self="close">
+        <div class="sheet" role="dialog" aria-label="Guardar en Fotos">
+          <div class="sheet-bar">
+            <button type="button" class="icon-btn" aria-label="Cerrar" @click="close"><X :size="20" :stroke-width="2.2" /></button>
+            <div class="navbar-title">Guardar en Fotos</div>
+            <span />
           </div>
-        </template>
+          <div class="sheet-body">
+            <div class="hero">
+              <span class="hero-icon" :class="{ done: phase === 'done' }">
+                <Check v-if="phase === 'done'" :size="38" :stroke-width="2.6" />
+                <ImageDown v-else :size="34" />
+              </span>
+              <template v-if="phase === 'done'">
+                <p class="title-3">{{ savedCount === 1 ? '1 elemento guardado' : `${savedCount} elementos guardados` }}</p>
+                <p class="subheadline secondary">Ya están en tu app Fotos.</p>
+              </template>
+              <template v-else>
+                <p class="title-3">{{ batchLabel }}</p>
+                <p class="subheadline secondary">
+                  <template v-if="batches.length > 1">Parte {{ batchIndex + 1 }} de {{ batches.length }} · </template>{{ formatSize(batchBytes) }}
+                </p>
+              </template>
+            </div>
+
+            <template v-if="phase !== 'done'">
+              <p v-if="batchIndex === 0 && batches.length > 1" class="footnote secondary hint">
+                Son {{ props.items.length }} elementos ({{ formatSize(totalBytes) }}). Van por partes para que el móvil no se quede sin memoria: pulsa «Guardar» al terminar cada una.
+              </p>
+              <div class="bar"><i :style="{ width: `${progress * 100}%` }" /></div>
+              <p v-if="errorText" class="footnote danger err">{{ errorText }}</p>
+              <div class="actions">
+                <button v-if="phase === 'error'" type="button" class="btn btn-prominent block" @click="downloadBatch">Reintentar</button>
+                <button v-else type="button" class="btn btn-prominent block" :disabled="phase !== 'ready'" @click="save">
+                  <template v-if="phase === 'downloading'">Preparando… {{ Math.round(progress * 100) }} %</template>
+                  <template v-else>Guardar {{ batch.length === 1 ? '1 elemento' : `${batch.length} elementos` }}</template>
+                </button>
+                <button v-if="batches.length > 1 && phase !== 'downloading'" type="button" class="btn btn-plain block" @click="next">Saltar esta parte</button>
+              </div>
+            </template>
+            <button v-else type="button" class="btn btn-prominent block" @click="close">Hecho</button>
+          </div>
+        </div>
       </div>
-    </div>
+    </Transition>
   </Teleport>
 </template>
 
 <style scoped>
-.save-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10001;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-.save-sheet {
-  width: min(440px, 100%);
-  margin: 0 0 max(16px, env(safe-area-inset-bottom));
-  padding: 16px 18px 18px;
-  background: rgba(28, 28, 30, 0.96);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 0.5px solid rgba(255, 255, 255, 0.14);
-  border-radius: 18px;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
-}
-@media (max-width: 767px) {
-  .save-sheet { margin-left: 10px; margin-right: 10px; width: auto; flex: 1; }
-}
-.save-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.save-title { font-size: 1.0625rem; font-weight: 600; color: #f5f5f7; }
-.save-close {
-  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; border: none; background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.75);
-}
-.save-close-icon { width: 14px; height: 14px; stroke-width: 2.5; }
-.save-text { font-size: 0.9375rem; color: #e4e4e7; margin: 0 0 6px; }
-.save-dim { color: #8e8e93; }
-.save-hint { font-size: 0.8125rem; color: #8e8e93; margin: 0 0 10px; line-height: 1.35; }
-.save-error { font-size: 0.8125rem; color: #ff453a; margin: 8px 0 0; }
-.save-bar { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; margin: 10px 0 4px; }
-.save-bar-fill { height: 100%; background: #0a84ff; transition: width 0.2s ease; }
-.save-actions { display: flex; gap: 8px; margin-top: 14px; }
-.save-primary {
-  flex: 1; height: 44px; border: none; border-radius: 12px; background: #0a84ff; color: #fff;
-  font-size: 0.9375rem; font-weight: 600; font-variant-numeric: tabular-nums;
-}
-.save-primary:disabled { background: rgba(10, 132, 255, 0.35); color: rgba(255, 255, 255, 0.7); }
-.save-secondary {
-  height: 44px; padding: 0 18px; border: none; border-radius: 12px;
-  background: rgba(255, 255, 255, 0.1); color: #e4e4e7; font-size: 0.9375rem;
-}
+.hero { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 4px 0 22px; }
+.hero-icon { width: 76px; height: 76px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: linear-gradient(180deg, #ffb340, #ff7a00); margin-bottom: 8px; }
+.hero-icon.done { background: var(--green); border-radius: 50%; }
+.hint { text-align: center; margin-bottom: 16px; }
+.bar { height: 6px; border-radius: 3px; background: var(--fill-3); overflow: hidden; margin-bottom: 18px; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+.err { text-align: center; margin: -8px 0 14px; }
+.actions { display: grid; gap: 6px; }
 </style>

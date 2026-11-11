@@ -1,8 +1,9 @@
 <script setup>
 import { ref } from 'vue'
 import { Lock } from 'lucide-vue-next'
+import Spinner from '../ui/Spinner.vue'
 
-const props = defineProps({ token: String })
+const props = defineProps({ token: String, label: String })
 const emit = defineEmits(['authenticated'])
 
 const password = ref('')
@@ -20,14 +21,14 @@ async function submit() {
       body: JSON.stringify({ password: password.value }),
     })
     if (!res.ok) {
-      error.value = 'Incorrect password'
+      error.value = 'Contraseña incorrecta'
       return
     }
     const { session_token } = await res.json()
     localStorage.setItem(`share-session-${props.token}`, session_token)
     emit('authenticated', session_token)
   } catch {
-    error.value = 'Connection error'
+    error.value = 'No hay conexión. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -39,123 +40,36 @@ function onKeydown(e) {
 </script>
 
 <template>
-  <div class="wall">
-    <div class="card">
-      <div class="icon-wrap">
-        <Lock class="lock-icon" />
+  <main class="wall">
+    <form class="content" :class="{ shake: !!error }" @submit.prevent="submit">
+      <span class="lock"><Lock :size="34" :stroke-width="2" /></span>
+      <h1 class="title-1">{{ label || 'Carpeta protegida' }}</h1>
+      <p class="subheadline secondary">Quien te ha compartido esto le ha puesto contraseña. Escríbela para entrar.</p>
+      <div class="card field">
+        <input
+          v-model="password"
+          class="row-input"
+          type="password"
+          placeholder="Contraseña"
+          autocomplete="current-password"
+          autofocus
+          @input="error = ''"
+        />
       </div>
-      <h1 class="title">Password required</h1>
-      <p class="subtitle">This shared folder is password protected.</p>
-
-      <input
-        v-model="password"
-        class="pw-input"
-        type="password"
-        placeholder="Enter password"
-        autocomplete="current-password"
-        @keydown="onKeydown"
-      />
-
-      <p v-if="error" class="error-msg">{{ error }}</p>
-
-      <button class="btn-unlock" :disabled="loading || !password" @click="submit">
-        {{ loading ? 'Verifying…' : 'Unlock' }}
+      <p v-if="error" class="footnote danger">{{ error }}</p>
+      <button type="submit" class="btn btn-prominent block" :disabled="loading || !password">
+        <Spinner v-if="loading" :size="18" style="color: #fff" />
+        <span v-else>Entrar</span>
       </button>
-    </div>
-  </div>
+    </form>
+  </main>
 </template>
 
 <style scoped>
-.wall {
-  min-height: 100dvh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-  background: #000;
-}
-
-.card {
-  width: 100%;
-  max-width: 320px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 2rem;
-  background: rgba(28, 28, 30, 0.97);
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
-  border-radius: 18px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
-}
-
-.icon-wrap {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.07);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 0.25rem;
-}
-
-.lock-icon { width: 24px; height: 24px; color: #8E8E93; }
-
-.title {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #fff;
-  letter-spacing: -0.01em;
-  text-align: center;
-}
-
-.subtitle {
-  font-size: 0.8rem;
-  color: #636366;
-  text-align: center;
-  line-height: 1.4;
-}
-
-.pw-input {
-  width: 100%;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  color: #fff;
-  font-size: 0.9rem;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.pw-input::placeholder { color: #3a3a3c; }
-
-.pw-input:focus {
-  border-color: #8E8E93;
-  box-shadow: 0 0 0 3px rgba(142, 142, 147, 0.2);
-}
-
-.error-msg {
-  font-size: 0.8rem;
-  color: #ff453a;
-  text-align: center;
-}
-
-.btn-unlock {
-  width: 100%;
-  padding: 10px;
-  border-radius: 10px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #fff;
-  background: #8E8E93;
-  border: none;
-  font-family: inherit;
-  transition: opacity 0.12s;
-}
-
-.btn-unlock:disabled { opacity: 0.4; cursor: default; }
-.btn-unlock:not(:disabled):hover { opacity: 0.88; }
+.wall { min-height: 100dvh; display: grid; place-items: center; padding: 24px 20px; }
+.content { width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.lock { width: 84px; height: 84px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: linear-gradient(180deg, #8e8e93, #636366); margin-bottom: 8px; }
+.field { width: 100%; padding: 6px 20px; margin-top: 14px; }
+.field input { width: 100%; border: none; outline: none; background: none; font-size: 17px; padding: 10px 0; color: var(--label); }
+.content .btn { margin-top: 6px; }
 </style>
