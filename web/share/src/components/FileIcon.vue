@@ -53,7 +53,7 @@ const uid = Math.random().toString(36).slice(2, 8)
 
 <style scoped>
 .file-icon { position: relative; display: inline-grid; place-items: center; flex-shrink: 0; }
-.file-icon svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.file-icon > svg:not(.glyph) { width: 100%; height: 100%; display: block; overflow: visible; }
 .folder-back { fill: #5aa7ea; }
 .folder-front-top { stop-color: #8ccbff; }
 .folder-front-bottom { stop-color: #5fb2f6; }
