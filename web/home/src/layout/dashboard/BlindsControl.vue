@@ -2,18 +2,15 @@
 import { computed } from 'vue'
 import { ChevronDown, ChevronUp, Lock, Pause } from 'lucide-vue-next'
 
-import ListSection from '@/ui/ListSection.vue'
-import ListRow     from '@/ui/ListRow.vue'
 import BlindSlider from '@/components/BlindSlider.vue'
 
 import { useDevices } from '@/config/devices'
 import { positions, handlePositions, getAnim } from '@/config/useBlindAnimations'
-import { blindStatus, dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
-import { navigateToDevice } from '@/config/sections'
+import { dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
 
-// What's inside a blind's sheet: the big slider, up / stop / down, a few positions and its settings.
+// What's inside a blind's sheet: the blind as a bar as tall as up / stop / down, beside them.
+// Its settings are the gear in the sheet's bar.
 const props = defineProps({ id: { type: String, required: true } })
-const emit = defineEmits(['close'])
 
 const store = useDevices()
 const device = computed(() => store.blinds[props.id])
@@ -22,26 +19,11 @@ getAnim(props.id, device.value?.state?.position ?? 0)
 const fill = computed(() => positions[props.id] ?? 0)
 const target = computed(() => handlePositions[props.id] ?? 0)
 const disabled = computed(() => !!device.value?.locked)
-
-const presets = [
-    { label: 'Cerrar', value: 0 },
-    { label: '50 %', value: 50 },
-    { label: 'Abrir', value: 100 },
-]
-
-function settings() {
-    emit('close')
-    navigateToDevice(props.id)
-}
 </script>
 
 <template>
     <div v-if="device" class="control">
-        <div class="readout">
-            <span class="percent">{{ Math.round(target) }}<small>%</small></span>
-            <span class="subheadline secondary">{{ blindStatus(device, fill) }}</span>
-            <span v-if="device.locked" class="badge orange"><Lock :size="12" :stroke-width="2.4" />Bloqueada por un administrador</span>
-        </div>
+        <span v-if="device.locked" class="badge orange"><Lock :size="12" :stroke-width="2.4" />Bloqueada por un administrador</span>
 
         <div class="stage">
             <BlindSlider
@@ -65,36 +47,18 @@ function settings() {
                 </button>
             </div>
         </div>
-
-        <div class="presets">
-            <button
-                v-for="p in presets"
-                :key="p.value"
-                type="button"
-                class="btn btn-bordered small"
-                :disabled="disabled"
-                @click="setBlind(id, p.value)"
-            >{{ p.label }}</button>
-        </div>
-
-        <ListSection>
-            <ListRow icon="gear" tint="gray" title="Ajustes del dispositivo" :value="id" clickable chevron @click="settings" />
-        </ListSection>
     </div>
 </template>
 
 <style scoped>
-.control { display: flex; flex-direction: column; gap: 22px; padding-top: 4px; }
-.readout { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
-.percent { font-family: var(--font-rounded); font-size: 52px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; }
-.percent small { margin-left: 2px; font-size: 24px; color: var(--label-2); }
-.readout .badge { margin-top: 6px; }
+.control { --round: 56px; --gap: 14px; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 8px 0 12px; }
 .stage { display: flex; align-items: center; justify-content: center; gap: 22px; }
-.slider { width: 132px; height: 280px; }
-.buttons { display: flex; flex-direction: column; gap: 14px; }
+/* As tall as the three buttons, and as wide as one. */
+.slider { width: var(--round); height: calc(3 * var(--round) + 2 * var(--gap)); border-radius: calc(var(--round) / 2); }
+.buttons { display: flex; flex-direction: column; gap: var(--gap); }
 .round {
-    width: 56px;
-    height: 56px;
+    width: var(--round);
+    height: var(--round);
     display: grid;
     place-items: center;
     border-radius: 50%;
@@ -105,8 +69,4 @@ function settings() {
 .round:hover:not(:disabled) { background: var(--fill-2); }
 .round:active:not(:disabled) { transform: scale(0.9); }
 .round:disabled { opacity: 0.35; }
-.presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.presets .btn { min-height: 40px; font-size: 15px; }
-.control :deep(.section) { margin-bottom: 0; }
-@media (max-height: 760px) { .slider { height: 220px; } }
 </style>

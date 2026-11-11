@@ -53,7 +53,7 @@ onBeforeUnmount(() => {
               <Spinner v-if="busy" :size="18" style="color: #fff" />
               <Icon v-else name="checkmark" :size="20" :weight="2.4" />
             </button>
-            <span v-else />
+            <slot v-else name="trailing"><span /></slot>
           </div>
           <div class="sheet-body"><slot /></div>
         </div>

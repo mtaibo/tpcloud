@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { Map } from 'lucide-vue-next'
+import { Map, Settings } from 'lucide-vue-next'
 
 import Sheet from '@/ui/Sheet.vue'
 import Plan from '@/components/blueprint/Plan.vue'
@@ -8,12 +8,18 @@ import BlindsControl from './BlindsControl.vue'
 
 import { useDevices } from '@/config/devices'
 import { useBlueprint } from '@/config/blueprint'
+import { navigateToDevice } from '@/config/sections'
 
 // The house from above: every blind where it really is, drawn as closed as it is. Tap one to move it.
 const store = useDevices()
 const map = useBlueprint()
 
 const selectedId = ref(null)
+function settings() {
+    const id = selectedId.value
+    selectedId.value = null
+    navigateToDevice(id)
+}
 const open = computed({
     get: () => !!selectedId.value && !!store.blinds[selectedId.value],
     set: v => { if (!v) selectedId.value = null },
@@ -39,7 +45,12 @@ const open = computed({
         </div>
 
         <Sheet v-model:open="open" :title="selectedId ? store.blinds[selectedId]?.name : ''">
-            <BlindsControl v-if="selectedId" :id="selectedId" @close="selectedId = null" />
+            <template #trailing>
+                <button class="icon-btn" type="button" aria-label="Ajustes del dispositivo" @click="settings">
+                    <Settings :size="20" :stroke-width="2" />
+                </button>
+            </template>
+            <BlindsControl v-if="selectedId" :id="selectedId" />
         </Sheet>
     </div>
 </template>
