@@ -50,7 +50,7 @@ Caddy routes each path to its container on a shared Docker network, puts the pro
 <td width="50%" valign="top">
 
 ### 🔑 [`login`](login/) · [`accounts`](accounts/) · [`cloud`](cloud/)
-The three web apps of the core. `login` signs you in with a passkey or password + 2FA, `accounts` manages your profile, passkeys, TOTP and active sessions (plus users for admins), and `cloud` is the dashboard that links every service.
+The three web apps of the core, drawn after iOS (grouped lists, large titles, sheets, light and dark) from one shared [`ui/`](ui/). `login` signs you in with a passkey, email + password + 2FA, or a QR code approved from a device that's already signed in; `accounts` manages your profile, passkeys, 2FA, devices and sign-in activity (plus users for admins), and `cloud` is the dashboard that links every service.
 
 **Vue 3 · Vite · Nginx**
 
@@ -113,10 +113,10 @@ Browser opens /store/photos
         ▼
 Caddy asks auth: is this session cookie valid?  (forward_auth)
         │
-        ├── no ──▶ redirect to /login/?next=/store/photos
+        ├── no ──▶ redirect to /login  (/store/photos kept in a short-lived cookie)
         │                 │
         │                 ▼
-        │          passkey, or password + TOTP code
+        │          passkey, password + TOTP code, or a QR code approved elsewhere
         │                 │
         │                 ▼
         │          auth sets a host-only __Host- session cookie
@@ -129,12 +129,15 @@ Caddy asks auth: is this session cookie valid?  (forward_auth)
 
 ### Sign-in methods
 
-- **Passkeys** — WebAuthn with Face ID, Touch ID or a security key, registered from `accounts`. The default on the web.
+- **Passkeys** — WebAuthn with Face ID, Touch ID or a security key, registered from `accounts`. The default on the web, and no email needed: the browser offers the passkey it has for the site, also as autofill on the email field.
 - **Password + TOTP** — bcrypt-hashed password, plus a 6-digit code from an authenticator app once 2FA is set up. This is what the native app uses.
+- **QR code** — the login page shows a code that a signed-in phone scans; the phone sees which device asks and from where, and approves or rejects it. Only the browser that showed the code can collect the session, and each code lasts two minutes.
 
 ### Sessions
 
-Every session is stored server-side with the device (parsed from the user agent), the IP (and, if `TPCLOUD_GEOIP=1`, its city and country) and the sign-in method used, so `accounts` can show where I'm signed in and revoke any of them. Sessions are revoked by their id; the session token itself never goes back to the browser. Web sessions last a fixed hour; sessions from the native app last 24 hours and slide forward while the app is in use, so it doesn't ask me to log in every day.
+Every session is stored server-side with the device (parsed from the user agent), the IP it signed in from and the one it was last used from (and, if `TPCLOUD_GEOIP=1`, their city and country), when it was last used, and how it signed in (for a QR code, which device approved it), so `accounts` can show where I'm signed in and revoke any of them, or all but this one. Sessions are revoked by their id; the session token itself never goes back to the browser.
+
+Sessions slide forward while they're used: with "keep me signed in" (the default) a browser stays signed in 30 days after it was last used; without it, until the browser closes or 12 hours without use. The native app gets 90 days. Every sign-in, failed attempt and revoked session is also kept for six months as the account's activity, with device, place and IP.
 
 ### Security
 
