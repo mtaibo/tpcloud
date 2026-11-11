@@ -41,6 +41,7 @@ export const useDevices = defineStore('devices', () => {
                     prefs:      device.prefs,
                     state:      device.state,
                     connection: device.connection,
+                    locked:     device.locked ?? false,
                 }
             }
 
@@ -67,6 +68,7 @@ export const useDevices = defineStore('devices', () => {
                 if (!storage.blinds?.[device.id]) continue
                 storage.blinds[device.id].connection = device.connection
                 storage.blinds[device.id].state      = device.state
+                storage.blinds[device.id].locked     = device.locked ?? false
             }
 
             for (const device of lightsData) {

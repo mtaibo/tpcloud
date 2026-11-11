@@ -2,7 +2,7 @@
 
     import { ref, watch, nextTick } from 'vue'
 
-    import { ChevronUp, ChevronDown, ChevronRight, Pause, Settings, Blinds } from 'lucide-vue-next'
+    import { ChevronUp, ChevronDown, ChevronRight, Pause, Settings, Blinds, Lock } from 'lucide-vue-next'
     import { positions, handlePositions, getAnim, setPending, isPending } from '@/config/useBlindAnimations'
 
     import { api } from '@/config/api'
@@ -171,6 +171,7 @@
                                  : 'bg-tp-off'">
                         </div>
                         <h3 class="text-sm font-semibold text-tp-text leading-tight max-w-[60px]">{{ device.name }}</h3>
+                        <Lock v-if="device.locked" class="w-3 h-3 shrink-0 mt-[2px] text-tp-muted" />
                     </div>
                     <div class="flex items-baseline gap-0.5 shrink-0">
                         <span class="text-sm font-mono font-bold text-tp-text tabular-nums leading-none">{{ Math.round(positions[id] ?? 0) }}</span>
@@ -183,6 +184,7 @@
 
                     <BlindSlider
                         class="flex-1 h-[180px]"
+                        :class="{ locked: device.locked }"
                         :fill-pos="positions[id] ?? 0"
                         :handle-pos="handlePositions[id] ?? 0"
                         @drag-start="onBlindDragStart(id, $event)"
@@ -192,13 +194,13 @@
 
                     <!-- Buttons column -->
                     <div class="flex flex-col justify-between items-center h-[180px]">
-                        <Btn :pressing="pressing[`${id}-up`]" @click="handleMove(id, 'up')">
+                        <Btn :class="{ locked: device.locked }" :pressing="pressing[`${id}-up`]" @click="handleMove(id, 'up')">
                             <ChevronUp class="w-[18px] h-[18px] text-tp-text/80" />
                         </Btn>
-                        <Btn :pressing="pressing[`${id}-stop`]" @click="handleStop(id)">
+                        <Btn :class="{ locked: device.locked }" :pressing="pressing[`${id}-stop`]" @click="handleStop(id)">
                             <Pause class="w-[15px] h-[15px] fill-current text-tp-text/80" />
                         </Btn>
-                        <Btn :pressing="pressing[`${id}-down`]" @click="handleMove(id, 'down')">
+                        <Btn :class="{ locked: device.locked }" :pressing="pressing[`${id}-down`]" @click="handleMove(id, 'down')">
                             <ChevronDown class="w-[18px] h-[18px] text-tp-text/80" />
                         </Btn>
                         <Btn muted :pressing="pressing[`${id}-cfg`]" @click="handleSettings(id)">
@@ -208,7 +210,7 @@
                 </div>
 
                 <!-- Position input -->
-                <div class="flex items-center gap-2 mt-3">
+                <div class="flex items-center gap-2 mt-3" :class="{ locked: device.locked }">
                     <input
                         v-model="positionInput[id]"
                         type="number"
@@ -254,6 +256,9 @@
     outline: none;
     text-align: center;
 }
+
+/* Locked by an admin: the API refuses movement anyway, this just shows it */
+.locked { opacity: 0.3; pointer-events: none; }
 
 .pos-input::placeholder { color: var(--color-tp-muted); }
 .pos-input::-webkit-outer-spin-button,

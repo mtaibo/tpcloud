@@ -1,7 +1,7 @@
 <script setup>
 
     import { ref, computed, watch, nextTick } from 'vue'
-    import { X, ChevronUp, ChevronDown, Pause, Blinds } from 'lucide-vue-next'
+    import { X, ChevronUp, ChevronDown, Pause, Blinds, Lock } from 'lucide-vue-next'
     import { api } from '@/config/api'
     import BlindSlider from '@/components/BlindSlider.vue'
     import Btn from '@/components/Btn.vue'
@@ -138,6 +138,9 @@
                     <Blinds class="text-tp-accent w-5 h-5" />
                 </div>
                 <h2 class="text-base font-bold tracking-tight text-tp-text">{{ device.name }}</h2>
+                <span v-if="device.locked" class="flex items-center gap-1 text-xs text-tp-muted">
+                    <Lock class="w-3 h-3" />Bloqueada
+                </span>
             </div>
             <Btn muted :pressing="pressing['close']" @click="pressBtn('close', () => emit('close'))">
                 <X class="w-[15px] h-[15px] text-tp-muted" />
@@ -145,7 +148,7 @@
         </header>
 
         <!-- MOBILE: slider + display left, buttons right -->
-        <div class="md:hidden flex-1 flex items-center justify-center px-5 pb-6 gap-4">
+        <div class="md:hidden flex-1 flex items-center justify-center px-5 pb-6 gap-4" :class="{ locked: device.locked }">
             <div class="flex flex-col items-center gap-3 flex-1 max-w-[110px]">
                 <BlindSlider
                     class="w-full aspect-[3/5]"
@@ -171,7 +174,7 @@
         </div>
 
         <!-- DESKTOP: slider + display + buttons stacked -->
-        <div class="hidden md:flex flex-1 flex-col items-center justify-center p-6 gap-8">
+        <div class="hidden md:flex flex-1 flex-col items-center justify-center p-6 gap-8" :class="{ locked: device.locked }">
             <div class="flex flex-col items-center gap-4">
                 <BlindSlider
                     class="w-40 h-64"
@@ -198,3 +201,8 @@
 
     </div>
 </template>
+
+<style scoped>
+/* Locked by an admin: the API refuses movement anyway, this just shows it */
+.locked { opacity: 0.3; pointer-events: none; }
+</style>

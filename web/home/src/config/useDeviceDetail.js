@@ -86,6 +86,23 @@ export function useDeviceDetail() {
         catch (e) { console.error('TPHome - Info error:', e) }
     }
 
+    async function toggleLock() {
+        const { id, name, category } = selectedDevice.value
+        const locked = !store.storage[category]?.[id]?.locked
+        const question = locked
+            ? `¿Bloquear ${name}? Se apagarán sus luces y no se podrá mover ni con los botones ni desde aquí hasta que un administrador la desbloquee.`
+            : `¿Desbloquear ${name}?`
+        if (!confirm(question)) return
+        try {
+            await api.setLocked(id, locked)
+            store.storage[category][id].locked = locked
+        } catch (e) {
+            const detail = e.response?.data?.detail
+            alert(detail ? `No se pudo ${locked ? 'bloquear' : 'desbloquear'}: ${detail}` : 'No se pudo cambiar el bloqueo')
+            console.error('TPHome - Lock error:', e)
+        }
+    }
+
     async function resetPosition() {
         if (!confirm(`¿Reiniciar posición de ${selectedDevice.value.id} al 50%?`)) return
         try { await api.resetPosition(selectedDevice.value.id) }
@@ -149,7 +166,7 @@ export function useDeviceDetail() {
         prefLabels, mapLabels, timeKeys, percentKeys,
         prefsChanged, mapChanged,
         formatPrefDisplay, startEditPref,
-        open, close, ping, getInfo, resetPosition, deleteDevice,
+        open, close, ping, getInfo, toggleLock, resetPosition, deleteDevice,
         savePrefs, saveMap, flashFirmware,
     }
 }

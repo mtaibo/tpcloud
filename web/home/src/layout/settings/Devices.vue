@@ -1,7 +1,7 @@
 <script setup>
 
     import { ref, computed, watch, onMounted } from 'vue'
-    import { Lightbulb, Blinds, Trash2, Radio, Info, ChevronRight, Crosshair, Cpu, ChevronLeft, Save, Zap } from 'lucide-vue-next'
+    import { Lightbulb, Blinds, Trash2, Radio, Info, ChevronRight, Crosshair, Cpu, ChevronLeft, Save, Zap, Lock, LockOpen } from 'lucide-vue-next'
     import { useDevices } from '@/config/devices'
     import { api } from '@/config/api'
     import { pendingDeviceId } from '@/config/sections.js'
@@ -29,7 +29,17 @@
     function onConfigDone()      { selectedPending.value = null; fetchPending(); store.setup() }
     function onConfigCancel()    { selectedPending.value = null }
 
-    onMounted(fetchPending)
+    // Only shows the lock action, the API checks is_admin again on every call
+    const isAdmin = ref(false)
+
+    async function fetchUser() {
+        try {
+            const res = await fetch('/auth/passkey/me')
+            if (res.ok) isAdmin.value = (await res.json()).is_admin === true
+        } catch {}
+    }
+
+    onMounted(() => { fetchPending(); fetchUser() })
 
     const deviceGroups = computed(() => [
         { label: 'Persianas', devices: Object.entries(store.storage.blinds ?? {}).map(([id, d]) => ({ id, ...d, category: 'blinds' })) },
@@ -49,6 +59,7 @@
         close:         closeDevice,
         ping:          pingDevice,
         getInfo:       getDeviceInfo,
+        toggleLock,
         resetPosition,
         deleteDevice,
         savePrefs,
@@ -63,6 +74,11 @@
         }
         pendingDeviceId.value = null
     }, { immediate: true })
+
+    const selectedLocked = computed(() => {
+        const d = selectedDevice.value
+        return !!(d && store.storage[d.category]?.[d.id]?.locked)
+    })
 
 </script>
 
@@ -115,6 +131,7 @@
                             <div class="w-2 h-2 rounded-full shrink-0" :class="device.connection?.online ? 'bg-tp-on shadow-[0_0_6px_var(--color-tp-on)]' : 'bg-tp-off'"></div>
                             <span class="font-mono text-xs text-tp-muted shrink-0 hidden md:block">{{ device.id }}</span>
                             <span class="text-sm text-tp-text flex-1 truncate">{{ device.name }}</span>
+                            <Lock v-if="device.locked" class="w-3.5 h-3.5 shrink-0 text-tp-muted" />
                             <ChevronRight class="w-4 h-4 shrink-0 text-tp-muted/50" />
                         </div>
                     </div>
@@ -146,10 +163,14 @@
                     <button @click="getDeviceInfo()" class="action-row">
                         <Info class="w-4 h-4 shrink-0" /><span>Actualizar información</span>
                     </button>
+                    <button v-if="isAdmin && selectedDevice.category === 'blinds'" @click="toggleLock()" class="action-row">
+                        <component :is="selectedLocked ? LockOpen : Lock" class="w-4 h-4 shrink-0" />
+                        <span>{{ selectedLocked ? 'Desbloquear' : 'Bloquear' }}</span>
+                    </button>
                     <button v-if="selectedDevice.category === 'blinds'" @click="resetPosition()" class="action-row">
                         <Crosshair class="w-4 h-4 shrink-0" /><span>Reiniciar posición</span>
                     </button>
-                    <button @click="deleteDevice()" class="action-row action-row-danger">
+                    <button v-if="!selectedLocked" @click="deleteDevice()" class="action-row action-row-danger">
                         <Trash2 class="w-4 h-4 shrink-0" /><span>Eliminar dispositivo</span>
                     </button>
                 </div>

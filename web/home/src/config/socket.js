@@ -43,6 +43,11 @@ function handle(store, type, data) {
             if (!category) return
             store.storage[category][data.id].prefs = { ...data.prefs }
             break
+
+        case 'device_lock':
+            if (!category) return
+            store.storage[category][data.id].locked = data.locked
+            break
     }
 }
 

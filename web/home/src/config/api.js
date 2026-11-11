@@ -55,6 +55,11 @@ export const api = {
         return client.post(`/admin/${id}/set/50`)
     },
 
+    // Admin only, checked by the API against tpcloud
+    async setLocked(id, locked) {
+        return client.post(`/admin/${id}/${locked ? 'lock' : 'unlock'}`)
+    },
+
     async getDeviceInfo(id) {
         return client.post(`/admin/${id}/info`)
     },
