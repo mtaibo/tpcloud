@@ -8,7 +8,7 @@ import NavBar from '@ui/NavBar.vue'
 import Spinner from '@ui/Spinner.vue'
 import { api, signOut } from '@ui/api.js'
 import { ask } from '@ui/dialog.js'
-import { ago, initials, methodNames } from '@ui/format.js'
+import { ago, methodNames } from '@ui/format.js'
 
 const user = ref(null)
 const profile = ref(null)
@@ -64,13 +64,7 @@ async function confirmSignOut() {
   <div v-if="!user" class="splash"><Spinner :size="26" /></div>
 
   <template v-else>
-    <NavBar :title="greeting">
-      <template #trailing>
-        <a href="/accounts" class="account-btn" aria-label="Tu cuenta">
-          <span class="avatar" style="width: 40px; height: 40px; font-size: 16px">{{ initials(user.display_name) }}</span>
-        </a>
-      </template>
-    </NavBar>
+    <NavBar :title="greeting" />
 
     <main class="page">
       <header class="page-header">
@@ -138,8 +132,6 @@ async function confirmSignOut() {
 .splash { min-height: 100dvh; display: grid; place-items: center; }
 .date { font-weight: 600; text-transform: none; }
 .page-header .large-title { margin-top: 2px; }
-.account-btn { border-radius: 50%; transition: transform 0.25s var(--spring); }
-.account-btn:active { transform: scale(0.92); }
 
 .grid {
   display: grid;
