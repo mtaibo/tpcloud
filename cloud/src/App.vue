@@ -1,166 +1,178 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import AlertHost from '@ui/AlertHost.vue'
+import Icon from '@ui/Icon.vue'
+import ListSection from '@ui/ListSection.vue'
+import ListRow from '@ui/ListRow.vue'
+import NavBar from '@ui/NavBar.vue'
+import Spinner from '@ui/Spinner.vue'
+import { api, signOut } from '@ui/api.js'
+import { ask } from '@ui/dialog.js'
+import { ago, initials, methodNames } from '@ui/format.js'
 
 const user = ref(null)
-const loading = ref(true)
+const profile = ref(null)
+const activity = ref([])
 
 // Only the modules this server runs (auth reports them in /me).
 const allServices = [
-  { module: 'home',  name: 'TPHome',   icon: 'home',     description: 'Home Automation',    url: '/home/' },
-  { module: null,    name: 'Accounts', icon: 'person',   description: 'Account Management', url: '/accounts/' },
-  { module: 'store', name: 'Store',    icon: 'database', description: 'Storage',            url: '/store/' },
+  { module: 'store', name: 'Archivos', description: 'Tus archivos y fotos', icon: 'folder', tint: 'blue', url: '/store/' },
+  { module: 'home', name: 'Casa', description: 'Luces, persianas y enchufes', icon: 'house', tint: 'orange', url: '/home/' },
+  { module: null, name: 'Cuenta', description: 'Seguridad y dispositivos', icon: 'person', tint: 'gray', url: '/accounts' },
 ]
-const services = computed(() =>
-  allServices.filter(s => !s.module || user.value?.modules?.includes(s.module))
-)
+const services = computed(() => allServices.filter(s => !s.module || user.value?.modules?.includes(s.module)))
+
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  const part = h < 6 ? 'Buenas noches' : h < 13 ? 'Buenos días' : h < 21 ? 'Buenas tardes' : 'Buenas noches'
+  return `${part}, ${user.value.display_name.split(' ')[0]}`
+})
+const today = computed(() => {
+  const text = new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())
+  return text.charAt(0).toUpperCase() + text.slice(1)
+})
+const others = computed(() => (profile.value?.sessions.length ?? 1) - 1)
+const failures = computed(() => activity.value.filter(e => e.kind === 'failed' && Date.now() - new Date(e.at) < 7 * 86400000).length)
+const lastSignIns = computed(() => activity.value.filter(e => e.kind === 'signin').slice(0, 3))
+
+function place(e) {
+  return e.location && e.location !== e.ip_address ? e.location : e.ip_address
+}
 
 onMounted(async () => {
-  try {
-    const res = await fetch('/auth/passkey/me')
-    if (res.ok) {
-      user.value = await res.json()
-    } else {
-      window.location.href = '/login/'
-    }
-  } catch {
-    window.location.href = '/login/'
-  } finally {
-    loading.value = false
-  }
+  window.history.replaceState(null, '', '/')
+  user.value = await api('/auth/passkey/me')
+  const [p, a] = await Promise.allSettled([api('/auth/account/profile'), api('/auth/account/activity?limit=40')])
+  if (p.status === 'fulfilled') profile.value = p.value
+  if (a.status === 'fulfilled') activity.value = a.value
 })
 
-async function logout() {
-  await fetch('/auth/passkey/logout', { method: 'POST' })
-  window.location.href = '/login/'
+async function confirmSignOut() {
+  const ok = await ask({
+    title: '¿Cerrar sesión?',
+    message: 'Tendrás que volver a iniciar sesión en este navegador.',
+    actions: [
+      { label: 'Cancelar', role: 'cancel', value: false },
+      { label: 'Cerrar sesión', role: 'destructive', value: true },
+    ],
+  })
+  if (ok) signOut()
 }
 </script>
 
 <template>
-  <div class="page">
+  <div v-if="!user" class="splash"><Spinner :size="26" /></div>
 
-    <!-- Logo: top-left corner, desktop only -->
-    <div class="logo-corner">
-      <svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-        <rect x="7" y="8.5" width="18" height="4" rx="2" fill="#fff"/>
-        <circle cx="16" cy="18.5" r="3" fill="#fff"/>
-        <circle cx="16" cy="25" r="2.2" fill="#fff"/>
-      </svg>
-    </div>
+  <template v-else>
+    <NavBar :title="greeting">
+      <template #trailing>
+        <a href="/accounts" class="account-btn" aria-label="Tu cuenta">
+          <span class="avatar" style="width: 40px; height: 40px; font-size: 16px">{{ initials(user.display_name) }}</span>
+        </a>
+      </template>
+    </NavBar>
 
-    <div v-if="!loading && user" class="container">
+    <main class="page">
+      <header class="page-header">
+        <p class="subheadline secondary date">{{ today }}</p>
+        <h1 class="large-title">{{ greeting }}</h1>
+      </header>
 
-      <div class="section-top">
-        <button class="logout" @click="logout">Log out</button>
+      <div class="grid">
+        <a v-for="s in services" :key="s.name" :href="s.url" class="tile">
+          <span class="tile-icon" :style="{ background: `var(--${s.tint})` }"><Icon :name="s.icon" :size="28" :weight="1.9" /></span>
+          <span class="tile-text">
+            <span class="headline">{{ s.name }}</span>
+            <span class="footnote secondary">{{ s.description }}</span>
+          </span>
+        </a>
       </div>
 
-      <div class="hero">
-        <h1>Hello, {{ user.display_name }}.</h1>
-        <p class="muted">{{ user.email }}</p>
-      </div>
+      <a v-if="failures" href="/accounts/activity" class="banner">
+        <Icon name="warning" :size="22" />
+        <span class="subheadline">
+          {{ failures === 1 ? '1 intento fallido' : `${failures} intentos fallidos` }} de entrar en tu cuenta esta semana. Revísalo.
+        </span>
+        <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
+      </a>
 
-      <div class="section">
-        <div class="grid">
-          <a v-for="s in services" :key="s.name" :href="s.url" class="card">
-            <div class="card-icon">
-              <!-- home -->
-              <svg v-if="s.icon === 'home'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10.5z"/>
-                <path d="M9 21V13h6v8"/>
-              </svg>
-              <!-- person -->
-              <svg v-if="s.icon === 'person'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="8" r="4"/>
-                <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-              </svg>
-              <!-- database -->
-              <svg v-if="s.icon === 'database'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <ellipse cx="12" cy="5" rx="9" ry="3"/>
-                <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
-                <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>
-              </svg>
-            </div>
-            <p class="card-name">{{ s.name }}</p>
-            <p class="card-desc">{{ s.description }}</p>
-          </a>
-        </div>
-      </div>
+      <ListSection v-if="profile" header="Tu cuenta">
+        <ListRow
+          href="/accounts/sessions"
+          icon="laptop"
+          tint="green"
+          title="Dispositivos"
+          :subtitle="others > 0 ? `Sesión iniciada aquí y en ${others} ${others === 1 ? 'sitio más' : 'sitios más'}` : 'Solo en este dispositivo'"
+        />
+        <ListRow
+          href="/accounts/security"
+          icon="shield"
+          tint="blue"
+          title="Inicio de sesión y seguridad"
+          :subtitle="profile.passkeys.length ? `${profile.passkeys.length} passkey${profile.passkeys.length === 1 ? '' : 's'}${profile.totp_enabled ? ' · 2FA activado' : ''}` : 'Añade una passkey para entrar sin contraseña'"
+        />
+      </ListSection>
 
-    </div>
-  </div>
+      <ListSection v-if="lastSignIns.length" header="Últimos inicios de sesión">
+        <template #action><a href="/accounts/activity" class="btn-plain">Ver todo</a></template>
+        <ListRow
+          v-for="e in lastSignIns"
+          :key="e.id"
+          :title="e.device_info || 'Dispositivo desconocido'"
+          :subtitle="`${place(e)} · ${methodNames[e.method] || e.method}`"
+          small-subtitle
+          :value="ago(e.at)"
+        />
+      </ListSection>
+
+      <ListSection>
+        <ListRow title="Cerrar sesión" clickable destructive centered @click="confirmSignOut" />
+      </ListSection>
+    </main>
+
+    <AlertHost />
+  </template>
 </template>
 
-<style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, #app { height: 100%; background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
-::-webkit-scrollbar { display: none; }
-* { -ms-overflow-style: none; scrollbar-width: none; }
-</style>
-
 <style scoped>
-.page { min-height: 100dvh; display: flex; justify-content: center; padding: 3rem 1.5rem; }
-.container { width: 100%; max-width: 640px; display: flex; flex-direction: column; gap: 2.5rem; }
+.splash { min-height: 100dvh; display: grid; place-items: center; }
+.date { font-weight: 600; text-transform: none; }
+.page-header .large-title { margin-top: 2px; }
+.account-btn { border-radius: 50%; transition: transform 0.25s var(--spring); }
+.account-btn:active { transform: scale(0.92); }
 
-/* Logo corner */
-.logo-corner {
-  display: none;
-  position: fixed;
-  top: 1.5rem;
-  left: 1.5rem;
-  opacity: 0.85;
-  transition: opacity 0.2s;
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
 }
-.logo-corner:hover { opacity: 1; }
-@media (min-width: 768px) {
-  .logo-corner { display: block; }
-}
-
-/* Logout */
-.logout {
-  background: none;
-  border: none;
-  color: #525252;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: color 0.2s;
-}
-.logout:hover { color: #fff; }
-
-/* Hero */
-.hero { display: flex; flex-direction: column; gap: 0.4rem; }
-h1 { font-size: 2rem; font-weight: 600; letter-spacing: -0.02em; }
-.muted { color: #737373; font-size: 0.875rem; }
-
-/* Sections */
-.section { display: flex; flex-direction: column; gap: 0.75rem; }
-.section-top { display: flex; justify-content: flex-end; }
-
-/* Service cards */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; }
-.card {
-  border: 0.5px solid rgba(255, 255, 255, 0.14);
-  border-radius: 18px;
-  padding: 1rem;
-  text-decoration: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+@media (max-width: 480px) { .grid { grid-template-columns: 1fr 1fr; } }
+.tile {
+  min-height: 150px;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  background: rgba(255, 255, 255, 0.065);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border-radius: var(--radius-card);
+  background: var(--cell);
+  transition: transform 0.3s var(--spring);
 }
-.card:hover {
-  border-color: rgba(255, 255, 255, 0.25);
-  box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+.tile:active { transform: scale(0.97); }
+@media (hover: hover) { .tile:hover { transform: translateY(-2px); } }
+.tile-icon { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 15px; color: #fff; }
+.tile-text { display: flex; flex-direction: column; gap: 2px; }
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  margin-bottom: 26px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--orange) 16%, var(--cell));
 }
-.card-icon { color: rgba(255, 255, 255, 0.55); margin-bottom: 0.35rem; }
-.card-name { font-size: 0.95rem; font-weight: 500; color: #fff; }
-.card-desc { font-size: 0.7rem; color: #737373; }
+.banner > .icon:first-child { flex-shrink: 0; color: var(--orange); }
+.banner span { flex: 1; }
 </style>

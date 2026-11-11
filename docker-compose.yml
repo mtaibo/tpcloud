@@ -41,7 +41,9 @@ services:
     restart: unless-stopped
 
   login:
-    build: ./login
+    build:
+      context: .
+      dockerfile: login/Dockerfile
     container_name: tpcloud-login
     depends_on:
       - auth
@@ -52,7 +54,9 @@ services:
     restart: unless-stopped
 
   cloud:
-    build: ./cloud
+    build:
+      context: .
+      dockerfile: cloud/Dockerfile
     container_name: tpcloud-frontend
     depends_on:
       - auth
@@ -63,7 +67,9 @@ services:
     restart: unless-stopped
 
   accounts:
-    build: ./accounts
+    build:
+      context: .
+      dockerfile: accounts/Dockerfile
     container_name: tpcloud-accounts
     depends_on:
       - auth

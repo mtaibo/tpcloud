@@ -1,211 +1,81 @@
 <script setup>
-import { ref, onMounted, shallowRef } from 'vue'
-import AccountView from './views/AccountView.vue'
-import UsersView from './views/UsersView.vue'
-import SessionsView from './views/SessionsView.vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import AlertHost from '@ui/AlertHost.vue'
+import Logo from '@ui/Logo.vue'
+import Spinner from '@ui/Spinner.vue'
+import Menu from './components/Menu.vue'
+import { store, wide } from './store.js'
 
-const user = ref(null)
-const loading = ref(true)
-const currentView = shallowRef(AccountView)
-const activeNav = ref('account')
+const route = useRoute()
+const router = useRouter()
+const failed = ref('')
 
-onMounted(async () => {
-  try {
-    const res = await fetch('/auth/passkey/me')
-    if (res.ok) {
-      user.value = await res.json()
-    } else {
-      window.location.href = '/login/?next=/accounts/'
-    }
-  } catch {
-    window.location.href = '/login/?next=/accounts/'
-  } finally {
-    loading.value = false
-  }
+const bare = computed(() => route.meta.bare)
+const ready = computed(() => store.profile || (bare.value && store.me))
+
+// On a wide screen the menu is always on the left, so the root shows the profile next to it.
+watch([wide, () => route.path], ([isWide, path]) => {
+  if (isWide && path === '/') router.replace('/profile')
+}, { immediate: true })
+
+watch([() => route.meta.admin, () => store.me], ([admin, me]) => {
+  if (admin && me && !me.is_admin) router.replace('/')
 })
 
-async function logout() {
-  await fetch('/auth/passkey/logout', { method: 'POST' })
-  window.location.href = '/login/'
-}
-
-function navigate(view, name) {
-  currentView.value = view
-  activeNav.value = name
-}
+onMounted(async () => {
+  if (window.location.pathname === '/accounts/' || window.location.pathname === '/accounts') {
+    window.history.replaceState(window.history.state, '', '/accounts')
+  }
+  try {
+    await store.load()
+  } catch (e) {
+    if (e.status !== 401) failed.value = e.message
+  }
+})
 </script>
 
 <template>
-  <div class="page">
-    <div v-if="loading" class="loading">
-      <div class="spinner" />
-    </div>
-
-    <template v-else-if="user">
-      <aside class="sidebar">
-        <p class="brand">tpcloud</p>
-
-        <nav class="nav">
-          <p class="nav-section">Account</p>
-          <button
-            class="nav-item"
-            :class="{ active: activeNav === 'account' }"
-            @click="navigate(AccountView, 'account')"
-          >My account</button>
-
-          <template v-if="user.is_admin">
-            <p class="nav-section">Administration</p>
-            <button
-              class="nav-item"
-              :class="{ active: activeNav === 'users' }"
-              @click="navigate(UsersView, 'users')"
-            >Users</button>
-            <button
-              class="nav-item"
-              :class="{ active: activeNav === 'sessions' }"
-              @click="navigate(SessionsView, 'sessions')"
-            >Sessions</button>
-          </template>
-        </nav>
-
-        <div class="sidebar-footer">
-          <p class="user-email">{{ user.email }}</p>
-          <button class="logout" @click="logout">Log out</button>
-        </div>
-      </aside>
-
-      <main class="content">
-        <component :is="currentView" :user="user" @user-updated="u => user = { ...user, ...u }" />
-      </main>
-    </template>
+  <div v-if="!ready" class="splash">
+    <Spinner v-if="!failed" :size="26" />
+    <p v-else class="secondary">{{ failed }}</p>
   </div>
+
+  <router-view v-else-if="bare" />
+
+  <div v-else class="split" :class="{ wide }">
+    <aside v-if="wide" class="sidebar">
+      <a href="/" class="brand">
+        <Logo :size="30" />
+        <span class="headline">TPCloud</span>
+      </a>
+      <Menu />
+    </aside>
+    <main class="detail">
+      <router-view v-slot="{ Component, route: r }">
+        <Transition name="push" mode="out-in">
+          <component :is="Component" :key="r.path" />
+        </Transition>
+      </router-view>
+    </main>
+  </div>
+
+  <AlertHost />
 </template>
 
-<style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, #app { height: 100%; background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
-::-webkit-scrollbar { display: none; }
-* { -ms-overflow-style: none; scrollbar-width: none; }
-</style>
-
 <style scoped>
-.page {
-  display: flex;
-  min-height: 100dvh;
-}
-
-.loading {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
+.splash { min-height: 100dvh; display: grid; place-items: center; }
+.split.wide { display: grid; grid-template-columns: 340px 1fr; min-height: 100dvh; }
 .sidebar {
-  width: 220px;
-  min-height: 100dvh;
-  border-right: 0.5px solid rgba(255, 255, 255, 0.1);
-  padding: 2rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 18px 16px 24px;
+  border-right: 0.5px solid var(--separator);
 }
-
-.brand {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: #525252;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  padding: 0 0.5rem;
-}
-
-.nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  flex: 1;
-}
-
-.nav-section {
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: #404040;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 0.75rem 0.5rem 0.25rem;
-}
-
-.nav-item {
-  background: none;
-  border: 0.5px solid transparent;
-  color: #737373;
-  font-size: 0.85rem;
-  cursor: pointer;
-  padding: 0.4rem 0.5rem;
-  border-radius: 8px;
-  text-align: left;
-  width: 100%;
-  transition: color 0.2s, background 0.2s, border-color 0.2s;
-}
-
-.nav-item:hover { color: #fff; }
-.nav-item.active {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.sidebar-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.user-email {
-  font-size: 0.75rem;
-  color: #404040;
-  padding: 0 0.5rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.logout {
-  background: none;
-  border: none;
-  color: #525252;
-  font-size: 0.8rem;
-  cursor: pointer;
-  padding: 0.4rem 0.5rem;
-  border-radius: 8px;
-  text-align: left;
-  width: 100%;
-  transition: color 0.2s;
-}
-
-.logout:hover { color: #fff; }
-
-.content {
-  flex: 1;
-  padding: 3rem 2.5rem;
-  max-width: 700px;
-}
-
-.spinner {
-  width: 24px;
-  height: 24px;
-  border: 1.5px solid rgba(255, 255, 255, 0.1);
-  border-top-color: rgba(255, 255, 255, 0.5);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
+.brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 22px; }
+.brand :deep(.logo) { box-shadow: none; }
+.detail { min-width: 0; }
+.split.wide .detail :deep(.page) { padding-top: 4px; }
 </style>
