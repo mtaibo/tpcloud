@@ -9,11 +9,18 @@ from sqlmodel import Session as DBSession, select
 from database import get_session
 from dependencies import require_login
 from config import ORIGIN, RP_ID, RP_NAME, SESSION_COOKIE
-from models import PasskeyCredential, Session as SessionModel, User
+from models import LoginEvent, PasskeyCredential, Session as SessionModel, User
 from security import ExpiringDict, user_failures
+from sessions import session_json
+from utils import device_for_request, iso, record_event
 import webauthn
 from webauthn.helpers import options_to_json
-from webauthn.helpers.structs import AuthenticatorSelectionCriteria, UserVerificationRequirement
+from webauthn.helpers.structs import (
+    AuthenticatorSelectionCriteria,
+    PublicKeyCredentialDescriptor,
+    ResidentKeyRequirement,
+    UserVerificationRequirement,
+)
 
 router = APIRouter(prefix="/auth/account")
 
@@ -42,6 +49,7 @@ def get_profile(
         select(SessionModel).where(
             SessionModel.user_id == user.id,
             SessionModel.expires_at > datetime.now(timezone.utc),
+            SessionModel.totp_verified == True,  # noqa: E712
         )
     ).all()
 
@@ -58,25 +66,48 @@ def get_profile(
             {
                 "credential_id": p.credential_id,
                 "device_name": p.device_name,
-                "created_at": p.created_at.isoformat(),
-                "last_used_at": p.last_used_at.isoformat() if p.last_used_at else None,
+                "created_at": iso(p.created_at),
+                "last_used_at": iso(p.last_used_at),
             }
             for p in passkeys
         ],
-        "sessions": [
-            {
-                "id": s.id,
-                "created_at": s.created_at.isoformat(),
-                "expires_at": s.expires_at.isoformat(),
-                "ip_address": s.ip_address,
-                "device_info": s.device_info,
-                "location": s.location,
-                "auth_method": s.auth_method,
-                "current": s.session_id == current_session_id,
-            }
-            for s in sessions
-        ],
+        "sessions": _newest_first([session_json(s, current_session_id) for s in sessions]),
     }
+
+
+def _newest_first(sessions: list[dict]) -> list[dict]:
+    """This session first, then the rest from the most recently used."""
+    sessions.sort(key=lambda s: s["last_seen_at"] or "", reverse=True)
+    sessions.sort(key=lambda s: not s["current"])
+    return sessions
+
+
+@router.get("/activity")
+def activity(
+    limit: int = 100,
+    user: User = Depends(require_login),
+    session: DBSession = Depends(get_session),
+):
+    events = session.exec(
+        select(LoginEvent)
+        .where(LoginEvent.user_id == user.id)
+        .order_by(LoginEvent.at.desc())
+        .limit(max(1, min(limit, 500)))
+    ).all()
+    return [
+        {
+            "id": e.id,
+            "at": iso(e.at),
+            "kind": e.kind,
+            "method": e.method,
+            "detail": e.detail,
+            "ip_address": e.ip_address,
+            "location": e.location,
+            "device_info": e.device_info,
+            "client_type": e.client_type,
+        }
+        for e in events
+    ]
 
 
 @router.patch("/profile")
@@ -151,16 +182,20 @@ def delete_passkey(
 
 
 @router.post("/passkey/add/begin")
-def add_passkey_begin(user: User = Depends(require_login)):
+def add_passkey_begin(user: User = Depends(require_login), session: DBSession = Depends(get_session)):
+    existing = session.exec(select(PasskeyCredential).where(PasskeyCredential.user_id == user.id)).all()
     options = webauthn.generate_registration_options(
         rp_id=RP_ID,
         rp_name=RP_NAME,
         user_name=user.email,
         user_id=user.email.encode(),
         user_display_name=user.display_name,
+        # Discoverable, so signing in with it doesn't need the email typed first.
         authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.REQUIRED,
             user_verification=UserVerificationRequirement.REQUIRED,
         ),
+        exclude_credentials=[PublicKeyCredentialDescriptor(id=b64url_decode(c.credential_id)) for c in existing],
     )
     _pending_add_challenges.set(user.id, options.challenge)
     return Response(content=options_to_json(options), media_type="application/json")
@@ -169,6 +204,7 @@ def add_passkey_begin(user: User = Depends(require_login)):
 @router.post("/passkey/add/complete")
 def add_passkey_complete(
     request_body: dict,
+    request: Request,
     user: User = Depends(require_login),
     session: DBSession = Depends(get_session),
 ):
@@ -190,7 +226,7 @@ def add_passkey_complete(
         user_id=user.id,
         credential_id=b64url_encode(verification.credential_id),
         public_key=b64url_encode(verification.credential_public_key),
-        device_name=str(request_body.get("device_name", "nuevo dispositivo"))[:100],
+        device_name=(str(request_body.get("device_name") or "").strip() or device_for_request(request)["label"])[:100],
     )
     session.add(credential)
     session.commit()
@@ -201,6 +237,7 @@ def add_passkey_complete(
 @router.delete("/session/{session_row_id}")
 def revoke_session(
     session_row_id: int,
+    request: Request,
     user: User = Depends(require_login),
     session: DBSession = Depends(get_session),
 ):
@@ -214,6 +251,26 @@ def revoke_session(
     if not db_session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
+    record_event(request, user.id, "revoked", db_session.auth_method, db_session.device_info)
     session.delete(db_session)
     session.commit()
     return {"status": "revocada"}
+
+
+@router.delete("/sessions/others")
+def revoke_other_sessions(
+    request: Request,
+    user: User = Depends(require_login),
+    session: DBSession = Depends(get_session),
+):
+    current_session_id = request.cookies.get(SESSION_COOKIE)
+    others = [
+        s for s in session.exec(select(SessionModel).where(SessionModel.user_id == user.id)).all()
+        if s.session_id != current_session_id
+    ]
+    for s in others:
+        session.delete(s)
+    session.commit()
+    if others:
+        record_event(request, user.id, "revoked", None, f"Cerraste las demás sesiones ({len(others)})")
+    return {"revoked": len(others)}

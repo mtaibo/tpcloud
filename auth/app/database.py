@@ -24,6 +24,10 @@ def init_db():
             "ALTER TABLE sessions ADD COLUMN device_info TEXT",
             "ALTER TABLE sessions ADD COLUMN location TEXT",
             "ALTER TABLE sessions ADD COLUMN client_type TEXT NOT NULL DEFAULT 'web'",
+            "ALTER TABLE sessions ADD COLUMN remember BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE sessions ADD COLUMN last_seen_at DATETIME",
+            "ALTER TABLE sessions ADD COLUMN last_ip TEXT",
+            "ALTER TABLE sessions ADD COLUMN approved_by TEXT",
         ]:
             try:
                 conn.execute(text(sql))

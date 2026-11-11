@@ -69,19 +69,23 @@
 		}
 	}
 
-	redir /login /login/ 308
-	handle /login/* {
+	# /login and /accounts answer at their plain address too, so nothing redirects to a trailing
+	# slash (the pages tidy their own URL).
+	@login path /login /login/*
+	handle @login {
 		route {
+			rewrite /login /login/?{query}
 			uri strip_prefix /login
 			import caching
 			reverse_proxy login:80
 		}
 	}
 
-	redir /accounts /accounts/ 308
-	handle /accounts/* {
+	@accounts path /accounts /accounts/*
+	handle @accounts {
 		route {
 			import protected
+			rewrite /accounts /accounts/?{query}
 			uri strip_prefix /accounts
 			import caching
 			reverse_proxy accounts:80

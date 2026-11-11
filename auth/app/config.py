@@ -23,3 +23,9 @@ MODULES = [m.strip() for m in os.environ.get("TPCLOUD_MODULES", "").split(",") i
 
 # Looking up where a session signs in from sends its IP to ip-api.com, so it's opt-in.
 GEOIP = os.environ.get("TPCLOUD_GEOIP") == "1"
+
+# Where to go back to after signing in, kept in a short-lived cookie so the login page's address
+# stays a plain /login.
+NEXT_COOKIE = "__Host-tpcloud_next" if COOKIE_SECURE else "tpcloud_next"
+# Ties a browser to the QR sign-in it's showing, so only that browser can collect the session.
+QR_COOKIE = "__Host-tpcloud_qr" if COOKIE_SECURE else "tpcloud_qr"

@@ -6,7 +6,9 @@ from sqlmodel import Session as DBSession, select, func
 
 from database import get_session
 from dependencies import require_admin
-from models import PasskeyCredential, Session as SessionModel, User
+from models import LoginEvent, PasskeyCredential, Session as SessionModel, User
+from sessions import session_json
+from utils import iso
 
 router = APIRouter(prefix="/auth/admin")
 
@@ -36,7 +38,7 @@ def list_users(
             "is_admin": u.is_admin,
             "has_password": u.password_hash is not None,
             "totp_enabled": u.totp_secret is not None,
-            "created_at": u.created_at.isoformat(),
+            "created_at": iso(u.created_at),
             "passkey_count": passkey_count,
             "active_session_count": session_count,
         })
@@ -116,6 +118,8 @@ def delete_user(
         session.delete(p)
     for s in session.exec(select(SessionModel).where(SessionModel.user_id == user_id)).all():
         session.delete(s)
+    for e in session.exec(select(LoginEvent).where(LoginEvent.user_id == user_id)).all():
+        session.delete(e)
     session.delete(user)
     session.commit()
     return {"status": "eliminado"}
@@ -128,23 +132,18 @@ def list_sessions(
 ):
     now = datetime.now(timezone.utc)
     sessions = session.exec(
-        select(SessionModel).where(SessionModel.expires_at > now)
+        select(SessionModel).where(SessionModel.expires_at > now, SessionModel.totp_verified == True)  # noqa: E712
     ).all()
     result = []
     for s in sessions:
         user = session.get(User, s.user_id)
         result.append({
-            "id": s.id,
+            **session_json(s),
             "user_id": s.user_id,
             "user_email": user.email if user else "—",
             "user_display_name": user.display_name if user else "—",
-            "auth_method": s.auth_method,
-            "device_info": s.device_info,
-            "location": s.location,
-            "ip_address": s.ip_address,
-            "created_at": s.created_at.isoformat(),
-            "expires_at": s.expires_at.isoformat(),
         })
+    result.sort(key=lambda s: s["last_seen_at"] or "", reverse=True)
     return result
 
 

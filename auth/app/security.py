@@ -10,7 +10,8 @@ from fastapi import HTTPException, Response
 from config import COOKIE_SECURE, SESSION_COOKIE
 
 
-def set_session_cookie(response: Response, session_id: str, max_age: int) -> None:
+def set_session_cookie(response: Response, session_id: str, max_age: int | None) -> None:
+    """`max_age=None` makes it a browser-session cookie, gone when the browser closes."""
     response.set_cookie(
         key=SESSION_COOKIE,
         value=session_id,
@@ -24,6 +25,25 @@ def set_session_cookie(response: Response, session_id: str, max_age: int) -> Non
 
 def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(key=SESSION_COOKIE, path="/", secure=COOKIE_SECURE, httponly=True, samesite="lax")
+
+
+def set_short_cookie(response: Response, key: str, value: str, max_age: int) -> None:
+    response.set_cookie(
+        key=key, value=value, path="/", httponly=True, secure=COOKIE_SECURE, samesite="lax", max_age=max_age
+    )
+
+
+def clear_cookie(response: Response, key: str) -> None:
+    response.delete_cookie(key=key, path="/", secure=COOKIE_SECURE, httponly=True, samesite="lax")
+
+
+def safe_path(value: str | None) -> str:
+    """Only ever a path on this host, so nothing can send a person elsewhere after signing in."""
+    if not value or not value.startswith("/") or value.startswith("//") or "\\" in value:
+        return "/"
+    if value == "/login" or value.startswith("/login/") or value.startswith("/login?"):
+        return "/"
+    return value[:2000]
 
 
 class FailureLimiter:

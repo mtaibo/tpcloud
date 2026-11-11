@@ -1,14 +1,16 @@
 from datetime import datetime, timezone
 
 import bcrypt
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlmodel import Session as DBSession, select
 
 from config import SESSION_COOKIE
 from database import get_session
 from models import Session as SessionModel, User
-from security import ip_failures, login_failures, set_session_cookie, user_failures, verify_totp
-from utils import detect_client_type, get_client_ip, parse_device_info, session_duration_for, update_session_location
+from security import ip_failures, login_failures, user_failures, verify_totp
+from sessions import complete_totp, start_session
+from utils import as_utc, get_client_ip, record_event
 
 router = APIRouter(prefix="/auth/password")
 
@@ -31,6 +33,7 @@ def password_login(
 ):
     email = str(body.get("email", "")).strip().lower()
     password = str(body.get("password", ""))
+    remember = bool(body.get("remember", True))
 
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email y contraseña requeridos")
@@ -46,36 +49,15 @@ def password_login(
     if not user or not user.password_hash or not password_ok:
         login_failures.fail(email_key)
         ip_failures.fail(ip_key)
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        if user:
+            record_event(request, user.id, "failed", "password", "Contraseña incorrecta")
+        raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos")
 
     login_failures.reset(email_key)
 
     totp_needed = user.totp_secret is not None
-    ua_string = request.headers.get("User-Agent", "")
-    client_type = detect_client_type(request)
-    duration = session_duration_for(client_type)
-
-    new_session = SessionModel(
-        user_id=user.id,
-        expires_at=datetime.now(timezone.utc) + duration,
-        ip_address=ip,
-        user_agent=ua_string,
-        totp_verified=not totp_needed,
-        auth_method="password",
-        device_info=parse_device_info(ua_string),
-        location=ip,
-        client_type=client_type,
-    )
-    session.add(new_session)
-    session.commit()
-    background_tasks.add_task(update_session_location, new_session.session_id, ip)
-
-    response = Response(
-        content=f'{{"totp_required": {str(totp_needed).lower()}}}',
-        media_type="application/json",
-        status_code=200,
-    )
-    set_session_cookie(response, new_session.session_id, int(duration.total_seconds()))
+    response = JSONResponse({"totp_required": totp_needed})
+    start_session(session, background_tasks, request, response, user, "password", remember, totp_pending=totp_needed)
     return response
 
 
@@ -94,8 +76,8 @@ def verify_totp_code(
     ).first()
     if not db_session:
         raise HTTPException(status_code=401, detail="Sesión inválida")
-    if db_session.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
-        raise HTTPException(status_code=401, detail="Sesión expirada")
+    if as_utc(db_session.expires_at) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Ha pasado demasiado tiempo. Vuelve a iniciar sesión.")
     if db_session.totp_verified:
         return {"status": "ok"}
 
@@ -108,6 +90,7 @@ def verify_totp_code(
 
     if not verify_totp(user.totp_secret, str(body.get("code", "")), user.id):
         user_failures.fail(user_key)
+        record_event(request, user.id, "failed", "password", "Código de verificación incorrecto")
         attempts = _totp_attempts.get(session_id, 0) + 1
         if attempts >= _TOTP_ATTEMPTS_PER_SESSION:
             _totp_attempts.pop(session_id, None)
@@ -119,8 +102,7 @@ def verify_totp_code(
 
     _totp_attempts.pop(session_id, None)
     user_failures.reset(user_key)
-    db_session.totp_verified = True
-    session.add(db_session)
-    session.commit()
 
-    return {"status": "ok"}
+    response = JSONResponse({"status": "ok"})
+    complete_totp(session, request, response, db_session)
+    return response

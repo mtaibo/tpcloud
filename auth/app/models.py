@@ -45,3 +45,29 @@ class Session(SQLModel, table=True):
     device_info: Optional[str] = Field(default=None)
     location: Optional[str] = Field(default=None)
     client_type: str = Field(default="web")
+    # "Keep me signed in": a month that renews itself while it's used, instead of half a day.
+    remember: bool = Field(default=False)
+    last_seen_at: Optional[datetime] = Field(default=None)
+    last_ip: Optional[str] = Field(default=None)
+    # For a session approved by scanning a QR code: the device that approved it.
+    approved_by: Optional[str] = Field(default=None)
+
+
+class LoginEvent(SQLModel, table=True):
+    """Every sign-in, failed attempt and revoked session on an account, so its owner can see who
+    got in, from where and how."""
+
+    __tablename__ = "login_events"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    # signin | failed | revoked | signout
+    kind: str
+    method: Optional[str] = Field(default=None)
+    detail: Optional[str] = Field(default=None)
+    ip_address: Optional[str] = Field(default=None)
+    location: Optional[str] = Field(default=None)
+    device_info: Optional[str] = Field(default=None)
+    user_agent: Optional[str] = Field(default=None)
+    client_type: str = Field(default="web")

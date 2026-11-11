@@ -1,25 +1,27 @@
 import base64
+import json
 from datetime import datetime, timezone
-from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
 from database import get_session
 from sqlmodel import Session as DBSession, select
 from models import PasskeyCredential, Session as SessionModel, User
 
-import webauthn
-from config import MODULES, ORIGIN, PUBLIC_URL, RP_ID, RP_NAME, SESSION_COOKIE
-from dependencies import require_password_session
+from config import MODULES, ORIGIN, RP_ID, SESSION_COOKIE
+from routes.flow import redirect_to_login
 from security import ExpiringDict, clear_session_cookie, ip_failures, set_session_cookie
+from sessions import start_session
 from webauthn import generate_authentication_options, verify_authentication_response
 from webauthn.helpers import options_to_json
-from webauthn.helpers.structs import (
-    AuthenticatorSelectionCriteria,
-    PublicKeyCredentialDescriptor,
-    UserVerificationRequirement,
+from webauthn.helpers.structs import PublicKeyCredentialDescriptor, UserVerificationRequirement
+from utils import (
+    LAST_SEEN_INTERVAL,
+    as_utc,
+    cookie_lifetime,
+    get_client_ip,
+    record_event,
+    session_duration_for,
 )
-from utils import detect_client_type, get_client_ip, parse_device_info, session_duration_for, update_session_location
 
 
 def b64url_encode(data: bytes) -> str:
@@ -32,8 +34,9 @@ def b64url_decode(data: str) -> bytes:
 
 router = APIRouter(prefix="/auth/passkey")
 
-# Anyone can start a passkey sign-in, so its challenges expire and are capped.
-_pending_registration_challenges = ExpiringDict(ttl=300)
+# Anyone can start a passkey sign-in, so its challenges expire and are capped. Keyed by the
+# challenge itself (the browser signs it into clientDataJSON), so a sign-in doesn't need an email:
+# with none, the browser offers whichever passkey this site has on the device.
 _pending_login_challenges = ExpiringDict(ttl=300)
 
 
@@ -46,109 +49,66 @@ def _valid_session(request: Request, session: DBSession) -> SessionModel | None:
     ).first()
     if (
         db_session
-        and db_session.expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc)
+        and as_utc(db_session.expires_at) > datetime.now(timezone.utc)
         and db_session.totp_verified
     ):
         return db_session
     return None
 
 
-@router.post("/register/begin")
-def register_begin(user: User = Depends(require_password_session)):
-    options = webauthn.generate_registration_options(
-        rp_id=RP_ID,
-        rp_name=RP_NAME,
-        user_name=user.email,
-        user_id=user.email.encode(),
-        user_display_name=user.display_name,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            user_verification=UserVerificationRequirement.REQUIRED,
-        ),
-    )
-    _pending_registration_challenges.set(user.email, options.challenge)
-    return Response(content=options_to_json(options), media_type="application/json")
-
-
-@router.post("/register/complete")
-def register_complete(
-    request_body: dict,
-    user: User = Depends(require_password_session),
-    session: DBSession = Depends(get_session),
-):
-    challenge = _pending_registration_challenges.pop(user.email)
-    if not challenge:
-        raise HTTPException(status_code=400, detail="No hay registro pendiente para este usuario")
-
-    try:
-        verification = webauthn.verify_registration_response(
-            credential=request_body,
-            expected_challenge=challenge,
-            expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
-        )
-    except Exception:
-        raise HTTPException(status_code=400, detail="Verificación de passkey fallida")
-
-    credential = PasskeyCredential(
-        user_id=user.id,
-        credential_id=b64url_encode(verification.credential_id),
-        public_key=b64url_encode(verification.credential_public_key),
-        device_name=str(request_body.get("device_name", "nuevo dispositivo"))[:100],
-    )
-    session.add(credential)
-    session.commit()
-
-    return {"status": "passkey registrada", "user_id": user.id}
-
-
 @router.post("/login/begin")
-def login_begin(email: str, request: Request, session: DBSession = Depends(get_session)):
+def login_begin(request: Request, email: str | None = None, session: DBSession = Depends(get_session)):
     ip_failures.check(f"ip:{get_client_ip(request)}")
-    email = email.strip().lower()
-    user = session.exec(select(User).where(User.email == email)).first()
-    credentials = (
-        session.exec(select(PasskeyCredential).where(PasskeyCredential.user_id == user.id)).all()
-        if user else []
-    )
+    allow = []
+    if email:
+        user = session.exec(select(User).where(User.email == email.strip().lower())).first()
+        credentials = (
+            session.exec(select(PasskeyCredential).where(PasskeyCredential.user_id == user.id)).all()
+            if user else []
+        )
+        # An unknown email gets the same answer as a known one (options with no credentials
+        # listed), so this endpoint can't be used to find out which accounts exist.
+        allow = [PublicKeyCredentialDescriptor(id=b64url_decode(c.credential_id)) for c in credentials]
 
-    # An unknown email gets the same answer as a known one (options with no credentials listed),
-    # so this endpoint can't be used to find out which accounts exist.
     options = generate_authentication_options(
         rp_id=RP_ID,
-        allow_credentials=[PublicKeyCredentialDescriptor(id=b64url_decode(c.credential_id)) for c in credentials],
+        allow_credentials=allow,
         user_verification=UserVerificationRequirement.REQUIRED,
     )
-    _pending_login_challenges.set(email, options.challenge)
-
+    _pending_login_challenges.set(b64url_encode(options.challenge), options.challenge)
     return Response(content=options_to_json(options), media_type="application/json")
+
+
+def _challenge_of(credential: dict) -> bytes | None:
+    try:
+        client_data = json.loads(b64url_decode(credential["response"]["clientDataJSON"]))
+        return _pending_login_challenges.pop(str(client_data["challenge"]))
+    except Exception:
+        return None
 
 
 @router.post("/login/complete")
 def login_complete(
     request_body: dict,
-    email: str,
     request: Request,
     background_tasks: BackgroundTasks,
+    remember: bool = True,
     session: DBSession = Depends(get_session),
 ):
     ip = get_client_ip(request)
     ip_failures.check(f"ip:{ip}")
-    email = email.strip().lower()
 
-    challenge = _pending_login_challenges.pop(email)
+    challenge = _challenge_of(request_body)
     if not challenge:
-        raise HTTPException(status_code=400, detail="No hay login pendiente para este email")
+        raise HTTPException(status_code=400, detail="La solicitud ha caducado. Vuelve a intentarlo.")
 
-    user = session.exec(select(User).where(User.email == email)).first()
     stored_credential = session.exec(
-        select(PasskeyCredential).where(
-            PasskeyCredential.credential_id == str(request_body.get("id", "")),
-            PasskeyCredential.user_id == user.id,
-        )
-    ).first() if user else None
-    if not stored_credential:
+        select(PasskeyCredential).where(PasskeyCredential.credential_id == str(request_body.get("id", "")))
+    ).first()
+    user = session.get(User, stored_credential.user_id) if stored_credential else None
+    if not stored_credential or not user:
         ip_failures.fail(f"ip:{ip}")
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        raise HTTPException(status_code=401, detail="Esta passkey no pertenece a ninguna cuenta de este servidor.")
 
     try:
         verify_authentication_response(
@@ -162,32 +122,14 @@ def login_complete(
         )
     except Exception:
         ip_failures.fail(f"ip:{ip}")
+        record_event(request, user.id, "failed", "passkey", "La passkey no se pudo verificar")
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
     stored_credential.last_used_at = datetime.now(timezone.utc)
     session.add(stored_credential)
 
-    ua_string = request.headers.get("User-Agent", "")
-    client_type = detect_client_type(request)
-    duration = session_duration_for(client_type)
-
-    new_session = SessionModel(
-        user_id=user.id,
-        expires_at=datetime.now(timezone.utc) + duration,
-        ip_address=ip,
-        user_agent=ua_string,
-        totp_verified=True,
-        auth_method="passkey",
-        device_info=parse_device_info(ua_string),
-        location=ip,
-        client_type=client_type,
-    )
-    session.add(new_session)
-    session.commit()
-    background_tasks.add_task(update_session_location, new_session.session_id, ip)
-
     response = Response(status_code=200)
-    set_session_cookie(response, new_session.session_id, int(duration.total_seconds()))
+    start_session(session, background_tasks, request, response, user, "passkey", remember)
     return response
 
 
@@ -221,6 +163,7 @@ def logout(request: Request, session: DBSession = Depends(get_session)):
             select(SessionModel).where(SessionModel.session_id == session_id)
         ).first()
         if db_session:
+            record_event(request, db_session.user_id, "signout", db_session.auth_method)
             session.delete(db_session)
             session.commit()
     response = Response(status_code=200)
@@ -233,22 +176,37 @@ def validate(request: Request, session: DBSession = Depends(get_session)):
     db_session = _valid_session(request, session)
     if db_session:
         now = datetime.now(timezone.utc)
-        expires = db_session.expires_at.replace(tzinfo=timezone.utc)
-        duration = session_duration_for(db_session.client_type)
         response = Response(status_code=200)
-        if expires - now < duration / 2:
+        changed = False
+
+        last_seen = as_utc(db_session.last_seen_at)
+        ip = get_client_ip(request)
+        if not last_seen or now - last_seen > LAST_SEEN_INTERVAL or db_session.last_ip != ip:
+            db_session.last_seen_at = now
+            db_session.last_ip = ip
+            changed = True
+
+        # Sliding: a session in use keeps being pushed forward, renewed once a twelfth of it has
+        # gone by (every ~2.5 days for a remembered one) so it isn't rewritten on every request.
+        duration = session_duration_for(db_session.client_type, db_session.remember)
+        if as_utc(db_session.expires_at) - now < duration * 11 / 12:
             db_session.expires_at = now + duration
-            session.add(db_session)
-            session.commit()
+            changed = True
             # Refresh the cookie's own Max-Age too, otherwise the client drops it at its
             # original expiry regardless of this server-side renewal. Caddy's forward_auth
             # must have `copy_headers Set-Cookie` for this to actually reach the client.
-            set_session_cookie(response, db_session.session_id, int(duration.total_seconds()))
+            set_session_cookie(response, db_session.session_id, cookie_lifetime(db_session))
+
+        if changed:
+            session.add(db_session)
+            session.commit()
         return response
 
-    # Back to the same path after signing in. Only ever a path: the login page also refuses
-    # anything that would leave this host.
-    original_uri = request.headers.get("X-Forwarded-Uri", "/")
-    if not original_uri.startswith("/") or original_uri.startswith("//"):
-        original_uri = "/"
-    return RedirectResponse(url=f"{PUBLIC_URL}/login/?next={quote(original_uri, safe='')}", status_code=302)
+    # Back to the same page after signing in, remembered in a cookie so /login stays clean. Only
+    # for a page being opened: an API call from a page left open shouldn't be where you land.
+    uri = request.headers.get("X-Forwarded-Uri", "/")
+    mode = request.headers.get("Sec-Fetch-Mode")
+    is_page = mode == "navigate" if mode else (
+        request.headers.get("X-Forwarded-Method", "GET") == "GET" and "/api/" not in uri
+    )
+    return redirect_to_login(uri if is_page else None)
