@@ -60,9 +60,7 @@ const summary = computed(() => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: clamp(16px, 3vw, 32px);
-    border-radius: var(--radius-card);
-    background: var(--cell);
+    padding: 8px 0;
 }
 /* The whole house fits on screen under the title, without scrolling. */
 .plan-card :deep(.plan) { max-height: calc(100dvh - 250px); width: auto; max-width: 100%; }
