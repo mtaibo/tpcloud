@@ -422,9 +422,17 @@ onBeforeUnmount(() => { media.removeEventListener('change', onMedia); stopCondit
   </main>
 </template>
 
+<style>
+/* The login is one screen: no page scroll and no rubber-band bounce. */
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+</style>
+
 <style scoped>
 .login {
-  min-height: 100dvh;
+  height: 100dvh;
+  /* Only a screen too short for the form scrolls, inside the page and without bouncing. */
+  overflow-y: auto;
+  overscroll-behavior: none;
   display: flex;
   flex-direction: column;
   align-items: center;
