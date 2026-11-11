@@ -1,194 +1,75 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { Folder, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { computed, onMounted } from 'vue'
+import { Cloud, DatabaseBackup, Folder, House, Link, LogOut, User, Users } from 'lucide-vue-next'
+import ListSection from '../ui/ListSection.vue'
 import { useFavourites } from '../useFavourites.js'
+import { FOLDER_ICONS_MAP } from '../folderIcons.js'
+import { folderTitle, homePath, navigate, store } from '../store.js'
+import { formatSize } from '../utils/formatSize.js'
 
-const props = defineProps({
-  user: Object,
-  canGoBack: Boolean,
-  canGoForward: Boolean,
-})
-const emit = defineEmits(['navigate', 'go-back', 'go-forward'])
-
-const favouritesOpen = ref(true)
+// The phone's "Explorar" tab, like Files' Browse: places, favourites, links and storage.
+const emit = defineEmits(['backup'])
 const { favourites, load } = useFavourites()
-
 onMounted(load)
 
-function go(fav) {
-  emit('navigate', fav.location, fav.path)
+const usedPct = computed(() => (store.disk ? Math.round((store.disk.used / (store.disk.used + store.disk.free)) * 100) : 0))
+
+async function logout() {
+  await fetch('/auth/passkey/logout', { method: 'POST' })
+  window.location.href = '/login'
 }
 </script>
 
 <template>
-  <div class="browse-panel">
-    <div class="browse-header">
-      <div class="nav-pill">
-        <button class="nav-btn" :disabled="!canGoBack" @click="emit('go-back')">
-          <ChevronLeft class="nav-icon" />
-        </button>
-        <div class="nav-divider" />
-        <button class="nav-btn" :disabled="!canGoForward" @click="emit('go-forward')">
-          <ChevronRight class="nav-icon" />
-        </button>
-      </div>
-      <span class="browse-large-title">Browse</span>
-    </div>
+  <section class="browse">
+    <h1 class="large-title">Explorar</h1>
 
-    <div class="browse-list">
-      <div class="section-row" @click="favouritesOpen = !favouritesOpen">
-        <span class="section-label">Favourites</span>
-        <ChevronRight class="section-chevron" :class="{ open: favouritesOpen }" />
-      </div>
+    <ListSection header="Ubicaciones">
+      <button type="button" class="row" @click="navigate('external', homePath)">
+        <House class="lead" :size="24" /><span class="row-body"><span class="row-title">Inicio</span></span>
+      </button>
+      <button type="button" class="row" @click="navigate('external', 'shared')">
+        <Users class="lead" :size="24" /><span class="row-body"><span class="row-title">Compartido</span></span>
+      </button>
+      <button type="button" class="row" @click="store.panel = 'shares'">
+        <Link class="lead" :size="24" /><span class="row-body"><span class="row-title">Enlaces compartidos</span></span>
+      </button>
+    </ListSection>
 
-      <template v-if="favouritesOpen">
-        <p v-if="favourites.length === 0" class="empty-hint">
-          No favourites yet.<br>Add them from desktop.
-        </p>
-        <button v-for="fav in favourites" :key="fav.id" class="fav-row" @click="go(fav)">
-          <span class="fav-icon-wrap">
-            <Folder class="fav-folder-icon" />
-          </span>
-          <span class="fav-label">{{ fav.label }}</span>
-        </button>
-      </template>
-    </div>
-  </div>
+    <ListSection header="Favoritos" :footer="favourites.length ? '' : 'Mantén pulsada una carpeta y elige «Añadir a Favoritos».'">
+      <button v-for="f in favourites" :key="f.id" type="button" class="row" @click="navigate(f.location, f.path)">
+        <component :is="FOLDER_ICONS_MAP[f.icon_name] || (f.path === homePath ? House : Folder)" class="lead" :size="24" />
+        <span class="row-body"><span class="row-title">{{ folderTitle(f.path) }}</span></span>
+      </button>
+      <div v-if="!favourites.length" class="row"><span class="row-body"><span class="row-title secondary">Ninguno todavía</span></span></div>
+    </ListSection>
+
+    <ListSection v-if="store.disk" header="Almacenamiento">
+      <div class="row storage">
+        <span class="row-body">
+          <span class="row-title">{{ formatSize(store.disk.free) }} disponibles</span>
+          <span class="meter"><i :style="{ width: `${usedPct}%` }" /></span>
+          <span class="row-subtitle small">{{ formatSize(store.disk.used) }} usados de {{ formatSize(store.disk.used + store.disk.free) }}</span>
+        </span>
+      </div>
+    </ListSection>
+
+    <ListSection>
+      <a href="/accounts" class="row"><User class="lead" :size="24" /><span class="row-body"><span class="row-title">Tu cuenta</span></span></a>
+      <a href="/" class="row"><Cloud class="lead" :size="24" /><span class="row-body"><span class="row-title">Volver a TPCloud</span></span></a>
+      <button v-if="store.user.is_admin" type="button" class="row" @click="emit('backup')"><DatabaseBackup class="lead" :size="24" /><span class="row-body"><span class="row-title">Copia de seguridad</span></span></button>
+      <button type="button" class="row destructive" @click="logout"><LogOut class="lead" :size="24" /><span class="row-body"><span class="row-title">Cerrar sesión</span></span></button>
+    </ListSection>
+  </section>
 </template>
 
 <style scoped>
-.browse-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background: #000;
-  overflow: hidden;
-}
-
-.browse-header {
-  flex-shrink: 0;
-  padding-top: calc(env(safe-area-inset-top) + 14px);
-  padding-bottom: 14px;
-  padding-left: 1.25rem;
-  padding-right: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-bottom: 0.5px solid rgba(255, 255, 255, 0.07);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.nav-pill {
-  display: flex;
-  align-items: center;
-  align-self: flex-start;
-  background: rgba(255, 255, 255, 0.07);
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
-}
-
-.nav-btn {
-  width: 52px;
-  height: 46px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.85);
-  transition: background 0.12s;
-}
-
-.nav-btn:disabled { color: rgba(255, 255, 255, 0.2); cursor: default; }
-.nav-btn:not(:disabled):active { background: rgba(255, 255, 255, 0.04); }
-
-.nav-divider { width: 0.5px; height: 14px; background: rgba(255, 255, 255, 0.15); flex-shrink: 0; }
-
-.nav-icon { width: 22px; height: 22px; stroke-width: 2.5; }
-
-.browse-large-title {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: -0.02em;
-  line-height: 1;
-}
-
-.section-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.25rem 0.4rem;
-  cursor: default;
-}
-
-.section-label {
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #636366;
-  user-select: none;
-}
-
-.section-chevron {
-  width: 14px;
-  height: 14px;
-  color: #636366;
-  transition: transform 0.2s;
-}
-
-.section-chevron.open { transform: rotate(90deg); }
-
-.browse-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.5rem 0 100px;
-}
-
-.empty-hint {
-  padding: 2rem 1.25rem;
-  font-size: 0.875rem;
-  color: #525252;
-  line-height: 1.6;
-}
-
-.fav-row {
-  display: flex;
-  align-items: center;
-  gap: 0.875rem;
-  width: 100%;
-  padding: 0.75rem 1.25rem;
-  background: none;
-  border: none;
-  text-align: left;
-  transition: background 0.12s;
-  border-bottom: 0.5px solid rgba(255, 255, 255, 0.05);
-}
-
-.fav-row:hover { background: rgba(255, 255, 255, 0.04); }
-
-.fav-icon-wrap { position: relative; width: 22px; height: 22px; flex-shrink: 0; }
-
-.fav-folder-icon { width: 22px; height: 22px; color: #8E8E93; }
-
-.fav-badge {
-  position: absolute;
-  bottom: -2px;
-  right: -4px;
-  width: 11px;
-  height: 11px;
-  color: #FFD60A;
-  fill: #FFD60A;
-  stroke-width: 2;
-}
-
-.fav-label { font-size: 0.9375rem; font-weight: 500; color: #d1d1d6; }
+.browse { flex: 1; overflow-y: auto; padding: calc(24px + env(safe-area-inset-top)) 16px calc(110px + env(safe-area-inset-bottom)); }
+.large-title { padding: 0 4px 18px; }
+.lead { flex-shrink: 0; color: var(--accent); }
+.row { --inset: 58px; }
+.row.destructive .lead { color: var(--red); }
+.storage { --inset: 20px; }
+.meter { display: block; height: 8px; margin: 8px 0 4px; border-radius: 4px; background: var(--fill-3); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
 </style>

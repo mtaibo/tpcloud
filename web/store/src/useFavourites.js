@@ -16,12 +16,12 @@ export function useFavourites() {
   }
 
   function derivLabel(loc, path, userEmail) {
-    if (!path) return loc === 'server' ? 'Server Root' : 'Disk Root'
+    if (!path) return 'Archivos'
     const parts = path.split('/').filter(Boolean)
     const last = parts[parts.length - 1]
-    if (userEmail && path === `users/${userEmail}`) return 'Home'
-    if (last === 'shared') return 'Shared'
-    return last.charAt(0).toUpperCase() + last.slice(1)
+    if (userEmail && path === `users/${userEmail}`) return 'Inicio'
+    if (last === 'shared') return 'Compartido'
+    return last
   }
 
   function add(loc, path, userEmail) {

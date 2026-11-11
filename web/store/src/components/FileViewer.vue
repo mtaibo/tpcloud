@@ -12,7 +12,7 @@ const isVideo = computed(() => props.contentType?.startsWith('video/'))
 const isAudio = computed(() => props.contentType?.startsWith('audio/'))
 
 onMounted(() => { document.title = props.filename })
-onUnmounted(() => { document.title = 'TPStore' })
+onUnmounted(() => { document.title = 'Archivos · TPCloud' })
 </script>
 
 <template>

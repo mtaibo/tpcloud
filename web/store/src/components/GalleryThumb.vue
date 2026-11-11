@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { Play } from 'lucide-vue-next'
 
-const props = defineProps({ src: String, alt: String, type: { type: String, default: 'image' } })
+const props = defineProps({ src: String, alt: String, type: { type: String, default: 'image' }, small: Boolean })
 
 const wrapRef = ref(null)
 const imgRef = ref(null)
@@ -78,7 +78,7 @@ function onError() {
       @load="loaded = true"
       @error="onError"
     />
-    <Play v-if="activeSrc && type === 'video'" class="thumb-play-icon" />
+    <span v-if="activeSrc && type === 'video' && !small" class="thumb-play"><Play class="thumb-play-icon" fill="currentColor" /></span>
   </div>
 </template>
 
@@ -99,16 +99,20 @@ function onError() {
 .thumb-img.loaded {
   opacity: 1;
 }
-.thumb-play-icon {
+.thumb-play {
   position: absolute;
-  bottom: 6px;
   right: 6px;
-  width: 20px;
-  height: 20px;
-  padding: 3px;
+  bottom: 6px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
   color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   pointer-events: none;
 }
+.thumb-play-icon { width: 10px; height: 10px; margin-left: 1px; }
 </style>

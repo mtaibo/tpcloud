@@ -1,70 +1,77 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { FolderPlus, Upload, FilePlus, Pencil, FolderInput, Copy, CopyPlus, Download, Archive, ArchiveRestore, Trash2, ChevronLeft, ChevronRight, ExternalLink, MoreHorizontal, Star, Share2, LayoutGrid, List, Folder, Palette } from 'lucide-vue-next'
-import Breadcrumb from './Breadcrumb.vue'
-import FileRow from './FileRow.vue'
-import MoveModal from './MoveModal.vue'
-import RenameModal from './RenameModal.vue'
-import DeleteModal from './DeleteModal.vue'
-import CreateModal from './CreateModal.vue'
-import ShareModal from './ShareModal.vue'
-import SharePropertiesModal from './SharePropertiesModal.vue'
-import FolderIconPicker from './FolderIconPicker.vue'
-import ImageViewer from './ImageViewer.vue'
-import GalleryThumb from './GalleryThumb.vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import {
+  Archive, ArchiveRestore, ArrowUpDown, ChevronLeft, ChevronRight, Copy, CopyPlus, Download, ExternalLink,
+  Eye, FilePlus, FolderInput, FolderPlus, LayoutGrid, Link, List, MoreHorizontal, Palette, Pencil, Plus,
+  Search, Share, Star, Trash2, Upload, X,
+} from 'lucide-vue-next'
+import Spinner from '../ui/Spinner.vue'
+import { confirmDestructive, prompt, toast } from '../ui/dialog.js'
+import { openMenu } from '../menu.js'
 import { useFavourites } from '../useFavourites.js'
-import { useTransfers, formatBytes } from '../useTransfers.js'
+import { useTransfers } from '../useTransfers.js'
 import { useCompression } from '../useCompression.js'
-import { IMAGE_EXTS, VIDEO_EXTS, getFileIcon, getIconColor } from '../fileTypes.js'
+import { isMedia, kindName, kindOf } from '../fileTypes.js'
+import { formatDate, formatSize } from '../utils/formatSize.js'
+import {
+  canGoBack, canGoForward, folderTitle, goBack, goForward, homePath, navigate, parentOf, query,
+  setSort, setView, store,
+} from '../store.js'
+import ItemIcon from './ItemIcon.vue'
+import FileIcon from './FileIcon.vue'
+import QuickLook from './QuickLook.vue'
+import MoveSheet from './MoveSheet.vue'
+import ShareSheet from './ShareSheet.vue'
+import IconSheet from './IconSheet.vue'
 
-const props = defineProps({
-  user: Object,
-  location: String,
-  currentPath: String,
-  canGoBack: Boolean,
-  canGoForward: Boolean,
-})
-
-const emit = defineEmits(['navigate', 'go-back', 'go-forward', 'open-shares'])
+const phoneQuery = window.matchMedia('(max-width: 767px)')
+const phone = ref(phoneQuery.matches)
+const onPhoneChange = e => { phone.value = e.matches }
 
 const entries = ref([])
 const loading = ref(false)
 const error = ref(null)
 const isDragOver = ref(false)
+const fileInput = ref(null)
+const searchInput = ref(null)
+const selected = ref(new Set())
+const anchor = ref(null)
+const scrolled = ref(false)
+
 const { startUpload, resumeUpload, cancelPendingUpload, uploads,
         add: addTransfer, update: updateTransfer, setTotal: setTransferTotal,
         complete: completeTransfer, fail: failTransfer } = useTransfers()
 const { startDecompress } = useCompression()
+const { add: addFav, updateIconName: updateFavIconName } = useFavourites()
 
-// Merges server entries with real-time active upload progress,
-// and injects synthetic pending entries for uploads in this folder.
+// Sheets and viewers
+const moveEntry = ref(null)
+const moveMode = ref('move')
+const shareEntry = ref(null)
+const shareProps = ref(null)
+const iconEntry = ref(null)
+const lookEntry = ref(null)
+
+// Browsing inside a share link from the Compartido folder
+const shareMode = ref(null) // { token, label, path, history, historyIndex } | null
+let loadController = null
+
+function joinPath(base, name) {
+  return base ? `${base}/${name}` : name
+}
+
+// ---- Listing ----
+
+// Server entries plus the uploads running into this folder, shown in place with their progress.
 const displayEntries = computed(() => {
   const base = [...entries.value]
   const existing = new Set(base.map(e => e.name))
-
   for (const t of uploads.value) {
-    if (
-      t.status === 'active' &&
-      t.name &&
-      t.path === props.currentPath &&
-      t.location === props.location &&
-      !existing.has(t.name)
-    ) {
-      base.push({
-        name: t.name,
-        type: 'upload-pending',
-        size: t.totalSize,
-        modified: Date.now() / 1000,
-        upload_id: t.uploadId,
-        bytes_received: t.loaded,
-      })
+    if (t.status === 'active' && t.name && t.path === store.path && t.location === store.location && !existing.has(t.name)) {
+      base.push({ name: t.name, type: 'upload-pending', size: t.totalSize, modified: Date.now() / 1000, upload_id: t.uploadId, bytes_received: t.loaded })
     }
   }
-
-  const doneIds = new Set(
-    uploads.value.filter(t => t.status === 'done' && t.uploadId).map(t => t.uploadId)
-  )
-
+  const doneIds = new Set(uploads.value.filter(t => t.status === 'done' && t.uploadId).map(t => t.uploadId))
   return base
     .filter(e => e.type !== 'upload-pending' || !doneIds.has(e.upload_id))
     .map(e => {
@@ -73,258 +80,70 @@ const displayEntries = computed(() => {
       return active ? { ...e, bytes_received: active.loaded } : e
     })
 })
-const fileInput = ref(null)
 
-const contextMenu = ref(null)
-const moreBtn = ref(null)
-const menuVisible = ref(false)
-const menuPos = ref({ x: 0, y: 0 })
-const activeEntry = ref(null)
-
-const pickerEntry = ref(null)
-const pickerMode = ref('move')
-const renameEntry = ref(null)
-const deleteEntry = ref(null)
-const createMode = ref(null)
-const shareEntry = ref(null)
-const sharePropsEntry = ref(null)
-const imageViewEntry = ref(null)
-const iconPickerEntry = ref(null)
-const galleryMode = ref(localStorage.getItem('gallery-mode') === '1')
-const shareMode = ref(null) // { token, label, path, history, historyIndex } | null
-const diskInfo = ref(null)
-let _loadController = null
-
-function formatGB(bytes) {
-  const gb = bytes / (1024 * 1024 * 1024)
-  return gb.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' GB'
-}
-
-function joinPath(base, name) {
-  return base ? `${base}/${name}` : name
-}
-
-function toggleGallery() {
-  galleryMode.value = !galleryMode.value
-  localStorage.setItem('gallery-mode', galleryMode.value ? '1' : '0')
-}
-
-function entryIsImage(entry) {
-  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-  return IMAGE_EXTS.has(ext)
-}
-
-function entryIsVideo(entry) {
-  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-  return VIDEO_EXTS.has(ext)
-}
-
-function entryIsMedia(entry) {
-  return entryIsImage(entry) || entryIsVideo(entry)
-}
-
-function galleryThumbSrc(entry) {
-  if (shareMode.value) {
-    const path = joinPath(shareMode.value.path, entry.name)
-    return `/store/api/share/${shareMode.value.token}/files/thumbnail?path=${encodeURIComponent(path)}`
-  }
-  const path = joinPath(props.currentPath, entry.name)
-  const params = new URLSearchParams({ path, location: props.location })
-  return `/store/api/files/thumbnail?${params}`
-}
-
-function galleryEntryIcon(entry) { return getFileIcon(entry) }
-function galleryEntryColor(entry) { return getIconColor(entry) }
-
-const imageViewSrc = computed(() => {
-  if (!imageViewEntry.value) return ''
-  if (shareMode.value) {
-    const path = joinPath(shareMode.value.path, imageViewEntry.value.name)
-    return `/store/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(path)}`
-  }
-  const path = joinPath(props.currentPath, imageViewEntry.value.name)
-  const params = new URLSearchParams({ path, location: props.location })
-  return `/store/api/files/view?${params}`
-})
-
-const imageViewIsVideo = computed(() => imageViewEntry.value && entryIsVideo(imageViewEntry.value))
-
-const { add: addFav, updateIconName: updateFavIconName } = useFavourites()
-
-const activeIsZip = computed(() =>
-  activeEntry.value?.name?.toLowerCase().endsWith('.zip') ?? false
-)
-
-const mobileFolderName = computed(() => {
-  if (shareMode.value) {
-    const parts = shareMode.value.path.split('/').filter(Boolean)
-    return parts[parts.length - 1] || shareMode.value.label
-  }
-  if (!props.currentPath) return 'Files'
-  const parts = props.currentPath.split('/').filter(Boolean)
-  const last = parts[parts.length - 1]
-  if (props.currentPath === `users/${props.user.email}`) return 'Home'
-  if (last === 'shared') return 'Shared'
-  return last.charAt(0).toUpperCase() + last.slice(1)
-})
-
-const menuStyle = computed(() => ({
-  left: menuPos.value.x + 'px',
-  top: menuPos.value.y + 'px',
-}))
-
-function showMenu(e) {
-  e.preventDefault()
-  activeEntry.value = null
-  _openMenu(e)
-}
-
-function showMenuForEntry(entry, e) {
-  e.preventDefault()
-  activeEntry.value = entry
-  _openMenu(e)
-}
-
-function _openMenu(e) {
-  menuPos.value = { x: e.clientX, y: e.clientY }
-  menuVisible.value = true
-  nextTick(() => {
-    if (!contextMenu.value) return
-    const rect = contextMenu.value.getBoundingClientRect()
-    const x = Math.min(e.clientX, window.innerWidth - rect.width - 8)
-    const y = Math.min(e.clientY, window.innerHeight - rect.height - 8)
-    menuPos.value = { x, y }
+const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' })
+const visible = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  const list = q ? displayEntries.value.filter(e => e.name.toLowerCase().includes(q)) : [...displayEntries.value]
+  const dir = store.sortAsc ? 1 : -1
+  const key = store.sortKey
+  const isDir = e => e.type === 'directory' || e.type === 'share-link'
+  return list.sort((a, b) => {
+    if (isDir(a) !== isDir(b)) return isDir(a) ? -1 : 1
+    let r = 0
+    if (key === 'size') r = (a.size ?? -1) - (b.size ?? -1)
+    else if (key === 'modified') r = (a.modified ?? 0) - (b.modified ?? 0)
+    else if (key === 'kind') r = collator.compare(kindName(a), kindName(b))
+    if (r === 0) r = collator.compare(a.name, b.name)
+    return r * dir
   })
-}
-
-function hideMenu() {
-  menuVisible.value = false
-}
-
-function onDocClick(e) {
-  if (menuVisible.value && contextMenu.value && !contextMenu.value.contains(e.target)) {
-    hideMenu()
-  }
-}
-
-function onDocKeydown(e) {
-  if (imageViewEntry.value) {
-    const navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'a', 'A', 'd', 'D', 'w', 'W', 's', 'S']
-    if (navKeys.includes(e.key)) {
-      e.preventDefault()
-      const images = displayEntries.value.filter(entryIsMedia)
-      const idx = images.findIndex(img => img.name === imageViewEntry.value.name)
-      const prev = ['ArrowLeft', 'ArrowUp', 'a', 'A', 'w', 'W']
-      const next = ['ArrowRight', 'ArrowDown', 'd', 'D', 's', 'S']
-      if (prev.includes(e.key) && idx > 0) imageViewEntry.value = images[idx - 1]
-      else if (next.includes(e.key) && idx < images.length - 1) imageViewEntry.value = images[idx + 1]
-      return
-    }
-  }
-  if (e.key === 'Escape') {
-    hideMenu()
-    pickerEntry.value = null
-    renameEntry.value = null
-    deleteEntry.value = null
-    createMode.value = null
-    shareEntry.value = null
-    sharePropsEntry.value = null
-    imageViewEntry.value = null
-    iconPickerEntry.value = null
-  }
-}
-
-function resumeActiveUpload() {
-  const entry = activeEntry.value
-  hideMenu()
-  resumeUpload({ ...entry, file_size: entry.size })
-}
-
-async function cancelActiveUpload() {
-  const entry = activeEntry.value
-  hideMenu()
-  await cancelPendingUpload(entry.upload_id)
-}
-
-onMounted(async () => {
-  document.addEventListener('click', onDocClick)
-  document.addEventListener('keydown', onDocKeydown)
-  window.addEventListener('tpstore:refresh-directory', loadDirectory)
-  try {
-    const res = await fetch('/store/api/files/disk')
-    if (res.ok) diskInfo.value = await res.json()
-  } catch {}
 })
 
-onUnmounted(() => {
-  document.removeEventListener('click', onDocClick)
-  document.removeEventListener('keydown', onDocKeydown)
-  window.removeEventListener('tpstore:refresh-directory', loadDirectory)
-})
+const media = computed(() => visible.value.filter(e => e.type === 'file' && isMedia(e)))
 
 async function loadDirectory() {
-  if (_loadController) _loadController.abort()
-  _loadController = new AbortController()
-  const { signal } = _loadController
+  loadController?.abort()
+  loadController = new AbortController()
+  const { signal } = loadController
+  selected.value = new Set()
+  if (shareMode.value) return loadShareDirectory()
 
-  if (shareMode.value) {
-    await loadShareDirectory()
-    return
-  }
-  entries.value = []
   loading.value = true
   error.value = null
   try {
-    const params = new URLSearchParams({ path: props.currentPath, location: props.location })
+    const params = new URLSearchParams({ path: store.path, location: store.location })
     const res = await fetch(`/store/api/files/list?${params}`, { signal })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       throw new Error(data.detail || `Error ${res.status}`)
     }
-    const data = await res.json()
-    let real = data.entries
+    let real = (await res.json()).entries
 
-    if (props.location === 'external' && props.currentPath === 'shared') {
-      let ownTokens = new Set()
+    // The Compartido folder also lists the share links: yours, and the public ones of others.
+    if (store.location === 'external' && store.path === 'shared') {
+      let own = new Set()
       const sres = await fetch('/store/api/shares', { signal })
       if (sres.ok) {
         const sdata = await sres.json()
-        ownTokens = new Set(sdata.map(s => s.token))
-        const virtual = sdata.map(s => ({
-          type: 'share-link',
-          name: s.path.split('/').filter(Boolean).at(-1) || s.token,
-          token: s.token,
-          url: s.url,
-          share: s,
-          size: null,
-          modified: null,
-        }))
-        real = [...virtual, ...real]
+        own = new Set(sdata.map(s => s.token))
+        real = [...sdata.map(s => ({
+          type: 'share-link', name: s.path.split('/').filter(Boolean).at(-1) || s.token,
+          token: s.token, url: s.url, share: s, size: null, modified: null,
+        })), ...real]
       }
       const pres = await fetch('/store/api/share', { signal })
       if (pres.ok) {
         const pdata = await pres.json()
-        const pubVirtual = pdata
-          .filter(s => !ownTokens.has(s.token))
-          .map(s => ({
-            type: 'share-link',
-            name: s.label,
-            token: s.token,
-            url: s.url,
-            share: { ...s, isOwn: false },
-            size: null,
-            modified: null,
-          }))
-        real = [...real, ...pubVirtual]
+        real = [...real, ...pdata.filter(s => !own.has(s.token)).map(s => ({
+          type: 'share-link', name: s.label, token: s.token, url: s.url,
+          share: { ...s, isOwn: false }, size: null, modified: null,
+        }))]
       }
     }
 
     entries.value = real
     real.forEach(e => {
-      if (e.type === 'directory') {
-        const id = `${props.location}:${joinPath(props.currentPath, e.name)}`
-        updateFavIconName(id, e.icon_name || null)
-      }
+      if (e.type === 'directory') updateFavIconName(`${store.location}:${joinPath(store.path, e.name)}`, e.icon_name || null)
     })
   } catch (e) {
     if (e.name === 'AbortError') return
@@ -338,7 +157,6 @@ async function loadDirectory() {
 async function loadShareDirectory() {
   loading.value = true
   error.value = null
-  entries.value = []
   try {
     const params = new URLSearchParams({ path: shareMode.value.path })
     const res = await fetch(`/store/api/share/${shareMode.value.token}/files/list?${params}`)
@@ -346,8 +164,7 @@ async function loadShareDirectory() {
       const data = await res.json().catch(() => ({}))
       throw new Error(data.detail || `Error ${res.status}`)
     }
-    const data = await res.json()
-    entries.value = data.entries
+    entries.value = (await res.json()).entries
   } catch (e) {
     error.value = e.message
     entries.value = []
@@ -356,356 +173,115 @@ async function loadShareDirectory() {
   }
 }
 
-watch([() => props.location, () => props.currentPath], () => {
-  if (shareMode.value) shareMode.value = null
+watch(() => [store.location, store.path], () => {
+  shareMode.value = null
+  query.value = ''
   loadDirectory()
 }, { immediate: true })
 
-function openItem(entry) {
+// ---- Titles and paths ----
+
+const title = computed(() => {
+  if (shareMode.value) return shareMode.value.path.split('/').filter(Boolean).at(-1) || shareMode.value.label
+  return folderTitle(store.path)
+})
+
+const parent = computed(() => {
   if (shareMode.value) {
-    if (entry.type === 'directory') {
-      const newPath = joinPath(shareMode.value.path, entry.name)
-      shareMode.value.history = shareMode.value.history.slice(0, shareMode.value.historyIndex + 1)
-      shareMode.value.history.push(newPath)
-      shareMode.value.historyIndex++
-      shareMode.value.path = newPath
-      loadShareDirectory()
-    }
-    return
+    if (!shareMode.value.path) return { label: 'Compartido', go: exitShareMode }
+    const parts = shareMode.value.path.split('/').filter(Boolean)
+    parts.pop()
+    return { label: parts.at(-1) || shareMode.value.label, go: () => navigateShareTo(parts.join('/')) }
   }
-  if (entry.type === 'share-link') {
-    viewItem(entry)
-    return
+  const p = parentOf(store.path)
+  return p === null ? null : { label: folderTitle(p), go: () => navigate(store.location, p) }
+})
+
+const crumbs = computed(() => {
+  if (shareMode.value) {
+    const parts = shareMode.value.path.split('/').filter(Boolean)
+    return [
+      { label: 'Compartido', go: exitShareMode, home: false },
+      { label: shareMode.value.label, go: () => navigateShareTo(''), share: true },
+      ...parts.map((p, i) => ({ label: p, go: () => navigateShareTo(parts.slice(0, i + 1).join('/')) })),
+    ]
   }
-  if (entry.type !== 'directory') return
-  emit('navigate', props.location, joinPath(props.currentPath, entry.name))
+  const parts = store.path.split('/').filter(Boolean)
+  const inHome = store.path === homePath.value || store.path.startsWith(`${homePath.value}/`)
+  const skip = inHome ? 2 : 1
+  const root = { label: inHome ? 'Inicio' : 'Compartido', home: inHome, go: () => navigate('external', parts.slice(0, skip).join('/')) }
+  return [root, ...parts.slice(skip).map((p, i) => ({ label: p, go: () => navigate('external', parts.slice(0, skip + i + 1).join('/')) }))]
+})
+
+const status = computed(() => {
+  const n = visible.value.length
+  const items = n === 1 ? '1 elemento' : `${n} elementos`
+  const sel = selected.value.size > 1 ? `${selected.value.size} de ${items} seleccionados` : items
+  return store.disk ? `${sel}, ${formatSize(store.disk.free)} disponibles` : sel
+})
+
+// ---- Thumbnails and viewing ----
+
+function thumbSrc(entry) {
+  if (entry.type !== 'file' || !isMedia(entry)) return ''
+  if (shareMode.value) {
+    return `/store/api/share/${shareMode.value.token}/files/thumbnail?path=${encodeURIComponent(joinPath(shareMode.value.path, entry.name))}`
+  }
+  return `/store/api/files/thumbnail?${new URLSearchParams({ path: joinPath(store.path, entry.name), location: store.location })}`
 }
 
-async function deleteItem(entry) {
-  const path = joinPath(props.currentPath, entry.name)
-  const params = new URLSearchParams({ path, location: props.location })
-  const res = await fetch(`/store/api/files?${params}`, { method: 'DELETE' })
-  if (res.ok) {
-    loadDirectory()
-  } else {
-    const data = await res.json().catch(() => ({}))
-    alert(data.detail || 'Error deleting item')
+function viewSrc(entry) {
+  if (shareMode.value) {
+    return `/store/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(joinPath(shareMode.value.path, entry.name))}`
   }
+  return `/store/api/files/view?${new URLSearchParams({ path: joinPath(store.path, entry.name), location: store.location })}`
+}
+
+function open(entry) {
+  if (entry.type === 'upload-pending') return
+  if (entry.type === 'share-link') return openShareLink(entry)
+  if (entry.type === 'directory') {
+    if (shareMode.value) return navigateShareTo(joinPath(shareMode.value.path, entry.name))
+    return navigate(store.location, joinPath(store.path, entry.name))
+  }
+  viewItem(entry)
 }
 
 async function viewItem(entry) {
-  if (entry.type === 'share-link') {
-    if (entry.share?.is_file) {
-      window.open(entry.url, '_blank')
-      return
-    }
-    shareMode.value = {
-      token: entry.token,
-      label: entry.share?.label || entry.name,
-      path: '',
-      history: [''],
-      historyIndex: 0,
-    }
-    await loadShareDirectory()
+  if (isMedia(entry)) {
+    lookEntry.value = entry
     return
   }
   if (shareMode.value) {
-    const entryPath = joinPath(shareMode.value.path, entry.name)
-    const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-    if (IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext)) {
-      imageViewEntry.value = entry
-      return
-    }
-    window.open(`/store/api/share/${shareMode.value.token}/files/view?path=${encodeURIComponent(entryPath)}`, '_blank')
-    return
-  }
-  const path = joinPath(props.currentPath, entry.name)
-  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-  if (IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext)) {
-    imageViewEntry.value = entry
+    window.open(viewSrc(entry), '_blank')
     return
   }
   const res = await fetch('/store/api/files/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, location: props.location }),
+    body: JSON.stringify({ path: joinPath(store.path, entry.name), location: store.location }),
   })
   const data = await res.json()
   window.open(`/store/${data.token}`, '_blank')
 }
 
-function downloadItem(entry) {
-  if (shareMode.value) {
-    const entryPath = joinPath(shareMode.value.path, entry.name)
-    downloadWithProgress(`/store/api/share/${shareMode.value.token}/files/download?path=${encodeURIComponent(entryPath)}`, entry.name)
+function openShareLink(entry) {
+  if (entry.share?.is_file) {
+    window.open(entry.url, '_blank')
     return
   }
-  const path = joinPath(props.currentPath, entry.name)
-  const params = new URLSearchParams({ path, location: props.location })
-  downloadWithProgress(`/store/api/files/download?${params}`, entry.name)
-}
-
-function createFolder() {
-  hideMenu()
-  createMode.value = 'folder'
-}
-
-function createFile() {
-  hideMenu()
-  createMode.value = 'file'
-}
-
-async function onCreated(name) {
-  const mode = createMode.value
-  createMode.value = null
-  const path = joinPath(props.currentPath, name)
-  const endpoint = mode === 'folder' ? '/store/api/files/mkdir' : '/store/api/files/touch'
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, location: props.location }),
-  })
-  if (res.ok) {
-    loadDirectory()
-  } else {
-    const data = await res.json().catch(() => ({}))
-    alert(data.detail || `Error creating ${mode}`)
-  }
-}
-
-function renameItem() {
-  renameEntry.value = activeEntry.value
-  hideMenu()
-}
-
-async function onRenamed(newName) {
-  const entry = renameEntry.value
-  renameEntry.value = null
-  const path = joinPath(props.currentPath, entry.name)
-  const res = await fetch('/store/api/files/rename', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, new_name: newName, location: props.location }),
-  })
-  if (res.ok) {
-    loadDirectory()
-  } else {
-    const data = await res.json().catch(() => ({}))
-    alert(data.detail || 'Error renaming')
-  }
-}
-
-function startMove() {
-  pickerEntry.value = activeEntry.value
-  pickerMode.value = 'move'
-  hideMenu()
-}
-
-function startCopy() {
-  pickerEntry.value = activeEntry.value
-  pickerMode.value = 'copy'
-  hideMenu()
-}
-
-async function duplicateItem() {
-  const entry = activeEntry.value
-  hideMenu()
-  const path = joinPath(props.currentPath, entry.name)
-  const res = await fetch('/store/api/files/duplicate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, location: props.location }),
-  })
-  if (res.ok) {
-    loadDirectory()
-  } else {
-    const data = await res.json().catch(() => ({}))
-    alert(data.detail || 'Error duplicating')
-  }
-}
-
-function openActiveItem() {
-  const entry = activeEntry.value
-  hideMenu()
-  viewItem(entry)
-}
-
-function downloadActiveItem() {
-  const entry = activeEntry.value
-  hideMenu()
-  downloadItem(entry)
-}
-
-function downloadFolderAsZip() {
-  const entry = activeEntry.value
-  hideMenu()
-  const path = joinPath(props.currentPath, entry.name)
-  const params = new URLSearchParams({ path, location: props.location })
-  downloadWithProgress(`/store/api/files/download-zip?${params}`, `${entry.name}.zip`)
-}
-
-async function compressItem() {
-  const entry = activeEntry.value
-  hideMenu()
-  const path = joinPath(props.currentPath, entry.name)
-  const res = await fetch('/store/api/files/compress', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, location: props.location }),
-  })
-  if (res.ok) {
-    loadDirectory()
-  } else {
-    const data = await res.json().catch(() => ({}))
-    alert(data.detail || 'Error compressing')
-  }
-}
-
-async function decompressItem() {
-  const entry = activeEntry.value
-  hideMenu()
-  const ok = await startDecompress(entry.name, props.currentPath, props.location)
-  if (!ok) alert('Error starting extraction')
-}
-
-function deleteActiveItem() {
-  deleteEntry.value = activeEntry.value
-  hideMenu()
-}
-
-function changeIcon() {
-  iconPickerEntry.value = activeEntry.value
-  hideMenu()
-}
-
-async function onIconPickerDone(iconName) {
-  const entry = iconPickerEntry.value
-  iconPickerEntry.value = null
-  const path = joinPath(props.currentPath, entry.name)
-  if (iconName) {
-    const res = await fetch('/store/api/files/icon', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, location: props.location, icon_name: iconName }),
-    })
-    if (res.ok) {
-      const idx = entries.value.findIndex(e => e.name === entry.name)
-      if (idx !== -1) entries.value[idx] = { ...entries.value[idx], icon_name: iconName }
-      updateFavIconName(`${props.location}:${path}`, iconName)
-    }
-  } else {
-    const params = new URLSearchParams({ path, location: props.location })
-    const res = await fetch(`/store/api/files/icon?${params}`, { method: 'DELETE' })
-    if (res.ok) {
-      const idx = entries.value.findIndex(e => e.name === entry.name)
-      if (idx !== -1) {
-        const updated = { ...entries.value[idx] }
-        delete updated.icon_name
-        entries.value[idx] = updated
-      }
-      updateFavIconName(`${props.location}:${path}`, null)
-    }
-  }
-}
-
-async function onDeleteConfirmed() {
-  const entry = deleteEntry.value
-  deleteEntry.value = null
-  await deleteItem(entry)
-}
-
-function showMoreMenu() {
-  activeEntry.value = null
-  menuPos.value = { x: -9999, y: -9999 }
-  menuVisible.value = true
-  nextTick(() => {
-    if (!contextMenu.value || !moreBtn.value) return
-    const btn = moreBtn.value.getBoundingClientRect()
-    const menu = contextMenu.value.getBoundingClientRect()
-    const x = Math.max(8, btn.right - menu.width)
-    const y = Math.min(btn.bottom + 8, window.innerHeight - menu.height - 8)
-    menuPos.value = { x, y }
-  })
-}
-
-function shareActiveItem() {
-  shareEntry.value = activeEntry.value
-  hideMenu()
-}
-
-function openShareInBrowser() {
-  window.open(activeEntry.value.url, '_blank')
-  hideMenu()
-}
-
-function copyShareLink() {
-  navigator.clipboard.writeText(activeEntry.value.url)
-  hideMenu()
-}
-
-function editShareProps() {
-  sharePropsEntry.value = activeEntry.value
-  hideMenu()
-}
-
-async function deleteShareEntry() {
-  const entry = activeEntry.value
-  hideMenu()
-  await fetch(`/store/api/shares/${entry.token}`, { method: 'DELETE' })
+  shareMode.value = { token: entry.token, label: entry.share?.label || entry.name, path: '', history: [''], historyIndex: 0 }
+  query.value = ''
   loadDirectory()
 }
 
-function openManageLinks() {
-  hideMenu()
-  emit('open-shares')
-}
-
-function addCurrentToFavourites() {
-  addFav(props.location, props.currentPath, props.user.email)
-  hideMenu()
-}
-
-function addEntryToFavourites() {
-  const entry = activeEntry.value
-  const path = joinPath(props.currentPath, entry.name)
-  addFav(props.location, path, props.user.email)
-  hideMenu()
-}
-
-function handleGoBack() {
-  if (shareMode.value) {
-    if (shareMode.value.historyIndex > 0) {
-      shareMode.value.historyIndex--
-      shareMode.value.path = shareMode.value.history[shareMode.value.historyIndex]
-      loadShareDirectory()
-    } else {
-      shareMode.value = null
-      loadDirectory()
-    }
-    return
-  }
-  emit('go-back')
-}
-
-function handleGoForward() {
-  if (shareMode.value) {
-    if (shareMode.value.historyIndex < shareMode.value.history.length - 1) {
-      shareMode.value.historyIndex++
-      shareMode.value.path = shareMode.value.history[shareMode.value.historyIndex]
-      loadShareDirectory()
-    }
-    return
-  }
-  emit('go-forward')
-}
-
 function navigateShareTo(path) {
-  if (!shareMode.value) return
-  shareMode.value.history = shareMode.value.history.slice(0, shareMode.value.historyIndex + 1)
-  shareMode.value.history.push(path)
-  shareMode.value.historyIndex++
-  shareMode.value.path = path
-  loadShareDirectory()
+  const m = shareMode.value
+  m.history = m.history.slice(0, m.historyIndex + 1)
+  m.history.push(path)
+  m.historyIndex++
+  m.path = path
+  loadDirectory()
 }
 
 function exitShareMode() {
@@ -713,23 +289,251 @@ function exitShareMode() {
   loadDirectory()
 }
 
-function downloadActiveShareFolderAsZip() {
-  const entry = activeEntry.value
-  hideMenu()
-  const entryPath = joinPath(shareMode.value.path, entry.name)
-  downloadWithProgress(`/store/api/share/${shareMode.value.token}/files/download-zip?path=${encodeURIComponent(entryPath)}`, `${entry.name}.zip`)
+function back() {
+  const m = shareMode.value
+  if (m) {
+    if (m.historyIndex > 0) { m.historyIndex--; m.path = m.history[m.historyIndex]; loadDirectory() }
+    else exitShareMode()
+    return
+  }
+  goBack()
 }
 
+function forward() {
+  const m = shareMode.value
+  if (m) {
+    if (m.historyIndex < m.history.length - 1) { m.historyIndex++; m.path = m.history[m.historyIndex]; loadDirectory() }
+    return
+  }
+  goForward()
+}
+
+const backEnabled = computed(() => !!shareMode.value || canGoBack.value)
+const forwardEnabled = computed(() => (shareMode.value ? shareMode.value.historyIndex < shareMode.value.history.length - 1 : canGoForward.value))
+
+// ---- Selection ----
+
+function select(entry, e) {
+  const names = visible.value.map(x => x.name)
+  const next = new Set(e?.metaKey || e?.ctrlKey ? selected.value : [])
+  if (e?.shiftKey && anchor.value && names.includes(anchor.value)) {
+    const [a, b] = [names.indexOf(anchor.value), names.indexOf(entry.name)].sort((x, y) => x - y)
+    names.slice(a, b + 1).forEach(n => next.add(n))
+  } else if ((e?.metaKey || e?.ctrlKey) && next.has(entry.name)) {
+    next.delete(entry.name)
+  } else {
+    next.add(entry.name)
+    anchor.value = entry.name
+  }
+  selected.value = next
+}
+
+function onItemClick(entry, e) {
+  if (phone.value) return open(entry)
+  select(entry, e)
+}
+
+const selectedEntries = computed(() => visible.value.filter(e => selected.value.has(e.name)))
+
+function moveSelection(step, extend) {
+  const list = visible.value
+  if (!list.length) return
+  const current = list.findIndex(e => e.name === anchor.value)
+  const cols = store.view === 'icons' ? iconColumns() : 1
+  const next = Math.max(0, Math.min(list.length - 1, current < 0 ? 0 : current + Math.round(step * cols)))
+  const entry = list[next]
+  if (extend) {
+    const s = new Set(selected.value)
+    s.add(entry.name)
+    selected.value = s
+  } else {
+    selected.value = new Set([entry.name])
+  }
+  anchor.value = entry.name
+  nextTick(() => document.querySelector(`[data-name="${CSS.escape(entry.name)}"]`)?.scrollIntoView({ block: 'nearest' }))
+}
+
+const grid = ref(null)
+function iconColumns() {
+  const el = grid.value
+  if (!el) return 1
+  return getComputedStyle(el).gridTemplateColumns.split(' ').length
+}
+
+function onKey(e) {
+  if (lookEntry.value || document.querySelector('.overlay, .menu')) return
+  if (e.target.closest?.('input, textarea')) {
+    if (e.key === 'Escape') { query.value = ''; e.target.blur() }
+    return
+  }
+  const meta = e.metaKey || e.ctrlKey
+  if (meta && e.key.toLowerCase() === 'f') { e.preventDefault(); searchInput.value?.focus(); return }
+  if (meta && e.key.toLowerCase() === 'a') { e.preventDefault(); selected.value = new Set(visible.value.map(x => x.name)); return }
+  if (meta && e.key === 'ArrowUp') { e.preventDefault(); parent.value?.go(); return }
+  if (meta && e.key === 'ArrowDown') { e.preventDefault(); const one = selectedEntries.value[0]; if (one) open(one); return }
+  if (meta && e.key === '[') { e.preventDefault(); back(); return }
+  if (meta && e.key === ']') { e.preventDefault(); forward(); return }
+  if (e.key === 'ArrowDown' || (store.view === 'icons' && e.key === 'ArrowRight')) {
+    e.preventDefault(); moveSelection(store.view === 'icons' && e.key === 'ArrowDown' ? 1 : 1 / (store.view === 'icons' ? iconColumns() : 1), e.shiftKey)
+    return
+  }
+  if (e.key === 'ArrowUp' || (store.view === 'icons' && e.key === 'ArrowLeft')) {
+    e.preventDefault(); moveSelection(store.view === 'icons' && e.key === 'ArrowUp' ? -1 : -1 / (store.view === 'icons' ? iconColumns() : 1), e.shiftKey)
+    return
+  }
+  const one = selectedEntries.value.length === 1 ? selectedEntries.value[0] : null
+  if (e.key === ' ' && one) {
+    e.preventDefault()
+    if (one.type === 'file') {
+      if (isMedia(one)) lookEntry.value = one
+      else viewItem(one)
+    }
+    return
+  }
+  if (e.key === 'Enter' && one && !shareMode.value) { e.preventDefault(); renameItem(one); return }
+  if ((e.key === 'Backspace' && meta) || e.key === 'Delete') {
+    if (selectedEntries.value.length && !shareMode.value) { e.preventDefault(); deleteItems(selectedEntries.value) }
+    return
+  }
+  if (e.key === 'Escape') selected.value = new Set()
+}
+
+// ---- Actions ----
+
+async function post(url, body) {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || `Error ${res.status}`)
+  }
+  return res
+}
+
+async function run(task, done) {
+  try {
+    await task()
+    if (done) toast(done)
+    loadDirectory()
+  } catch (e) {
+    toast(e.message || 'No se pudo completar', 'warning')
+  }
+}
+
+async function createFolder() {
+  const name = await prompt({ title: 'Nueva carpeta', value: 'Carpeta sin título', confirm: 'Crear' })
+  if (name) run(() => post('/store/api/files/mkdir', { path: joinPath(store.path, name), location: store.location }))
+}
+
+async function createFile() {
+  const name = await prompt({ title: 'Nuevo archivo', placeholder: 'nombre.txt', confirm: 'Crear' })
+  if (name) run(() => post('/store/api/files/touch', { path: joinPath(store.path, name), location: store.location }))
+}
+
+async function renameItem(entry) {
+  const dot = entry.type === 'file' ? entry.name.lastIndexOf('.') : -1
+  const name = await prompt({ title: 'Renombrar', value: entry.name, confirm: 'Renombrar', select: dot > 0 ? dot : null })
+  if (name && name !== entry.name) {
+    run(() => post('/store/api/files/rename', { path: joinPath(store.path, entry.name), new_name: name, location: store.location }))
+  }
+}
+
+async function deleteItems(list) {
+  const one = list.length === 1
+  const ok = await confirmDestructive(
+    one ? `¿Eliminar «${list[0].name}»?` : `¿Eliminar ${list.length} elementos?`,
+    'Se borrarán del servidor. No se puede deshacer.',
+  )
+  if (!ok) return
+  run(async () => {
+    for (const entry of list) {
+      const params = new URLSearchParams({ path: joinPath(store.path, entry.name), location: store.location })
+      const res = await fetch(`/store/api/files?${params}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || `No se pudo eliminar «${entry.name}»`)
+      }
+    }
+  }, one ? 'Eliminado' : `${list.length} elementos eliminados`)
+}
+
+function duplicateItem(entry) {
+  run(() => post('/store/api/files/duplicate', { path: joinPath(store.path, entry.name), location: store.location }))
+}
+
+function compressItem(entry) {
+  run(() => post('/store/api/files/compress', { path: joinPath(store.path, entry.name), location: store.location }), 'Comprimido')
+}
+
+async function decompressItem(entry) {
+  const ok = await startDecompress(entry.name, store.path, store.location)
+  toast(ok ? 'Descomprimiendo…' : 'No se pudo descomprimir', ok ? 'check-circle' : 'warning')
+}
+
+function downloadItem(entry) {
+  if (shareMode.value) {
+    const p = encodeURIComponent(joinPath(shareMode.value.path, entry.name))
+    if (entry.type === 'directory') downloadWithProgress(`/store/api/share/${shareMode.value.token}/files/download-zip?path=${p}`, `${entry.name}.zip`)
+    else downloadWithProgress(`/store/api/share/${shareMode.value.token}/files/download?path=${p}`, entry.name)
+    return
+  }
+  const params = new URLSearchParams({ path: joinPath(store.path, entry.name), location: store.location })
+  if (entry.type === 'directory') downloadWithProgress(`/store/api/files/download-zip?${params}`, `${entry.name}.zip`)
+  else downloadWithProgress(`/store/api/files/download?${params}`, entry.name)
+}
+
+async function onIconChosen(iconName) {
+  const entry = iconEntry.value
+  iconEntry.value = null
+  const path = joinPath(store.path, entry.name)
+  const idx = entries.value.findIndex(e => e.name === entry.name)
+  if (iconName) {
+    const res = await fetch('/store/api/files/icon', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, location: store.location, icon_name: iconName }),
+    })
+    if (res.ok && idx !== -1) entries.value[idx] = { ...entries.value[idx], icon_name: iconName }
+    if (res.ok) updateFavIconName(`${store.location}:${path}`, iconName)
+  } else {
+    const res = await fetch(`/store/api/files/icon?${new URLSearchParams({ path, location: store.location })}`, { method: 'DELETE' })
+    if (res.ok && idx !== -1) {
+      const updated = { ...entries.value[idx] }
+      delete updated.icon_name
+      entries.value[idx] = updated
+    }
+    if (res.ok) updateFavIconName(`${store.location}:${path}`, null)
+  }
+}
+
+function addFavourite(path) {
+  const added = addFav(store.location, path, store.user.email)
+  toast(added ? 'Añadida a Favoritos' : 'Ya está en Favoritos', added ? 'check-circle' : 'info')
+}
+
+async function deleteShareLink(entry) {
+  const ok = await confirmDestructive(`¿Eliminar el enlace de «${entry.name}»?`, 'Quien lo tenga dejará de poder abrirlo. Los archivos no se borran.', 'Eliminar enlace')
+  if (ok) run(() => fetch(`/store/api/shares/${entry.token}`, { method: 'DELETE' }), 'Enlace eliminado')
+}
+
+function copyLink(url) {
+  navigator.clipboard.writeText(url)
+  toast('Enlace copiado')
+}
+
+// ---- Uploads and downloads ----
+
 function triggerUpload() {
-  hideMenu()
   fileInput.value.click()
 }
 
 async function uploadFiles(files) {
-  if (!files || !files.length) return
-  for (const file of files) {
-    await startUpload(file, props.currentPath, props.location)
-  }
+  if (!files?.length) return
+  for (const file of files) await startUpload(file, store.path, store.location)
+}
+
+function onFileInputChange(e) {
+  uploadFiles(Array.from(e.target.files))
+  e.target.value = ''
 }
 
 async function downloadWithProgress(url, filename) {
@@ -764,7 +568,7 @@ async function downloadWithProgress(url, filename) {
       }
       completeTransfer(id)
     } catch (e) {
-      failTransfer(id, e.message || 'Failed')
+      failTransfer(id, e.message || 'Error')
     }
   } else {
     const id = addTransfer('download', filename, 0)
@@ -783,8 +587,7 @@ async function downloadWithProgress(url, filename) {
         loaded += value.length
         updateTransfer(id, loaded)
       }
-      const blob = new Blob(chunks)
-      const blobUrl = URL.createObjectURL(blob)
+      const blobUrl = URL.createObjectURL(new Blob(chunks))
       const a = document.createElement('a')
       a.href = blobUrl
       a.download = filename
@@ -792,834 +595,645 @@ async function downloadWithProgress(url, filename) {
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
       completeTransfer(id)
     } catch (e) {
-      failTransfer(id, e.message || 'Failed')
+      failTransfer(id, e.message || 'Error')
     }
   }
 }
 
-function onFileInputChange(e) {
-  uploadFiles(Array.from(e.target.files))
-  e.target.value = ''
-}
-
 function onDragOver(e) {
+  if (shareMode.value || !e.dataTransfer?.types?.includes('Files')) return
   e.preventDefault()
   isDragOver.value = true
 }
-
 function onDragLeave(e) {
-  if (!e.currentTarget.contains(e.relatedTarget)) {
-    isDragOver.value = false
-  }
+  if (!e.currentTarget.contains(e.relatedTarget)) isDragOver.value = false
 }
-
 function onDrop(e) {
+  if (shareMode.value) return
   e.preventDefault()
   isDragOver.value = false
   uploadFiles(Array.from(e.dataTransfer.files))
 }
+
+// ---- Menus ----
+
+function viewItems() {
+  return [
+    { label: 'Iconos', icon: LayoutGrid, checked: store.view === 'icons', action: () => setView('icons') },
+    { label: 'Lista', icon: List, checked: store.view === 'list', action: () => setView('list') },
+    { separator: true },
+    { label: 'Nombre', checked: store.sortKey === 'name', action: () => setSort('name') },
+    { label: 'Fecha de modificación', checked: store.sortKey === 'modified', action: () => setSort('modified') },
+    { label: 'Tamaño', checked: store.sortKey === 'size', action: () => setSort('size') },
+    { label: 'Tipo', checked: store.sortKey === 'kind', action: () => setSort('kind') },
+  ]
+}
+
+function newItems() {
+  return [
+    { label: 'Subir archivos…', icon: Upload, action: triggerUpload },
+    { separator: true },
+    { label: 'Nueva carpeta', icon: FolderPlus, action: createFolder },
+    { label: 'Nuevo archivo', icon: FilePlus, action: createFile },
+  ]
+}
+
+function folderItems() {
+  if (shareMode.value) return [{ label: 'Volver a Compartido', icon: ChevronLeft, action: exitShareMode }]
+  return [
+    ...newItems(),
+    { separator: true },
+    { label: 'Añadir a Favoritos', icon: Star, action: () => addFavourite(store.path) },
+    { label: 'Enlaces compartidos', icon: Link, action: () => { store.panel = 'shares' } },
+  ]
+}
+
+function entryItems(entry) {
+  if (entry.type === 'upload-pending') {
+    return [
+      { label: 'Reanudar subida…', icon: Upload, action: () => resumeUpload({ ...entry, file_size: entry.size }) },
+      { separator: true },
+      { label: 'Cancelar subida', icon: Trash2, danger: true, action: () => cancelPendingUpload(entry.upload_id) },
+    ]
+  }
+  if (entry.type === 'share-link') {
+    return [
+      { label: 'Abrir', icon: Eye, action: () => openShareLink(entry) },
+      { label: 'Abrir en el navegador', icon: ExternalLink, action: () => window.open(entry.url, '_blank') },
+      { label: 'Copiar enlace', icon: Copy, action: () => copyLink(entry.url) },
+      entry.share?.isOwn !== false && { separator: true },
+      entry.share?.isOwn !== false && { label: 'Opciones del enlace…', icon: Pencil, action: () => { shareProps.value = entry.share } },
+      entry.share?.isOwn !== false && { label: 'Eliminar enlace', icon: Trash2, danger: true, action: () => deleteShareLink(entry) },
+    ]
+  }
+  if (shareMode.value) {
+    return [
+      entry.type === 'file' && { label: 'Abrir', icon: Eye, action: () => viewItem(entry) },
+      { label: entry.type === 'directory' ? 'Descargar como ZIP' : 'Descargar', icon: Download, action: () => downloadItem(entry) },
+    ]
+  }
+  const many = selected.value.size > 1 && selected.value.has(entry.name)
+  if (many) {
+    const list = selectedEntries.value
+    return [
+      { label: `Descargar ${list.length} elementos`, icon: Download, action: () => list.forEach(downloadItem) },
+      { separator: true },
+      { label: `Eliminar ${list.length} elementos`, icon: Trash2, danger: true, action: () => deleteItems(list) },
+    ]
+  }
+  const isDir = entry.type === 'directory'
+  const isZip = entry.name.toLowerCase().endsWith('.zip')
+  return [
+    { label: 'Abrir', icon: Eye, action: () => open(entry) },
+    { separator: true },
+    { label: 'Renombrar', icon: Pencil, action: () => renameItem(entry) },
+    isDir && { label: 'Cambiar icono…', icon: Palette, action: () => { iconEntry.value = entry } },
+    isDir && { label: 'Añadir a Favoritos', icon: Star, action: () => addFavourite(joinPath(store.path, entry.name)) },
+    { label: 'Compartir…', icon: Share, action: () => { shareEntry.value = entry } },
+    { separator: true },
+    { label: 'Mover a…', icon: FolderInput, action: () => { moveMode.value = 'move'; moveEntry.value = entry } },
+    { label: 'Copiar a…', icon: Copy, action: () => { moveMode.value = 'copy'; moveEntry.value = entry } },
+    { label: 'Duplicar', icon: CopyPlus, action: () => duplicateItem(entry) },
+    { separator: true },
+    { label: isDir ? 'Descargar como ZIP' : 'Descargar', icon: Download, action: () => downloadItem(entry) },
+    isZip
+      ? { label: 'Descomprimir', icon: ArchiveRestore, action: () => decompressItem(entry) }
+      : { label: 'Comprimir', icon: Archive, action: () => compressItem(entry) },
+    { separator: true },
+    { label: 'Eliminar', icon: Trash2, danger: true, action: () => deleteItems([entry]) },
+  ]
+}
+
+function onItemMenu(entry, e) {
+  e.preventDefault()
+  if (!selected.value.has(entry.name)) {
+    selected.value = new Set([entry.name])
+    anchor.value = entry.name
+  }
+  openMenu(e, entryItems(entry), phone.value ? entry.name : '')
+}
+
+function onBackgroundMenu(e) {
+  e.preventDefault()
+  selected.value = new Set()
+  openMenu(e, folderItems())
+}
+
+function onBackgroundClick(e) {
+  if (e.target === e.currentTarget || e.target.classList.contains('deselect')) selected.value = new Set()
+}
+
+function moreMenu(e) {
+  openMenu(e.currentTarget, phone.value ? [...viewItems(), { separator: true }, ...folderItems()] : folderItems())
+}
+
+// Long press opens an item's menu on touch screens (iOS sends no contextmenu).
+let pressTimer = null
+let pressed = false
+function onTouchStart(entry, e) {
+  pressed = false
+  const t = e.touches[0]
+  pressTimer = setTimeout(() => {
+    pressed = true
+    navigator.vibrate?.(10)
+    onItemMenu(entry, { clientX: t.clientX, clientY: t.clientY, preventDefault() {} })
+  }, 420)
+}
+function onTouchEnd(e) {
+  clearTimeout(pressTimer)
+  if (pressed) e.preventDefault()
+}
+function cancelPress() { clearTimeout(pressTimer) }
+
+function onScroll(e) { scrolled.value = e.target.scrollTop > 4 }
+
+function uploadPercent(entry) {
+  return entry.size ? Math.min(100, Math.round((entry.bytes_received / entry.size) * 100)) : 0
+}
+
+function subtitle(entry) {
+  if (entry.type === 'upload-pending') return `Subiendo · ${uploadPercent(entry)} %`
+  if (entry.type === 'share-link') return entry.share?.isOwn === false ? 'Enlace público' : 'Tu enlace compartido'
+  if (entry.type === 'directory') return formatDate(entry.modified)
+  return `${formatDate(entry.modified)} · ${formatSize(entry.size)}`
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', onKey)
+  window.addEventListener('tpstore:refresh-directory', loadDirectory)
+  phoneQuery.addEventListener('change', onPhoneChange)
+})
+onUnmounted(() => {
+  document.removeEventListener('keydown', onKey)
+  window.removeEventListener('tpstore:refresh-directory', loadDirectory)
+  phoneQuery.removeEventListener('change', onPhoneChange)
+})
 </script>
 
 <template>
-  <div class="browser">
-    <input ref="fileInput" type="file" multiple style="display:none" @change="onFileInputChange" />
+  <section class="browser" :class="{ phone }">
+    <input ref="fileInput" type="file" multiple hidden @change="onFileInputChange" />
 
-    <!-- Navigation buttons -->
-    <div class="file-topbar">
-      <div class="nav-pill">
-        <button
-          class="nav-btn"
-          :disabled="!shareMode && !canGoBack"
-          @click="handleGoBack"
-          title="Back"
-        >
-          <ChevronLeft class="nav-icon" />
-        </button>
-        <div class="nav-divider" />
-        <button
-          class="nav-btn"
-          :disabled="shareMode ? shareMode.historyIndex >= shareMode.history.length - 1 : !canGoForward"
-          @click="handleGoForward"
-          title="Forward"
-        >
-          <ChevronRight class="nav-icon" />
-        </button>
-      </div>
-      <span class="mobile-folder-name">{{ mobileFolderName }}</span>
-      <div class="topbar-actions">
-        <button class="more-btn" :class="{ 'more-btn--active': galleryMode }" @click="toggleGallery" :title="galleryMode ? 'List view' : 'Gallery view'">
-          <LayoutGrid v-if="!galleryMode" class="more-icon" />
-          <List v-else class="more-icon" />
-        </button>
-        <button ref="moreBtn" class="more-btn" @click.stop="showMoreMenu">
-          <MoreHorizontal class="more-icon" />
-        </button>
-      </div>
-    </div>
+    <!-- Toolbar -->
+    <header class="toolbar" :class="{ scrolled }">
+      <template v-if="!phone">
+        <div class="nav-pill glass-control">
+          <button type="button" :disabled="!backEnabled" aria-label="Atrás" @click="back"><ChevronLeft :size="20" :stroke-width="2.2" /></button>
+          <button type="button" :disabled="!forwardEnabled" aria-label="Adelante" @click="forward"><ChevronRight :size="20" :stroke-width="2.2" /></button>
+        </div>
+        <h1 class="toolbar-title">{{ title }}</h1>
+        <div class="toolbar-spacer" />
+        <div class="segmented-pill glass-control" role="group" aria-label="Vista">
+          <button type="button" :class="{ on: store.view === 'icons' }" aria-label="Iconos" @click="setView('icons')"><LayoutGrid :size="17" /></button>
+          <button type="button" :class="{ on: store.view === 'list' }" aria-label="Lista" @click="setView('list')"><List :size="18" /></button>
+        </div>
+        <button type="button" class="tool-btn glass-control" aria-label="Ordenar" @click="openMenu($event.currentTarget, viewItems().slice(3))"><ArrowUpDown :size="17" /></button>
+        <template v-if="!shareMode">
+          <button type="button" class="tool-btn glass-control" aria-label="Nuevo" @click="openMenu($event.currentTarget, newItems())"><Plus :size="19" /></button>
+        </template>
+        <button type="button" class="tool-btn glass-control" aria-label="Más" @click="moreMenu"><MoreHorizontal :size="19" /></button>
+        <label class="search glass-control">
+          <Search :size="15" />
+          <input ref="searchInput" v-model="query" placeholder="Buscar" aria-label="Buscar en esta carpeta" />
+          <button v-if="query" type="button" class="clear" aria-label="Borrar" @click="query = ''"><X :size="12" :stroke-width="3" /></button>
+        </label>
+      </template>
 
-    <!-- File area -->
+      <template v-else>
+        <button v-if="parent || backEnabled" type="button" class="round-btn glass-control" aria-label="Atrás" @click="parent ? parent.go() : back()">
+          <ChevronLeft :size="24" :stroke-width="2.2" />
+        </button>
+        <span v-else />
+        <span class="toolbar-title inline">{{ title }}</span>
+        <div class="phone-actions">
+          <button v-if="!shareMode" type="button" class="round-btn glass-control" aria-label="Nuevo" @click="openMenu($event.currentTarget, newItems())"><Plus :size="22" /></button>
+          <button type="button" class="round-btn glass-control" aria-label="Más" @click="moreMenu"><MoreHorizontal :size="22" /></button>
+        </div>
+      </template>
+    </header>
+
+    <!-- Content -->
     <div
-      class="file-area"
-      @contextmenu="showMenu"
+      class="content"
+      @scroll.passive="onScroll"
+      @click="onBackgroundClick"
+      @contextmenu="onBackgroundMenu"
       @dragover="onDragOver"
       @dragleave="onDragLeave"
       @drop="onDrop"
     >
-      <!-- Drag overlay -->
-      <div v-if="isDragOver" class="drag-overlay">
-        <p>Drop files here</p>
+      <div v-if="phone" class="phone-header deselect">
+        <h1 class="large-title">{{ title }}</h1>
+        <label class="phone-search">
+          <Search :size="17" />
+          <input v-model="query" placeholder="Buscar" aria-label="Buscar en esta carpeta" />
+          <button v-if="query" type="button" class="clear" aria-label="Borrar" @click="query = ''"><X :size="12" :stroke-width="3" /></button>
+        </label>
       </div>
 
-      <!-- Loading -->
-      <div v-if="loading" class="state-center">
-        <span class="state-text">Loading…</span>
-      </div>
-
-      <!-- Error -->
-      <div v-else-if="error" class="state-center">
-        <span class="state-text error">{{ error }}</span>
-      </div>
-
-      <!-- Empty -->
-      <div v-else-if="!displayEntries.length" class="state-center">
-        <span class="state-text">Empty folder</span>
-        <span class="state-hint">Right-click to upload or create files</span>
-      </div>
-
-      <!-- Gallery grid -->
-      <div v-else-if="galleryMode" class="gallery-grid">
-        <div
-          v-for="entry in displayEntries"
-          :key="entry.name"
-          class="gallery-card"
-          @click="(entry.type === 'directory' || entry.type === 'share-link') ? openItem(entry) : null"
-          @dblclick="entry.type === 'file' ? viewItem(entry) : null"
-          @contextmenu.stop="showMenuForEntry(entry, $event)"
-        >
-          <div class="gallery-thumb">
-            <GalleryThumb
-              v-if="entry.type === 'file' && entryIsMedia(entry)"
-              :src="galleryThumbSrc(entry)"
-              :alt="entry.name"
-              :type="entryIsVideo(entry) ? 'video' : 'image'"
-            />
-            <component
-              v-else
-              :is="galleryEntryIcon(entry)"
-              class="gallery-icon"
-              :style="{ color: galleryEntryColor(entry) }"
-            />
-          </div>
-          <span class="gallery-name">{{ entry.name }}</span>
-        </div>
-      </div>
-
-      <!-- File table -->
-      <table v-else class="file-table">
-        <thead>
-          <tr>
-            <th class="th-name">Name</th>
-            <th class="th-size">Size</th>
-            <th class="th-date">Modified</th>
-          </tr>
-        </thead>
-        <tbody>
-          <FileRow
-            v-for="entry in displayEntries"
-            :key="entry.name"
-            :entry="entry"
-            @open="openItem"
-            @view="viewItem"
-            @contextmenu="showMenuForEntry"
-          />
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Bottom bar -->
-    <div class="bottom-bar">
-      <div class="bottom-row">
-        <div v-if="shareMode" class="share-crumbs">
-          <button class="s-crumb s-crumb--root" @click="exitShareMode">
-            <Folder class="s-crumb-icon" />
-            <span>Share</span>
-          </button>
-          <span class="s-sep">›</span>
-          <button class="s-crumb" @click="navigateShareTo('')">
-            <Folder class="s-crumb-icon" />
-            <span>{{ shareMode.label }}</span>
-          </button>
-          <template v-for="(part, idx) in shareMode.path.split('/').filter(Boolean)" :key="idx">
-            <span class="s-sep">›</span>
-            <button
-              class="s-crumb"
-              :class="{ 's-crumb--active': idx === shareMode.path.split('/').filter(Boolean).length - 1 }"
-              @click="navigateShareTo(shareMode.path.split('/').filter(Boolean).slice(0, idx + 1).join('/'))"
-            >
-              <Folder class="s-crumb-icon" />
-              <span>{{ part }}</span>
-            </button>
-          </template>
-        </div>
-        <Breadcrumb
-          v-else
-          :user="user"
-          :location="location"
-          :path="currentPath"
-          @navigate="(loc, p) => emit('navigate', loc, p)"
-        />
-      </div>
-      <div v-if="diskInfo" class="storage-info">
-        {{ formatGB(diskInfo.used) }} occupied, {{ formatGB(diskInfo.free) }} available
-      </div>
-    </div>
-
-    <!-- Context menu -->
-    <Teleport to="body">
-      <Transition name="ctx">
-        <div
-          v-if="menuVisible"
-          ref="contextMenu"
-          class="ctx-menu"
-          :style="menuStyle"
-        >
-          <!-- Pending upload entry menu -->
-          <template v-if="activeEntry?.type === 'upload-pending'">
-            <button class="ctx-item" @click="resumeActiveUpload">
-              <Upload class="ctx-icon" />
-              <span>Resume Upload…</span>
-            </button>
-            <div class="ctx-sep" />
-            <button class="ctx-item ctx-item--danger" @click="cancelActiveUpload">
-              <Trash2 class="ctx-icon" />
-              <span>Cancel Upload</span>
-            </button>
-          </template>
-
-          <!-- Share-link entry menu -->
-          <template v-else-if="activeEntry?.type === 'share-link'">
-            <button class="ctx-item" @click="openShareInBrowser">
-              <ExternalLink class="ctx-icon" />
-              <span>Open in Browser</span>
-            </button>
-            <button class="ctx-item" @click="copyShareLink">
-              <Copy class="ctx-icon" />
-              <span>Copy Link</span>
-            </button>
-            <div class="ctx-sep" />
-            <button class="ctx-item" @click="editShareProps">
-              <Pencil class="ctx-icon" />
-              <span>Properties…</span>
-            </button>
-            <div class="ctx-sep" />
-            <button class="ctx-item ctx-item--danger" @click="deleteShareEntry">
-              <Trash2 class="ctx-icon" />
-              <span>Delete</span>
-            </button>
-          </template>
-
-          <!-- Share browse mode entry menu -->
-          <template v-else-if="shareMode && activeEntry">
-            <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="openActiveItem">
-              <ExternalLink class="ctx-icon" />
-              <span>Open</span>
-            </button>
-            <button class="ctx-item" @click="activeEntry.type === 'directory' ? downloadActiveShareFolderAsZip() : downloadActiveItem()">
-              <Download class="ctx-icon" />
-              <span>{{ activeEntry.type === 'directory' ? 'Download as ZIP' : 'Download' }}</span>
-            </button>
-          </template>
-
-          <!-- Regular entry menu (right-click on a file/folder) -->
-          <template v-else-if="activeEntry">
-            <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="openActiveItem">
-              <ExternalLink class="ctx-icon" />
-              <span>Open</span>
-            </button>
-            <button class="ctx-item" @click="renameItem">
-              <Pencil class="ctx-icon" />
-              <span>Rename</span>
-            </button>
-            <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="changeIcon">
-              <Palette class="ctx-icon" />
-              <span>Change Icon…</span>
-            </button>
-            <button v-if="activeEntry.type === 'directory'" class="ctx-item" @click="addEntryToFavourites">
-              <Star class="ctx-icon" />
-              <span>Add to Favorites</span>
-            </button>
-            <button class="ctx-item" @click="shareActiveItem">
-              <Share2 class="ctx-icon" />
-              <span>Share…</span>
-            </button>
-            <div class="ctx-sep" />
-            <button class="ctx-item" @click="startMove">
-              <FolderInput class="ctx-icon" />
-              <span>Move to…</span>
-            </button>
-            <button class="ctx-item" @click="startCopy">
-              <Copy class="ctx-icon" />
-              <span>Copy to…</span>
-            </button>
-            <button class="ctx-item" @click="duplicateItem">
-              <CopyPlus class="ctx-icon" />
-              <span>Duplicate</span>
-            </button>
-            <div class="ctx-sep" />
-            <button v-if="activeEntry.type === 'file'" class="ctx-item" @click="downloadActiveItem">
-              <Download class="ctx-icon" />
-              <span>Download</span>
-            </button>
-            <button v-else class="ctx-item" @click="downloadFolderAsZip">
-              <Download class="ctx-icon" />
-              <span>Download as ZIP</span>
-            </button>
-            <button v-if="!activeIsZip" class="ctx-item" @click="compressItem">
-              <Archive class="ctx-icon" />
-              <span>Compress</span>
-            </button>
-            <button v-if="activeIsZip" class="ctx-item" @click="decompressItem">
-              <ArchiveRestore class="ctx-icon" />
-              <span>Decompress</span>
-            </button>
-            <div class="ctx-sep" />
-            <button class="ctx-item ctx-item--danger" @click="deleteActiveItem">
-              <Trash2 class="ctx-icon" />
-              <span>Delete</span>
-            </button>
-          </template>
-
-          <!-- Share mode background menu -->
-          <template v-else-if="shareMode">
-            <button class="ctx-item" @click="exitShareMode">
-              <Folder class="ctx-icon" />
-              <span>Back to Share folder</span>
-            </button>
-          </template>
-
-          <!-- Background menu (right-click on empty area / ··· button) -->
-          <template v-else>
-            <button class="ctx-item" @click="triggerUpload">
-              <Upload class="ctx-icon" />
-              <span>Upload Files…</span>
-            </button>
-            <div class="ctx-sep" />
-            <button class="ctx-item" @click="createFolder">
-              <FolderPlus class="ctx-icon" />
-              <span>New Folder</span>
-            </button>
-            <button class="ctx-item" @click="createFile">
-              <FilePlus class="ctx-icon" />
-              <span>New File</span>
-            </button>
-            <div class="ctx-sep" />
-            <button class="ctx-item" @click="addCurrentToFavourites">
-              <Star class="ctx-icon" />
-              <span>Add to Favorites</span>
-            </button>
-            <button class="ctx-item" @click="openManageLinks">
-              <Share2 class="ctx-icon" />
-              <span>Manage links</span>
-            </button>
-          </template>
+      <Transition name="fade">
+        <div v-if="isDragOver" class="drop-zone">
+          <FileIcon :entry="{ type: 'directory', name: title }" :size="72" />
+          <p class="headline">Suelta para subir a «{{ title }}»</p>
         </div>
       </Transition>
-    </Teleport>
 
-    <!-- Delete modal -->
-    <DeleteModal
-      v-if="deleteEntry"
-      :entry="deleteEntry"
-      @close="deleteEntry = null"
-      @confirmed="onDeleteConfirmed"
+      <div v-if="loading && !entries.length" class="state"><Spinner :size="24" /></div>
+
+      <div v-else-if="error" class="state">
+        <h3 class="headline">No se puede abrir la carpeta</h3>
+        <p class="subheadline secondary">{{ error }}</p>
+        <button type="button" class="btn btn-bordered small" @click="loadDirectory">Reintentar</button>
+      </div>
+
+      <div v-else-if="!visible.length" class="state deselect">
+        <template v-if="query">
+          <Search :size="40" class="tertiary" />
+          <h3 class="headline">Sin resultados</h3>
+          <p class="subheadline secondary">Nada en «{{ title }}» se llama «{{ query }}».</p>
+        </template>
+        <template v-else>
+          <FileIcon :entry="{ type: 'directory', name: '' }" :size="84" class="empty-folder" />
+          <h3 class="headline">Carpeta vacía</h3>
+          <p v-if="!shareMode" class="subheadline secondary">{{ phone ? 'Usa + para subir archivos o crear una carpeta.' : 'Arrastra archivos aquí o usa + para subirlos.' }}</p>
+        </template>
+      </div>
+
+      <!-- Icons -->
+      <div v-else-if="store.view === 'icons'" ref="grid" class="icon-grid deselect">
+        <button
+          v-for="entry in visible"
+          :key="entry.name"
+          type="button"
+          class="icon-item"
+          :class="{ selected: selected.has(entry.name) }"
+          :data-name="entry.name"
+          @click.stop="onItemClick(entry, $event)"
+          @dblclick="open(entry)"
+          @contextmenu.stop="onItemMenu(entry, $event)"
+          @touchstart.passive="onTouchStart(entry, $event)"
+          @touchend="onTouchEnd"
+          @touchmove="cancelPress"
+          @touchcancel="cancelPress"
+        >
+          <span class="icon-pic" :class="{ media: !!thumbSrc(entry) }">
+            <ItemIcon :entry="entry" :size="phone ? 76 : 84" :thumb="thumbSrc(entry)" :video="kindOf(entry) === 'video'" />
+            <span v-if="entry.type === 'upload-pending'" class="progress"><i :style="{ width: `${uploadPercent(entry)}%` }" /></span>
+          </span>
+          <span class="icon-name">{{ entry.name }}</span>
+          <span v-if="phone" class="icon-meta">{{ entry.type === 'file' ? formatSize(entry.size) : entry.type === 'directory' ? formatDate(entry.modified).split(',')[0] : '' }}</span>
+        </button>
+      </div>
+
+      <!-- List -->
+      <div v-else class="list" role="grid">
+        <div v-if="!phone" class="list-head" role="row">
+          <button v-for="col in [['name', 'Nombre'], ['modified', 'Fecha de modificación'], ['size', 'Tamaño'], ['kind', 'Tipo']]" :key="col[0]" type="button" class="col" :class="[`col-${col[0]}`, { sorted: store.sortKey === col[0] }]" @click.stop="setSort(col[0])">
+            {{ col[1] }}
+            <ChevronRight v-if="store.sortKey === col[0]" :size="12" :stroke-width="2.6" class="sort-arrow" :class="{ asc: store.sortAsc }" />
+          </button>
+        </div>
+        <div
+          v-for="entry in visible"
+          :key="entry.name"
+          class="list-row"
+          :class="{ selected: selected.has(entry.name) }"
+          role="row"
+          tabindex="-1"
+          :data-name="entry.name"
+          @click.stop="onItemClick(entry, $event)"
+          @dblclick="open(entry)"
+          @contextmenu.stop="onItemMenu(entry, $event)"
+          @touchstart.passive="onTouchStart(entry, $event)"
+          @touchend="onTouchEnd"
+          @touchmove="cancelPress"
+          @touchcancel="cancelPress"
+        >
+          <span class="cell col-name">
+            <ItemIcon :entry="entry" :size="phone ? 44 : 20" :thumb="thumbSrc(entry)" :video="kindOf(entry) === 'video'" />
+            <span class="name-stack">
+              <span class="name">{{ entry.name }}</span>
+              <span v-if="phone" class="row-sub">{{ subtitle(entry) }}</span>
+              <span v-if="entry.type === 'upload-pending'" class="progress"><i :style="{ width: `${uploadPercent(entry)}%` }" /></span>
+            </span>
+            <ChevronRight v-if="phone && (entry.type === 'directory' || entry.type === 'share-link')" :size="18" class="row-chevron" />
+          </span>
+          <template v-if="!phone">
+            <span class="cell col-modified">{{ formatDate(entry.modified) }}</span>
+            <span class="cell col-size">{{ entry.type === 'file' || entry.type === 'upload-pending' ? formatSize(entry.size) : '—' }}</span>
+            <span class="cell col-kind">{{ kindName(entry) }}</span>
+          </template>
+        </div>
+      </div>
+
+      <p v-if="phone && visible.length" class="phone-status footnote secondary">{{ status }}</p>
+    </div>
+
+    <!-- Path bar and status -->
+    <footer v-if="!phone" class="pathbar">
+      <nav class="crumbs">
+        <template v-for="(c, i) in crumbs" :key="i">
+          <ChevronRight v-if="i > 0" :size="12" :stroke-width="2.4" class="crumb-sep" />
+          <button type="button" class="crumb" @click="c.go()">
+            <FileIcon :entry="{ type: c.share ? 'share-link' : 'directory', name: c.label, icon_name: c.home ? 'Home' : undefined }" :size="16" />
+            <span>{{ c.label }}</span>
+          </button>
+        </template>
+      </nav>
+      <span class="status">{{ status }}</span>
+    </footer>
+
+    <QuickLook
+      v-if="lookEntry"
+      :items="media"
+      :entry="lookEntry"
+      :src-for="viewSrc"
+      @change="e => { lookEntry = e; selected = new Set([e.name]); anchor = e.name }"
+      @download="downloadItem"
+      @close="lookEntry = null"
     />
-
-    <!-- Create modal -->
-    <CreateModal
-      v-if="createMode"
-      :type="createMode"
-      @close="createMode = null"
-      @created="onCreated"
+    <MoveSheet
+      v-if="moveEntry"
+      :entry="moveEntry"
+      :location="store.location"
+      :current-path="store.path"
+      :mode="moveMode"
+      @close="moveEntry = null"
+      @moved="moveEntry = null; loadDirectory()"
     />
-
-    <!-- Rename modal -->
-    <RenameModal
-      v-if="renameEntry"
-      :entry="renameEntry"
-      @close="renameEntry = null"
-      @renamed="onRenamed"
-    />
-
-    <!-- Move / Copy modal -->
-    <MoveModal
-      v-if="pickerEntry"
-      :entry="pickerEntry"
-      :location="location"
-      :current-path="currentPath"
-      :mode="pickerMode"
-      @close="pickerEntry = null"
-      @moved="pickerEntry = null; loadDirectory()"
-    />
-
-    <!-- Share modal -->
-    <ShareModal
-      v-if="shareEntry"
+    <ShareSheet
+      v-if="shareEntry || shareProps"
       :entry="shareEntry"
-      :location="location"
-      :current-path="currentPath"
-      @close="shareEntry = null"
+      :share="shareProps"
+      :location="store.location"
+      :current-path="store.path"
+      @close="shareEntry = null; shareProps = null"
+      @changed="loadDirectory"
     />
-
-    <!-- Image viewer -->
-    <ImageViewer
-      v-if="imageViewEntry"
-      :src="imageViewSrc"
-      :name="imageViewEntry.name"
-      :is-video="imageViewIsVideo"
-      @close="imageViewEntry = null"
-    />
-
-    <!-- Share properties modal -->
-    <SharePropertiesModal
-      v-if="sharePropsEntry"
-      :share="sharePropsEntry.share"
-      @close="sharePropsEntry = null"
-      @updated="sharePropsEntry = null; loadDirectory()"
-      @deleted="sharePropsEntry = null; loadDirectory()"
-    />
-
-    <!-- Folder icon picker -->
-    <FolderIconPicker
-      v-if="iconPickerEntry"
-      :entry="iconPickerEntry"
-      @close="iconPickerEntry = null"
-      @done="onIconPickerDone"
-    />
-
-  </div>
+    <IconSheet v-if="iconEntry" :entry="iconEntry" @close="iconEntry = null" @done="onIconChosen" />
+  </section>
 </template>
 
 <style scoped>
-.browser {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
+.browser { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
-.file-topbar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  padding: 10px 1.25rem;
-}
-
-.nav-pill {
-  display: flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.07);
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-}
-
-.nav-btn {
-  width: 40px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.85);
-  transition: background 0.12s, color 0.12s;
-}
-
-.nav-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.nav-btn:active:not(:disabled) {
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.nav-btn:disabled {
-  color: rgba(255, 255, 255, 0.2);
-  cursor: default;
-}
-
-.nav-divider {
-  width: 0.5px;
-  height: 14px;
-  background: rgba(255, 255, 255, 0.15);
-  flex-shrink: 0;
-}
-
-.nav-icon {
-  width: 16px;
-  height: 16px;
-  stroke-width: 2.5;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.file-area {
-  flex: 1;
-  overflow-y: auto;
+/* ---- Toolbar ---- */
+.toolbar {
   position: relative;
+  z-index: 5;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 64px;
+  padding: 0 16px 0 18px;
 }
-
-.drag-overlay {
+.toolbar::after {
+  content: "";
   position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 10;
-  background: rgba(142, 142, 147, 0.07);
-  border: 2px dashed rgba(142, 142, 147, 0.5);
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 0.5px;
+  background: var(--separator);
+  opacity: 0;
+  transition: opacity 0.2s;
 }
-
-.drag-overlay p {
-  color: #8E8E93;
-  font-size: 1rem;
-  font-weight: 500;
-}
-
-.state-center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 10rem;
-  gap: 0.5rem;
-}
-
-.state-text { font-size: 0.875rem; color: #525252; }
-.state-text.error { color: #ff453a; }
-.state-hint { font-size: 0.75rem; color: #404040; }
-
-.file-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.file-table thead th {
-  padding: 0.65rem 1.25rem;
-  font-size: 0.7rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #525252;
-  border-bottom: 0.5px solid rgba(255, 255, 255, 0.1);
-  user-select: none;
-}
-
-.th-name { text-align: left; width: 100%; }
-.th-size { text-align: right; white-space: nowrap; }
-.th-date { text-align: right; white-space: nowrap; }
-
-.bottom-bar {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 0.65rem 1.25rem 0.5rem;
-  border-top: 0.5px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
-  gap: 0.3rem;
-}
-
-.bottom-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.storage-info {
-  font-size: 0.7rem;
-  color: #3a3a3c;
-  text-align: center;
-  letter-spacing: 0.01em;
-}
-
-
-.share-crumbs {
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-  font-size: 0.85rem;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.s-crumb {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  background: none;
-  border: none;
-  color: #737373;
-  transition: color 0.15s;
-  max-width: 8rem;
+.toolbar.scrolled::after { opacity: 1; }
+.toolbar-title {
+  margin-left: 6px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 1;
-  padding: 0;
-}
-
-.s-crumb--root { flex-shrink: 0; }
-.s-crumb:hover { color: #fff; }
-.s-crumb--active { color: #525252; }
-.s-crumb-icon { width: 14px; height: 14px; flex-shrink: 0; }
-.s-sep { color: #404040; flex-shrink: 0; padding: 0 0.1rem; font-size: 0.85rem; }
-
-.mobile-folder-name {
-  display: block;
-  font-size: 1rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.75);
-  margin-left: 0.75rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
   min-width: 0;
 }
+.toolbar-spacer { flex: 1; }
 
-.more-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  margin-left: auto;
-  background: rgba(255, 255, 255, 0.07);
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  color: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+.glass-control {
+  background: var(--glass-strong);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.08), inset 0 0.5px 0 var(--glass-edge);
+  color: var(--label);
 }
-
-.more-btn:hover {
-  background: rgba(255, 255, 255, 0.10);
+@media (prefers-color-scheme: dark) {
+  .glass-control { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(255, 255, 255, 0.1); }
 }
-
-.more-btn:active {
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.more-btn--active {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.22);
-}
-
-.more-icon {
-  width: 16px;
-  height: 16px;
-}
-
-.gallery-grid {
+.nav-pill, .segmented-pill { display: flex; align-items: center; height: 38px; padding: 0 3px; border-radius: 999px; }
+.nav-pill button, .segmented-pill button {
+  width: 38px;
+  height: 32px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 12px;
-  padding: 16px 1.25rem;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--label);
+  transition: background 0.15s, opacity 0.15s;
 }
+.nav-pill button:hover:not(:disabled), .segmented-pill button:hover { background: var(--fill-3); }
+.nav-pill button:disabled { opacity: 0.3; cursor: default; }
+.segmented-pill button.on { background: var(--fill-2); }
+.tool-btn { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 999px; transition: transform 0.2s var(--spring); }
+.tool-btn:hover { background: var(--glass); }
+.tool-btn:active { transform: scale(0.94); }
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 200px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: var(--label-2);
+  transition: width 0.3s var(--ease);
+}
+.search:focus-within { width: 260px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
+.search input { flex: 1; min-width: 0; border: none; outline: none; background: none; font-size: 14px; color: var(--label); }
+.search input::placeholder, .phone-search input::placeholder { color: var(--label-3); }
+.clear { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; color: var(--bg-elevated); background: var(--label-3); flex-shrink: 0; }
 
-.gallery-card {
+/* ---- Content ---- */
+.content { position: relative; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 12px 24px; }
+.state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 60%; padding: 48px 24px; text-align: center; }
+.empty-folder { opacity: 0.45; margin-bottom: 6px; }
+.drop-zone {
+  position: absolute;
+  inset: 8px;
+  z-index: 4;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 10px 8px;
-  border-radius: 10px;
-  cursor: default;
-  transition: background 0.1s;
-  user-select: none;
-}
-
-.gallery-card:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.gallery-thumb {
-  width: 110px;
-  height: 110px;
-  border-radius: 8px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.05);
-  display: flex;
-  align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  gap: 12px;
+  border-radius: 22px;
+  border: 2.5px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
 }
 
-.gallery-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.gallery-icon {
-  width: 44px;
-  height: 44px;
-}
-
-.gallery-name {
-  font-size: 0.75rem;
-  color: #d1d1d6;
+/* Icons */
+.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px 4px; padding: 8px 4px; align-content: start; min-height: 100%; }
+.icon-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px 10px;
+  border-radius: 12px;
   text-align: center;
-  word-break: break-word;
+  cursor: default;
+}
+.icon-pic { position: relative; width: 96px; height: 92px; display: grid; place-items: center; border-radius: 10px; }
+.icon-item.selected .icon-pic { background: var(--fill-3); }
+.icon-pic.media :deep(.thumb) { width: 88px !important; height: 66px !important; }
+.icon-name {
+  max-width: 112px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 13px;
+  line-height: 17px;
+  letter-spacing: -0.08px;
+  overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 1.3;
-  max-width: 100%;
 }
+.icon-item.selected .icon-name { color: #fff; background: var(--accent); }
+.icon-meta { font-size: 12px; color: var(--label-2); margin-top: -3px; }
+.icon-pic .progress { position: absolute; left: 14px; right: 14px; bottom: 2px; }
 
-@media (max-width: 767px) {
-  .file-topbar {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: calc(80px + env(safe-area-inset-top));
-    padding-top: env(safe-area-inset-top);
-    padding-left: 1.25rem;
-    padding-right: 1.25rem;
-    z-index: 100;
-    background: rgba(0, 0, 0, 0.65);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border-bottom: 0.5px solid rgba(255, 255, 255, 0.07);
-  }
-
-  .file-area {
-    padding-top: calc(80px + env(safe-area-inset-top));
-    padding-bottom: 110px;
-  }
-
-  .mobile-folder-name {
-    display: block;
-    flex: 1;
-    min-width: 0;
-    font-size: 1.25rem;
-    margin-left: 1.5rem;
-  }
-
-  .nav-pill {
-    flex-shrink: 0;
-  }
-
-  .bottom-bar { display: none; }
-  .th-size, .th-date { display: none; }
-
-  .gallery-grid {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-    gap: 8px;
-    padding: 12px 1rem;
-  }
-
-  .gallery-thumb {
-    width: 88px;
-    height: 88px;
-  }
+/* List */
+.list { padding: 0 4px; }
+.list-head {
+  position: sticky;
+  top: -4px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 190px 100px 160px;
+  height: 30px;
+  margin: 0 -4px 2px;
+  padding: 0 4px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 0.5px solid var(--separator);
 }
-</style>
-
-<style>
-.ctx-menu {
-  position: fixed;
-  z-index: 9999;
-  min-width: 210px;
-  padding: 4px 0;
-  background: rgba(28, 28, 30, 0.9);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 0.5px solid rgba(255, 255, 255, 0.14);
-  border-radius: 10px;
-  box-shadow:
-    0 8px 40px rgba(0, 0, 0, 0.55),
-    0 2px 8px rgba(0, 0, 0, 0.3),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+.col { display: flex; align-items: center; gap: 4px; padding: 0 10px; font-size: 12px; font-weight: 600; color: var(--label-2); text-align: left; white-space: nowrap; }
+.col.sorted { color: var(--label); }
+.col-size { justify-content: flex-end; }
+.sort-arrow { transform: rotate(90deg); transition: transform 0.2s; }
+.sort-arrow.asc { transform: rotate(-90deg); }
+.list-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 190px 100px 160px;
+  align-items: center;
+  height: 30px;
+  border-radius: 8px;
+  outline: none;
+  cursor: default;
 }
+.list-row:nth-child(odd of .list-row) { background: color-mix(in srgb, var(--label) 3.5%, transparent); }
+.list-row.selected { background: var(--accent) !important; color: #fff; }
+.list-row.selected .cell { color: #fff; }
+.cell { min-width: 0; padding: 0 10px; font-size: 13px; letter-spacing: -0.08px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell.col-name { display: flex; align-items: center; gap: 8px; color: var(--label); }
+.cell.col-size { text-align: right; }
+.name-stack { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-row .progress { margin-top: 2px; }
 
-.ctx-item {
+.progress { display: block; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--orange) 25%, transparent); overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--orange); transition: width 0.4s; }
+
+/* ---- Path bar ---- */
+.pathbar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: calc(100% - 8px);
-  margin: 0 4px;
-  padding: 6px 10px;
-  font-size: 13px;
-  color: #e4e4e7;
-  background: none;
-  border: none;
-  border-radius: 6px;
-  text-align: left;
-  transition: background 0.08s, color 0.08s;
-  font-family: inherit;
-  letter-spacing: -0.01em;
+  gap: 12px;
+  height: 32px;
+  padding: 0 14px;
+  border-top: 0.5px solid var(--separator);
+  font-size: 12px;
+  color: var(--label-2);
 }
+.crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow: hidden; }
+.crumb { display: flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 6px; color: var(--label-2); white-space: nowrap; min-width: 0; }
+.crumb span { overflow: hidden; text-overflow: ellipsis; }
+.crumb:hover { background: var(--fill-3); color: var(--label); }
+.crumb:last-child { color: var(--label); }
+.crumb-sep { flex-shrink: 0; color: var(--label-3); }
+.status { flex-shrink: 0; }
 
-.ctx-item:hover {
-  background: #8E8E93;
-  color: #fff;
+/* ---- Phone: iOS Files ---- */
+.phone .toolbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(56px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 12px 0;
+  justify-content: space-between;
 }
-
-.ctx-item:hover .ctx-icon {
-  opacity: 1;
-}
-
-.ctx-item--danger { color: #ff453a; }
-.ctx-item--danger:hover { background: rgba(255, 69, 58, 0.18); color: #ff453a; }
-
-.ctx-icon {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-
-.ctx-sep {
-  height: 0.5px;
-  background: rgba(255, 255, 255, 0.1);
-  margin: 3px 0;
-}
-
-.ctx-enter-active {
-  transition: opacity 0.1s ease, transform 0.1s ease;
-}
-.ctx-leave-active {
-  transition: opacity 0.08s ease, transform 0.08s ease;
-}
-.ctx-enter-from {
+.phone .toolbar::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 -20px;
+  z-index: -1;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 85%, transparent) 50%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
   opacity: 0;
-  transform: scale(0.96) translateY(-4px);
+  transition: opacity 0.2s;
 }
-.ctx-leave-to {
-  opacity: 0;
-  transform: scale(0.96) translateY(-4px);
+.phone .toolbar.scrolled::before { opacity: 1; }
+.phone .toolbar::after { display: none; }
+.toolbar-title.inline { position: absolute; left: 50%; transform: translateX(-50%); max-width: 50%; margin: 0; font-size: 17px; font-weight: 600; opacity: 0; transition: opacity 0.2s; }
+.phone .toolbar.scrolled .toolbar-title.inline { opacity: 1; }
+.round-btn { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; transition: transform 0.2s var(--spring); }
+.round-btn:active { transform: scale(0.92); }
+.phone-actions { display: flex; gap: 8px; }
+.phone .content { padding: calc(60px + env(safe-area-inset-top)) 16px calc(110px + env(safe-area-inset-bottom)); }
+.phone-header { padding: 0 4px 12px; }
+.phone-header .large-title { overflow-wrap: anywhere; }
+.phone-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  margin-top: 10px;
+  padding: 0 10px;
+  border-radius: 12px;
+  color: var(--label-2);
+  background: var(--fill-3);
 }
-
-@media (max-width: 767px) {
-  .ctx-menu {
-    min-width: 260px;
-    background: rgba(20, 20, 22, 0.97);
-    backdrop-filter: blur(60px) saturate(220%);
-    -webkit-backdrop-filter: blur(60px) saturate(220%);
-  }
-  .ctx-item { font-size: 15px; padding: 8px 12px; gap: 12px; }
-  .ctx-icon { width: 16px; height: 16px; }
-  .ctx-sep { margin: 4px 0; }
+.phone-search input { flex: 1; min-width: 0; border: none; outline: none; background: none; font-size: 17px; color: var(--label); }
+.phone .list { padding: 0; border-radius: var(--radius-card); overflow: hidden; background: var(--cell); }
+.phone .list-row {
+  position: relative;
+  display: flex;
+  height: auto;
+  min-height: 64px;
+  border-radius: 0;
+  background: var(--cell) !important;
+  color: var(--label);
 }
+.phone .list-row:active { background: var(--cell-pressed) !important; }
+.phone .list-row + .list-row::before { content: ""; position: absolute; top: 0; left: 72px; right: 0; height: 0.5px; background: var(--separator); }
+.phone .list-row.selected .cell { color: var(--label); }
+.phone .cell.col-name { flex: 1; gap: 14px; padding: 10px 16px; font-size: 17px; overflow: visible; }
+.phone .name { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.row-sub { font-size: 13px; color: var(--label-2); margin-top: 2px; }
+.row-chevron { flex-shrink: 0; color: var(--label-3); }
+.phone .icon-grid { grid-template-columns: repeat(3, 1fr); gap: 14px 6px; padding: 4px 0; }
+.phone .icon-item.selected .icon-pic, .phone .icon-item.selected .icon-name { background: none; color: inherit; }
+.phone .icon-pic { width: 100%; height: 86px; }
+.phone .icon-name { font-size: 13px; }
+.phone-status { text-align: center; padding: 18px 0 0; }
+.phone .state { min-height: 50vh; }
 </style>

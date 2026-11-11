@@ -1,32 +1,77 @@
-import { Folder, FolderSymlink, File, FileText, Image, Film, Music, Archive, Code, UploadCloud } from 'lucide-vue-next'
-import { FOLDER_ICONS_MAP } from './folderIcons.js'
-
 export const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'heic'])
 export const VIDEO_EXTS = new Set(['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v'])
 export const AUDIO_EXTS = new Set(['mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a', 'opus'])
 export const ARCHIVE_EXTS = new Set(['zip', 'tar', 'gz', 'bz2', '7z', 'rar', 'xz', 'zst'])
-export const CODE_EXTS = new Set(['js', 'ts', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'css', 'html', 'json', 'yaml', 'yml', 'sh', 'bash', 'zsh', 'toml', 'xml', 'vue', 'jsx', 'tsx'])
-export const DOC_EXTS = new Set(['pdf', 'txt', 'md', 'doc', 'docx', 'odt', 'rtf', 'csv', 'xls', 'xlsx'])
+export const CODE_EXTS = new Set(['js', 'ts', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'css', 'html', 'json', 'yaml', 'yml', 'sh', 'bash', 'zsh', 'toml', 'xml', 'vue', 'jsx', 'tsx', 'swift'])
+const SHEET_EXTS = new Set(['csv', 'xls', 'xlsx', 'numbers', 'ods'])
+const SLIDES_EXTS = new Set(['ppt', 'pptx', 'key', 'odp'])
+const WORD_EXTS = new Set(['doc', 'docx', 'pages', 'odt', 'rtf'])
+const TEXT_EXTS = new Set(['txt', 'md'])
 
-export function getFileIcon(entry) {
-  if (entry.type === 'upload-pending') return UploadCloud
-  if (entry.type === 'share-link') return FolderSymlink
-  if (entry.type === 'directory') {
-    if (entry.icon_name && FOLDER_ICONS_MAP[entry.icon_name]) return FOLDER_ICONS_MAP[entry.icon_name]
-    return Folder
-  }
-  const ext = (entry.name.split('.').pop() || '').toLowerCase()
-  if (IMAGE_EXTS.has(ext)) return Image
-  if (VIDEO_EXTS.has(ext)) return Film
-  if (AUDIO_EXTS.has(ext)) return Music
-  if (ARCHIVE_EXTS.has(ext)) return Archive
-  if (CODE_EXTS.has(ext)) return Code
-  if (DOC_EXTS.has(ext)) return FileText
-  return File
+export function extOf(entry) {
+  const name = entry.name || ''
+  return name.includes('.') ? name.split('.').pop().toLowerCase() : ''
 }
 
-export function getIconColor(entry) {
-  if (entry.type === 'upload-pending') return '#ff9f0a'
-  if (entry.type === 'share-link') return '#8E8E93'
-  return entry.type === 'directory' ? '#8E8E93' : '#636366'
+/** What an entry is, for its icon, its colour and the "Tipo" column. */
+export function kindOf(entry) {
+  if (entry.type === 'upload-pending') return 'upload'
+  if (entry.type === 'share-link') return 'share'
+  if (entry.type === 'directory') return 'folder'
+  const ext = extOf(entry)
+  if (IMAGE_EXTS.has(ext)) return 'image'
+  if (VIDEO_EXTS.has(ext)) return 'video'
+  if (AUDIO_EXTS.has(ext)) return 'audio'
+  if (ARCHIVE_EXTS.has(ext)) return 'archive'
+  if (ext === 'pdf') return 'pdf'
+  if (SHEET_EXTS.has(ext)) return 'sheet'
+  if (SLIDES_EXTS.has(ext)) return 'slides'
+  if (WORD_EXTS.has(ext)) return 'word'
+  if (TEXT_EXTS.has(ext)) return 'text'
+  if (CODE_EXTS.has(ext)) return 'code'
+  return 'file'
+}
+
+const KIND_NAMES = {
+  upload: 'Subiendo',
+  share: 'Enlace compartido',
+  folder: 'Carpeta',
+  image: 'Imagen',
+  video: 'Vídeo',
+  audio: 'Audio',
+  archive: 'Archivo comprimido',
+  pdf: 'Documento PDF',
+  sheet: 'Hoja de cálculo',
+  slides: 'Presentación',
+  word: 'Documento',
+  text: 'Texto',
+  code: 'Código fuente',
+  file: 'Documento',
+}
+
+export function kindName(entry) {
+  const kind = kindOf(entry)
+  const ext = extOf(entry)
+  if ((kind === 'image' || kind === 'video' || kind === 'audio') && ext) return `${KIND_NAMES[kind]} ${ext.toUpperCase()}`
+  return KIND_NAMES[kind]
+}
+
+// The colour of a document's label, like the system's document icons.
+export const KIND_COLORS = {
+  image: 'var(--purple)',
+  video: 'var(--pink)',
+  audio: 'var(--red)',
+  archive: 'var(--gray)',
+  pdf: 'var(--red)',
+  sheet: 'var(--green)',
+  slides: 'var(--orange)',
+  word: 'var(--blue)',
+  text: 'var(--gray)',
+  code: 'var(--indigo)',
+  file: 'var(--gray)',
+}
+
+export function isMedia(entry) {
+  const kind = kindOf(entry)
+  return kind === 'image' || kind === 'video'
 }

@@ -1,177 +1,96 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+import AlertHost from './ui/AlertHost.vue'
+import Sheet from './ui/Sheet.vue'
+import Spinner from './ui/Spinner.vue'
 import Sidebar from './components/Sidebar.vue'
 import FileBrowser from './components/FileBrowser.vue'
 import SharesPanel from './components/SharesPanel.vue'
 import MobileBottomNav from './components/MobileBottomNav.vue'
 import MobileBrowse from './components/MobileBrowse.vue'
 import FileViewer from './components/FileViewer.vue'
+import ContextMenu from './components/ContextMenu.vue'
+import TransferPanel from './components/TransferPanel.vue'
+import BackupSheet from './components/BackupSheet.vue'
+import { loadDisk, navigate, store } from './store.js'
 
-
-const user = ref(null)
-const appReady = ref(false)
-const location = ref('external')
-const currentPath = ref('')
-
-const navHistory = ref([])
-const navIndex = ref(-1)
-
-const canGoBack = computed(() => navIndex.value > 0)
-const canGoForward = computed(() => navIndex.value < navHistory.value.length - 1)
-
-function _applyState(index) {
-  const s = navHistory.value[index]
-  location.value = s.location
-  currentPath.value = s.path
-  navIndex.value = index
-}
-
-function openShares() {
-  showShares.value = true
-}
-
-function navigate(loc, path) {
-  showShares.value = false
-  const current = navHistory.value[navIndex.value]
-  if (current && current.location === loc && current.path === path) return
-
-  // Discard any forward history
-  const newHistory = navHistory.value.slice(0, navIndex.value + 1)
-  newHistory.push({ location: loc, path })
-  // Cap at 10
-  if (newHistory.length > 10) newHistory.shift()
-
-  navHistory.value = newHistory
-  navIndex.value = newHistory.length - 1
-  location.value = loc
-  currentPath.value = path
-}
-
-function goBack() {
-  if (canGoBack.value) _applyState(navIndex.value - 1)
-}
-
-function goForward() {
-  if (canGoForward.value) _applyState(navIndex.value + 1)
-}
-
-const fileViewerToken = ref(null)
-const fileViewerInfo = ref(null)
-
-const showShares = ref(false)
-
-const mobileTab = ref('personal')
-
-const activeTab = computed(() => {
-  if (mobileTab.value === 'browse') return 'browse'
-  if (location.value === 'external' && (currentPath.value === 'shared' || currentPath.value.startsWith('shared/'))) return 'shared'
-  if (location.value === 'external' && user.value && currentPath.value.startsWith(`users/${user.value.email}`)) return 'personal'
-  return mobileTab.value
-})
-
-function onMobileTabChange(tab) {
-  mobileTab.value = tab
-  if (tab === 'shared') navigate('external', 'shared')
-  if (tab === 'personal') navigate('external', `users/${user.value.email}`)
-}
-
-function onMobileNavigate(loc, path) {
-  navigate(loc, path)
-  mobileTab.value = loc === 'external' && path.startsWith('shared') ? 'shared' : 'personal'
-}
+const ready = ref(false)
+const viewer = ref(null) // { token, info } for /store/<token>, a file opened in its own tab
+const transfersOpen = ref(false)
+const backupOpen = ref(false)
 
 onMounted(async () => {
   try {
     const res = await fetch('/auth/passkey/me')
-    if (res.ok) {
-      user.value = await res.json()
-    } else {
-      window.location.href = '/login/?next=/store/'
-      return
-    }
+    if (!res.ok) throw new Error()
+    store.user = await res.json()
   } catch {
-    window.location.href = '/login/?next=/store/'
+    window.location.href = `/auth/signin?next=${encodeURIComponent(window.location.pathname)}`
     return
   }
 
-  const pathParts = window.location.pathname.replace(/^\/store\/?/, '').split('/')
-  const potentialToken = (pathParts.length === 1 && pathParts[0]) ? pathParts[0] : null
-
-  if (potentialToken) {
-    const infoRes = await fetch(`/store/api/files/open/${potentialToken}/info`)
-    if (infoRes.ok) {
-      fileViewerToken.value = potentialToken
-      fileViewerInfo.value = await infoRes.json()
-      appReady.value = true
+  const parts = window.location.pathname.replace(/^\/store\/?/, '').split('/')
+  const token = parts.length === 1 && parts[0] ? parts[0] : null
+  if (token) {
+    const info = await fetch(`/store/api/files/open/${token}/info`)
+    if (info.ok) {
+      viewer.value = { token, info: await info.json() }
+      ready.value = true
       return
     }
   }
 
-  const initialPath = `users/${user.value.email}`
-  location.value = 'external'
-  currentPath.value = initialPath
-  navHistory.value = [{ location: 'external', path: initialPath }]
-  navIndex.value = 0
-  appReady.value = true
+  navigate('external', `users/${store.user.email}`)
+  loadDisk()
+  ready.value = true
 })
 </script>
 
 <template>
   <FileViewer
-    v-if="appReady && fileViewerToken && fileViewerInfo"
-    :filename="fileViewerInfo.filename"
-    :content-type="fileViewerInfo.content_type"
-    :file-url="`/store/api/files/open/${fileViewerToken}`"
+    v-if="ready && viewer"
+    :filename="viewer.info.filename"
+    :content-type="viewer.info.content_type"
+    :file-url="`/store/api/files/open/${viewer.token}`"
   />
-  <div v-else-if="appReady && user" class="app">
-    <Sidebar :user="user" :location="location" :current-path="currentPath" @navigate="navigate" />
-    <MobileBrowse v-if="activeTab === 'browse'" class="mobile-only" :user="user" :can-go-back="canGoBack" :can-go-forward="canGoForward" @navigate="onMobileNavigate" @go-back="goBack" @go-forward="goForward" />
-    <SharesPanel v-if="showShares" :class="activeTab === 'browse' ? 'mobile-hidden' : ''" @navigate="navigate" />
-    <FileBrowser
-      v-else
-      :class="activeTab === 'browse' ? 'mobile-hidden' : ''"
-      :user="user"
-      :location="location"
-      :current-path="currentPath"
-      :can-go-back="canGoBack"
-      :can-go-forward="canGoForward"
-      @navigate="navigate"
-      @go-back="goBack"
-      @go-forward="goForward"
-      @open-shares="openShares"
-    />
-    <MobileBottomNav :active-tab="activeTab" @tab-change="onMobileTabChange" />
+
+  <div v-else-if="ready" class="app">
+    <Sidebar class="desktop-only" />
+    <main class="main">
+      <MobileBrowse v-if="store.panel === 'browse'" class="phone-only" @backup="backupOpen = true" />
+      <SharesPanel v-else-if="store.panel === 'shares'" />
+      <FileBrowser v-else />
+    </main>
+    <MobileBottomNav @transfers="transfersOpen = true" />
+    <Sheet v-model:open="transfersOpen" title="Transferencias">
+      <TransferPanel inline />
+    </Sheet>
+    <BackupSheet v-if="backupOpen" @close="backupOpen = false" />
   </div>
 
-  <div v-else class="loading-screen">
-    <span>Loading…</span>
-  </div>
+  <div v-else class="splash"><Spinner :size="26" /></div>
+
+  <ContextMenu />
+  <AlertHost />
 </template>
 
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
-html, body, #app { height: 100%; background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-::-webkit-scrollbar { display: none; }
-* { -ms-overflow-style: none; scrollbar-width: none; }
-input, textarea, [contenteditable] { user-select: text; -webkit-user-select: text; }
+html, body, #app { height: 100%; }
+body { overflow: hidden; }
+* { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+input, textarea, [contenteditable], .mono { user-select: text; -webkit-user-select: text; }
 </style>
 
 <style scoped>
-.app { display: flex; height: 100dvh; background: #000; overflow: hidden; }
-
-.mobile-only { display: none; }
+.app { display: flex; height: 100dvh; background: var(--bg); }
+.main { flex: 1; min-width: 0; display: flex; }
+.splash { height: 100dvh; display: grid; place-items: center; }
+.phone-only { display: none; }
 @media (max-width: 767px) {
-  .mobile-only { display: flex; flex: 1; flex-direction: column; }
-  .mobile-hidden { display: none; }
+  .desktop-only { display: none; }
+  .phone-only { display: block; }
 }
-
-.loading-screen {
-  height: 100dvh;
-  background: #000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+@media (min-width: 768px) {
+  .main :deep(.browse) { display: none; }
 }
-
-.loading-screen span { font-size: 0.875rem; color: #525252; }
 </style>

@@ -1,184 +1,86 @@
 <script setup>
 import { watch } from 'vue'
-import { Check, X, ArrowUp, ArrowDown, Play, Square, Archive } from 'lucide-vue-next'
+import { Archive, ArrowDown, ArrowUp, Check, Play, Square, X } from 'lucide-vue-next'
 import { useTransfers, formatBytes, formatEta } from '../useTransfers.js'
 import { useCompression } from '../useCompression.js'
 
-const props = defineProps({ show: Boolean })
+// Every upload, download and extraction with its progress. A popover by the sidebar, or inside
+// a sheet on the phone (`inline`).
+const props = defineProps({ show: Boolean, inline: Boolean })
 
 const { uploads, downloads, visiblePendingUploads, cancelTransfer, resumeUpload, fetchPendingUploads } = useTransfers()
-const { jobs: compressionJobs, cancelJob, fetchJobs } = useCompression()
+const { jobs, cancelJob, fetchJobs } = useCompression()
 
-watch(() => props.show, val => {
-  if (val) {
-    fetchPendingUploads()
-    fetchJobs()
-  }
-})
+watch(() => props.show || props.inline, on => { if (on) { fetchPendingUploads(); fetchJobs() } }, { immediate: true })
 
-function progress(t) {
-  return t.totalSize > 0 ? Math.min(100, (t.loaded / t.totalSize) * 100) : null
+const pct = (a, b) => (b > 0 ? Math.min(100, (a / b) * 100) : null)
+
+function meta(loaded, total, speed, status) {
+  if (status !== 'active') return ''
+  const parts = [total ? `${formatBytes(loaded)} de ${formatBytes(total)}` : formatBytes(loaded)]
+  if (speed > 0) parts.push(`${formatBytes(speed)}/s`)
+  if (speed > 0 && total) parts.push(`quedan ${formatEta((total - loaded) / speed)}`)
+  return parts.join(' · ')
 }
 
-function eta(t) {
-  if (t.status !== 'active' || !t.speed || t.speed <= 0 || !t.totalSize) return null
-  return formatEta((t.totalSize - t.loaded) / t.speed)
-}
-
-function speed(t) {
-  return t.status === 'active' && t.speed > 0 ? `${formatBytes(t.speed)}/s` : null
-}
-
-function pendingPct(p) {
-  return p.file_size > 0 ? Math.round((p.bytes_received / p.file_size) * 100) : 0
-}
-
-function jobProgress(j) {
-  return j.total_bytes > 0 ? Math.min(100, (j.extracted_bytes / j.total_bytes) * 100) : null
-}
-
-function jobEta(j) {
-  if (j.status !== 'active' || !j.speed || j.speed <= 0 || !j.total_bytes) return null
-  return formatEta((j.total_bytes - j.extracted_bytes) / j.speed)
-}
-
-function jobSpeed(j) {
-  return j.status === 'active' && j.speed > 0 ? `${formatBytes(j.speed)}/s` : null
-}
-
-const hasTransfers = () => uploads.value.length || visiblePendingUploads.value.length || downloads.value.length
+const groups = [
+  { key: 'up', title: 'Subidas', icon: ArrowUp },
+  { key: 'down', title: 'Descargas', icon: ArrowDown },
+]
+const listFor = key => (key === 'up' ? uploads.value : downloads.value)
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="panel">
-      <div v-if="show" class="tp">
+  <Teleport to="body" :disabled="inline">
+    <Transition name="pop">
+      <div v-if="show || inline" class="tp" :class="{ inline }">
+        <template v-for="g in groups" :key="g.key">
+          <section v-if="listFor(g.key).length" class="sec">
+            <p class="sec-head"><component :is="g.icon" :size="13" :stroke-width="2.6" /> {{ g.title }}</p>
+            <div v-for="t in listFor(g.key)" :key="t.id" class="item">
+              <div class="top">
+                <span class="name" :title="t.name">{{ t.name }}</span>
+                <button v-if="t.status === 'active'" type="button" class="act stop" title="Cancelar" @click="cancelTransfer(t.id)"><Square :size="10" fill="currentColor" /></button>
+              </div>
+              <div class="bar"><i :class="[t.status, { indet: !t.totalSize && t.status === 'active' }]" :style="t.totalSize ? { width: `${pct(t.loaded, t.totalSize)}%` } : null" /></div>
+              <p class="meta">
+                <template v-if="t.status === 'active'">{{ meta(t.loaded, t.totalSize, t.speed, t.status) }}</template>
+                <span v-else-if="t.status === 'done'" class="ok"><Check :size="12" :stroke-width="3" /> {{ formatBytes(t.totalSize || t.loaded) }}</span>
+                <span v-else class="bad"><X :size="12" :stroke-width="3" /> {{ t.error }}</span>
+              </p>
+            </div>
+          </section>
+        </template>
 
-        <!-- Active uploads -->
-        <section v-if="uploads.length" class="sec">
-          <div class="sec-head">
-            <ArrowUp class="sec-icon" />
-            <span>Uploads</span>
-            <span class="badge">{{ uploads.length }}</span>
-          </div>
-          <div v-for="t in uploads" :key="t.id" class="item">
-            <div class="item-top">
-              <div class="item-name" :title="t.name">{{ t.name }}</div>
-              <button class="cancel-btn" title="Cancel" @click="cancelTransfer(t.id)">
-                <Square class="cancel-icon" />
-              </button>
-            </div>
-            <div class="bar-wrap">
-              <div
-                class="bar"
-                :class="{ 'bar--done': t.status === 'done', 'bar--error': t.status === 'error', 'bar--indet': !t.totalSize && t.status === 'active' }"
-                :style="t.totalSize ? { width: progress(t) + '%' } : {}"
-              />
-            </div>
-            <div class="item-meta">
-              <template v-if="t.status === 'active'">
-                {{ formatBytes(t.loaded) }}{{ t.totalSize ? ` / ${formatBytes(t.totalSize)}` : '' }}<template v-if="speed(t)"> · {{ speed(t) }}</template><template v-if="eta(t)"> · {{ eta(t) }} left</template>
-              </template>
-              <span v-else-if="t.status === 'done'" class="done-label"><Check class="si" />{{ formatBytes(t.totalSize || t.loaded) }}</span>
-              <span v-else class="err-label"><X class="si" />{{ t.error }}</span>
-            </div>
-          </div>
-        </section>
-
-        <!-- Paused / resumable uploads -->
         <section v-if="visiblePendingUploads.length" class="sec">
-          <div v-if="uploads.length" class="inner-sep" />
-          <div class="sec-head">
-            <ArrowUp class="sec-icon paused-icon" />
-            <span>Paused</span>
-            <span class="badge">{{ visiblePendingUploads.length }}</span>
-          </div>
+          <p class="sec-head"><ArrowUp :size="13" :stroke-width="2.6" /> En pausa</p>
           <div v-for="p in visiblePendingUploads" :key="p.upload_id" class="item">
-            <div class="item-top">
-              <div class="item-name" :title="p.filename">{{ p.filename }}</div>
-              <button class="resume-btn" title="Resume" @click="resumeUpload(p)">
-                <Play class="resume-icon" />
-              </button>
+            <div class="top">
+              <span class="name" :title="p.filename">{{ p.filename }}</span>
+              <button type="button" class="act play" title="Reanudar" @click="resumeUpload(p)"><Play :size="11" fill="currentColor" /></button>
             </div>
-            <div class="bar-wrap">
-              <div class="bar bar--paused" :style="{ width: pendingPct(p) + '%' }" />
-            </div>
-            <div class="item-meta">
-              {{ formatBytes(p.bytes_received) }} / {{ formatBytes(p.file_size) }} · {{ pendingPct(p) }}%
-            </div>
+            <div class="bar"><i class="paused" :style="{ width: `${pct(p.bytes_received, p.file_size) || 0}%` }" /></div>
+            <p class="meta">{{ formatBytes(p.bytes_received) }} de {{ formatBytes(p.file_size) }} · reanúdala eligiendo el mismo archivo</p>
           </div>
         </section>
 
-        <div v-if="(uploads.length || visiblePendingUploads.length) && downloads.length" class="sep" />
-
-        <!-- Active downloads -->
-        <section v-if="downloads.length" class="sec">
-          <div class="sec-head">
-            <ArrowDown class="sec-icon" />
-            <span>Downloads</span>
-            <span class="badge">{{ downloads.length }}</span>
-          </div>
-          <div v-for="t in downloads" :key="t.id" class="item">
-            <div class="item-top">
-              <div class="item-name" :title="t.name">{{ t.name }}</div>
-              <button class="cancel-btn" title="Cancel" @click="cancelTransfer(t.id)">
-                <Square class="cancel-icon" />
-              </button>
+        <section v-if="jobs.length" class="sec">
+          <p class="sec-head"><Archive :size="13" :stroke-width="2.4" /> Descomprimiendo</p>
+          <div v-for="j in jobs" :key="j.job_id" class="item">
+            <div class="top">
+              <span class="name" :title="j.filename">{{ j.filename }}</span>
+              <button v-if="j.status === 'active'" type="button" class="act stop" title="Cancelar" @click="cancelJob(j.job_id)"><Square :size="10" fill="currentColor" /></button>
             </div>
-            <div class="bar-wrap">
-              <div
-                class="bar bar--dl"
-                :class="{ 'bar--done': t.status === 'done', 'bar--error': t.status === 'error', 'bar--indet': !t.totalSize && t.status === 'active' }"
-                :style="t.totalSize ? { width: progress(t) + '%' } : {}"
-              />
-            </div>
-            <div class="item-meta">
-              <template v-if="t.status === 'active'">
-                {{ formatBytes(t.loaded) }}{{ t.totalSize ? ` / ${formatBytes(t.totalSize)}` : '' }}<template v-if="speed(t)"> · {{ speed(t) }}</template><template v-if="eta(t)"> · {{ eta(t) }} left</template>
-              </template>
-              <span v-else-if="t.status === 'done'" class="done-label"><Check class="si" />{{ formatBytes(t.totalSize || t.loaded) }}</span>
-              <span v-else class="err-label"><X class="si" />{{ t.error }}</span>
-            </div>
+            <div class="bar"><i class="extract" :class="[j.status, { indet: !j.total_bytes && j.status === 'active' }]" :style="j.total_bytes ? { width: `${pct(j.extracted_bytes, j.total_bytes)}%` } : null" /></div>
+            <p class="meta">
+              <template v-if="j.status === 'active'">{{ meta(j.extracted_bytes, j.total_bytes, j.speed, j.status) }}</template>
+              <span v-else-if="j.status === 'done'" class="ok"><Check :size="12" :stroke-width="3" /> {{ formatBytes(j.total_bytes) }}</span>
+              <span v-else class="bad"><X :size="12" :stroke-width="3" /> {{ j.error || 'Error' }}</span>
+            </p>
           </div>
         </section>
 
-        <div v-if="hasTransfers() && compressionJobs.length" class="sep" />
-
-        <!-- Extractions -->
-        <section v-if="compressionJobs.length" class="sec">
-          <div class="sec-head">
-            <Archive class="sec-icon" />
-            <span>Extractions</span>
-            <span class="badge">{{ compressionJobs.length }}</span>
-          </div>
-          <div v-for="j in compressionJobs" :key="j.job_id" class="item">
-            <div class="item-top">
-              <div class="item-name" :title="j.filename">{{ j.filename }}</div>
-              <button v-if="j.status === 'active'" class="cancel-btn" title="Cancel" @click="cancelJob(j.job_id)">
-                <Square class="cancel-icon" />
-              </button>
-            </div>
-            <div class="bar-wrap">
-              <div
-                class="bar bar--ex"
-                :class="{
-                  'bar--done': j.status === 'done',
-                  'bar--error': j.status === 'error',
-                  'bar--indet': !j.total_bytes && j.status === 'active',
-                }"
-                :style="j.total_bytes ? { width: jobProgress(j) + '%' } : {}"
-              />
-            </div>
-            <div class="item-meta">
-              <template v-if="j.status === 'active'">
-                {{ formatBytes(j.extracted_bytes) }}{{ j.total_bytes ? ` / ${formatBytes(j.total_bytes)}` : '' }}<template v-if="jobSpeed(j)"> · {{ jobSpeed(j) }}</template><template v-if="jobEta(j)"> · {{ jobEta(j) }} left</template>
-              </template>
-              <span v-else-if="j.status === 'done'" class="done-label"><Check class="si" />{{ formatBytes(j.total_bytes) }}</span>
-              <span v-else class="err-label"><X class="si" />{{ j.error || 'Error' }}</span>
-            </div>
-          </div>
-        </section>
-
+        <p v-if="!uploads.length && !downloads.length && !visiblePendingUploads.length && !jobs.length" class="empty">Nada en curso.</p>
       </div>
     </Transition>
   </Teleport>
@@ -187,141 +89,44 @@ const hasTransfers = () => uploads.value.length || visiblePendingUploads.value.l
 <style scoped>
 .tp {
   position: fixed;
-  left: 248px;
-  bottom: 72px;
-  width: 320px;
+  left: 268px;
+  bottom: 70px;
+  z-index: 200;
+  width: 340px;
   max-height: 60vh;
   overflow-y: auto;
-  background: #1c1c1e;
-  border: 0.5px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-  z-index: 1000;
-  padding: 0.625rem 0;
+  padding: 8px 0;
+  border-radius: 18px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.2), 0 0 0 0.5px var(--separator);
 }
-
-.sec { padding: 0 0.875rem; }
-
-.sec-head {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.25rem 0 0.5rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #636366;
-}
-
-.sec-icon { width: 12px; height: 12px; }
-.paused-icon { color: #ff9f0a; opacity: 0.8; }
-
-.badge {
-  margin-left: auto;
-  background: #2c2c2e;
-  border-radius: 4px;
-  padding: 1px 5px;
-  font-size: 0.65rem;
-  color: #aeaeb2;
-  font-weight: 600;
-}
-
-.item {
-  padding: 0.5rem 0;
-  border-top: 0.5px solid rgba(255, 255, 255, 0.05);
-}
-
-.sec > .item:first-of-type { border-top: none; }
-
-.item-top {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  margin-bottom: 0.375rem;
-}
-
-.item-name {
-  flex: 1;
-  font-size: 0.8rem;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.cancel-btn, .resume-btn {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  cursor: default;
-  opacity: 0.4;
-  transition: opacity 0.15s;
-}
-
-.cancel-btn:hover { opacity: 1; }
-.resume-btn { opacity: 0.6; }
-.resume-btn:hover { opacity: 1; }
-
-.cancel-icon { width: 12px; height: 12px; color: #ff453a; }
-.resume-icon { width: 12px; height: 12px; color: #30d158; }
-
-.bar-wrap {
-  height: 3px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: 0.375rem;
-  position: relative;
-}
-
-.bar {
-  height: 100%;
-  border-radius: 2px;
-  background: #0a84ff;
-  transition: width 0.4s ease;
-  min-width: 0;
-}
-
-.bar--dl { background: #30d158; }
-.bar--ex { background: #bf5af2; }
-.bar--paused { background: #ff9f0a; opacity: 0.7; }
-.bar--done { opacity: 0.5; width: 100% !important; }
-.bar--error { background: #ff453a !important; width: 100% !important; opacity: 0.7; }
-
-.bar--indet {
-  position: absolute;
-  width: 35% !important;
-  animation: indet 1.5s ease-in-out infinite;
-}
-
-@keyframes indet {
-  0% { left: -35%; }
-  100% { left: 135%; }
-}
-
-.item-meta {
-  font-size: 0.7rem;
-  color: #636366;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  min-height: 1em;
-}
-
-.done-label { display: flex; align-items: center; gap: 0.25rem; color: #30d158; }
-.err-label { display: flex; align-items: center; gap: 0.25rem; color: #ff453a; }
-.si { width: 11px; height: 11px; flex-shrink: 0; }
-
-.sep { height: 0.5px; background: rgba(255, 255, 255, 0.07); margin: 0.375rem 0.875rem; }
-.inner-sep { height: 0.5px; background: rgba(255, 255, 255, 0.05); margin: 0.25rem 0; }
-
-.panel-enter-active, .panel-leave-active { transition: opacity 0.18s, transform 0.18s; }
-.panel-enter-from, .panel-leave-to { opacity: 0; transform: translateY(6px); }
+.tp.inline { position: static; width: auto; max-height: none; padding: 0; border-radius: var(--radius-card); background: var(--cell); backdrop-filter: none; box-shadow: none; }
+.sec { padding: 4px 16px 8px; }
+.sec + .sec { border-top: 0.5px solid var(--separator); padding-top: 10px; }
+.sec-head { display: flex; align-items: center; gap: 6px; padding: 4px 0 6px; font-size: 12px; font-weight: 700; color: var(--label-2); }
+.item { padding: 6px 0; }
+.top { display: flex; align-items: center; gap: 8px; }
+.name { flex: 1; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--fill-3); flex-shrink: 0; }
+.act.stop { color: var(--red); }
+.act.play { color: var(--green); }
+.bar { position: relative; height: 4px; margin: 6px 0 4px; border-radius: 2px; background: var(--fill-3); overflow: hidden; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--accent); transition: width 0.4s; }
+.bar i.done { width: 100% !important; background: var(--green); }
+.bar i.error { width: 100% !important; background: var(--red); }
+.bar i.paused { background: var(--orange); }
+.bar i.extract { background: var(--purple); }
+.bar i.indet { width: 35%; animation: indet 1.4s ease-in-out infinite; }
+@keyframes indet { from { left: -35%; } to { left: 100%; } }
+.meta { font-size: 12px; color: var(--label-2); min-height: 16px; }
+.ok, .bad { display: inline-flex; align-items: center; gap: 4px; }
+.ok { color: var(--green); }
+.bad { color: var(--red); }
+.empty { padding: 20px; text-align: center; color: var(--label-2); font-size: 14px; }
+.pop-enter-active { transition: opacity 0.15s, transform 0.25s var(--spring); }
+.pop-leave-active { transition: opacity 0.12s; }
+.pop-enter-from { opacity: 0; transform: translateY(8px) scale(0.97); }
+.pop-leave-to { opacity: 0; }
 </style>

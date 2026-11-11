@@ -1,383 +1,115 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { Share2, Copy, Check, Trash2, ChevronRight, Lock, Pencil, Save } from 'lucide-vue-next'
+import { computed, onMounted, ref } from 'vue'
+import { Copy, FolderOpen, Link, Lock, MoreHorizontal, Pencil, Trash2 } from 'lucide-vue-next'
+import Spinner from '../ui/Spinner.vue'
+import ListSection from '../ui/ListSection.vue'
+import { confirmDestructive, toast } from '../ui/dialog.js'
+import { openMenu } from '../menu.js'
+import { navigate } from '../store.js'
+import FileIcon from './FileIcon.vue'
+import ShareSheet from './ShareSheet.vue'
 
-const emit = defineEmits(['navigate'])
-
-const shares = ref([])
-const loading = ref(true)
-const copiedToken = ref(null)
-const editingToken = ref(null)
-const editPassword = ref('')
-const editClearPassword = ref(false)
-const editEditable = ref(false)
-const saving = ref(false)
+// Every link you've shared, with what it allows, and a way to copy, change or delete it.
+const shares = ref(null)
+const editing = ref(null)
 
 async function load() {
-  loading.value = true
-  try {
-    const res = await fetch('/store/api/shares')
-    if (res.ok) shares.value = await res.json()
-  } finally {
-    loading.value = false
-  }
+  const res = await fetch('/store/api/shares')
+  shares.value = res.ok ? await res.json() : []
 }
-
-async function copyUrl(share) {
-  await navigator.clipboard.writeText(share.url)
-  copiedToken.value = share.token
-  setTimeout(() => { copiedToken.value = null }, 2000)
-}
-
-const editPublic = ref(false)
-
-function startEdit(share) {
-  editingToken.value = share.token
-  editEditable.value = share.editable
-  editPublic.value = share.public
-  editPassword.value = ''
-  editClearPassword.value = false
-}
-
-function cancelEdit() {
-  editingToken.value = null
-}
-
-async function saveEdit(share) {
-  saving.value = true
-  try {
-    const body = {
-      editable: editEditable.value,
-      public: editPublic.value,
-      clear_password: editClearPassword.value,
-      password: !editClearPassword.value && editPassword.value ? editPassword.value : undefined,
-    }
-    const res = await fetch(`/store/api/shares/${share.token}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (res.ok) {
-      const updated = await res.json()
-      const idx = shares.value.findIndex(s => s.token === share.token)
-      if (idx !== -1) shares.value[idx] = updated
-      editingToken.value = null
-    }
-  } finally {
-    saving.value = false
-  }
-}
-
-async function deleteShare(share) {
-  const res = await fetch(`/store/api/shares/${share.token}`, { method: 'DELETE' })
-  if (res.ok) shares.value = shares.value.filter(s => s.token !== share.token)
-}
-
-function folderName(share) {
-  const parts = share.path.split('/').filter(Boolean)
-  return parts.at(-1) || share.token
-}
-
-function goToFolder(share) {
-  emit('navigate', share.location, share.path)
-}
-
 onMounted(load)
+
+const nameOf = s => s.path.split('/').filter(Boolean).at(-1) || s.token
+const sorted = computed(() => [...(shares.value || [])].sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'es')))
+
+function copy(s) {
+  navigator.clipboard.writeText(s.url)
+  toast('Enlace copiado')
+}
+
+function folderOf(s) {
+  return s.is_file ? s.path.split('/').slice(0, -1).join('/') : s.path
+}
+
+async function remove(s) {
+  const ok = await confirmDestructive(`¿Eliminar el enlace de «${nameOf(s)}»?`, 'Quien lo tenga dejará de poder abrirlo. Los archivos no se borran.', 'Eliminar enlace')
+  if (!ok) return
+  const res = await fetch(`/store/api/shares/${s.token}`, { method: 'DELETE' })
+  if (res.ok) { toast('Enlace eliminado'); load() }
+}
+
+function menu(s, e) {
+  e.preventDefault()
+  openMenu(e.currentTarget instanceof Element && e.type === 'click' ? e.currentTarget : e, [
+    { label: 'Copiar enlace', icon: Copy, action: () => copy(s) },
+    { label: 'Mostrar en Archivos', icon: FolderOpen, action: () => navigate(s.location, folderOf(s)) },
+    { label: 'Opciones…', icon: Pencil, action: () => { editing.value = s } },
+    { separator: true },
+    { label: 'Eliminar enlace', icon: Trash2, danger: true, action: () => remove(s) },
+  ])
+}
 </script>
 
 <template>
-  <div class="panel">
-    <div class="panel-topbar">
-      <Share2 class="panel-icon" />
-      <span class="panel-title">Shared Links</span>
-    </div>
-
-    <div v-if="loading" class="state-msg">Loading…</div>
-    <div v-else-if="!shares.length" class="state-msg">No shared links yet.<br>Right-click a folder to share it.</div>
-
-    <div v-else class="shares-list">
-      <div v-for="share in shares" :key="share.token" class="share-card">
-        <div class="share-main">
-          <div class="share-info">
-            <div class="share-name-row">
-              <span class="share-name">{{ folderName(share) }}</span>
-              <span v-if="share.has_password" class="badge">
-                <Lock class="badge-icon" /> Password
-              </span>
-              <span class="badge" :class="share.editable ? 'badge-edit' : 'badge-ro'">
-                {{ share.editable ? 'Editable' : 'Read-only' }}
-              </span>
-              <span v-if="share.public" class="badge badge-public">Listed</span>
-            </div>
-            <span class="share-path">{{ share.path }}</span>
-            <div class="url-row">
-              <span class="share-url">{{ share.url }}</span>
-            </div>
-          </div>
-
-          <div class="share-actions">
-            <button class="action-btn" :class="{ done: copiedToken === share.token }" title="Copy link" @click="copyUrl(share)">
-              <Check v-if="copiedToken === share.token" class="action-icon" />
-              <Copy v-else class="action-icon" />
-            </button>
-            <button class="action-btn" title="Go to folder" @click="goToFolder(share)">
-              <ChevronRight class="action-icon" />
-            </button>
-            <button class="action-btn" title="Edit" @click="editingToken === share.token ? cancelEdit() : startEdit(share)">
-              <Pencil class="action-icon" />
-            </button>
-            <button class="action-btn action-btn--danger" title="Delete" @click="deleteShare(share)">
-              <Trash2 class="action-icon" />
-            </button>
-          </div>
-        </div>
-
-        <!-- Inline edit -->
-        <div v-if="editingToken === share.token" class="edit-form">
-          <label class="edit-row">
-            <input v-model="editEditable" type="checkbox" class="edit-cb" />
-            <span class="edit-label">Allow editing</span>
-          </label>
-          <label class="edit-row">
-            <input v-model="editPublic" type="checkbox" class="edit-cb" />
-            <span class="edit-label">Show on public page</span>
-          </label>
-
-          <div class="edit-row">
-            <label class="edit-row" style="flex:1">
-              <input v-model="editClearPassword" type="checkbox" class="edit-cb" />
-              <span class="edit-label">Remove password</span>
-            </label>
-          </div>
-
-          <input
-            v-if="!editClearPassword"
-            v-model="editPassword"
-            class="edit-input"
-            type="password"
-            placeholder="New password (leave blank to keep)"
-            autocomplete="new-password"
-          />
-
-          <div class="edit-footer">
-            <button class="btn-cancel-sm" @click="cancelEdit">Cancel</button>
-            <button class="btn-save" :disabled="saving" @click="saveEdit(share)">
-              <Save class="btn-icon" />
-              {{ saving ? 'Saving…' : 'Save' }}
-            </button>
-          </div>
-        </div>
+  <section class="shares">
+    <header class="bar">
+      <h1 class="bar-title">Enlaces compartidos</h1>
+    </header>
+    <div class="content">
+      <div class="page-head">
+        <h1 class="large-title">Enlaces compartidos</h1>
+        <p class="subheadline secondary">Lo que has compartido con un enlace. Quien lo tenga puede abrirlo sin cuenta.</p>
       </div>
+
+      <div v-if="!shares" class="state"><Spinner :size="24" /></div>
+      <div v-else-if="!shares.length" class="state">
+        <span class="empty-icon"><Link :size="34" /></span>
+        <h3 class="headline">Aún no has compartido nada</h3>
+        <p class="subheadline secondary">Abre el menú de una carpeta o un archivo y elige «Compartir…».</p>
+      </div>
+      <ListSection v-else :footer="`${shares.length} ${shares.length === 1 ? 'enlace' : 'enlaces'}`">
+        <div v-for="s in sorted" :key="s.token" class="row share-row" @click="editing = s" @contextmenu="menu(s, $event)">
+          <FileIcon :entry="{ type: s.is_file ? 'file' : 'directory', name: nameOf(s) }" :size="40" />
+          <span class="row-body">
+            <span class="row-title">{{ nameOf(s) }}</span>
+            <span class="row-subtitle small url">{{ s.url }}</span>
+            <span class="tags">
+              <span v-if="s.has_password" class="badge"><Lock :size="10" :stroke-width="2.6" /> Contraseña</span>
+              <span class="badge" :class="{ green: s.editable }">{{ s.editable ? 'Se puede editar' : 'Solo lectura' }}</span>
+              <span v-if="s.public" class="badge orange">Página pública</span>
+            </span>
+          </span>
+          <button type="button" class="icon-action" title="Copiar enlace" @click.stop="copy(s)"><Copy :size="17" /></button>
+          <button type="button" class="icon-action" title="Más" @click.stop="menu(s, $event)"><MoreHorizontal :size="18" /></button>
+        </div>
+      </ListSection>
     </div>
-  </div>
+
+    <ShareSheet v-if="editing" :share="editing" @close="editing = null" @changed="load" />
+  </section>
 </template>
 
 <style scoped>
-.panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.panel-topbar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 14px 1.25rem;
-  border-bottom: 0.5px solid rgba(255,255,255,0.08);
-}
-
-.panel-icon { width: 18px; height: 18px; color: #8E8E93; flex-shrink: 0; }
-.panel-title { font-size: 0.95rem; font-weight: 600; color: #fff; }
-
-.state-msg {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  font-size: 0.875rem;
-  color: #636366;
-  line-height: 1.6;
-  padding: 4rem 2rem;
-}
-
-.shares-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.share-card {
-  background: rgba(255,255,255,0.03);
-  border: 0.5px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.share-main {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.8rem 0.9rem;
-}
-
-.share-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.share-name-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-
-.share-name {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #e4e4e7;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 0.7rem;
-  font-weight: 500;
-  background: rgba(255,255,255,0.07);
-  color: #636366;
-}
-.badge-icon { width: 10px; height: 10px; }
-.badge-edit { color: #30d158; background: rgba(48,209,88,0.1); }
-.badge-ro { color: #636366; }
-.badge-public { color: #ff9f0a; background: rgba(255,159,10,0.1); }
-
-.share-path {
-  font-size: 0.75rem;
-  color: #3a3a3c;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.url-row { margin-top: 0.1rem; }
-
-.share-url {
-  font-size: 0.78rem;
-  color: #8E8E93;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: block;
-}
-
-.share-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-  flex-shrink: 0;
-}
-
-.action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  background: transparent;
-  border: none;
-  color: #636366;
-  transition: background 0.12s, color 0.12s;
-}
-.action-btn:hover { background: rgba(255,255,255,0.07); color: #fff; }
-.action-btn.done { color: #30d158; }
-.action-btn--danger:hover { background: rgba(255,69,58,0.12); color: #ff453a; }
-.action-icon { width: 14px; height: 14px; }
-
-/* Inline edit form */
-.edit-form {
-  padding: 0.75rem 0.9rem;
-  border-top: 0.5px solid rgba(255,255,255,0.07);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  background: rgba(0,0,0,0.2);
-}
-
-.edit-row {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.edit-cb { accent-color: #8E8E93; width: 14px; height: 14px; flex-shrink: 0; }
-
-.edit-label { font-size: 0.82rem; color: #ababab; }
-
-.edit-input {
-  width: 100%;
-  padding: 7px 10px;
-  background: rgba(255,255,255,0.05);
-  border: 0.5px solid rgba(255,255,255,0.1);
-  border-radius: 7px;
-  color: #fff;
-  font-size: 0.82rem;
-  font-family: inherit;
-  outline: none;
-}
-.edit-input:focus { border-color: #8E8E93; }
-
-.edit-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.4rem;
-  margin-top: 0.25rem;
-}
-
-.btn-cancel-sm {
-  padding: 5px 12px;
-  border-radius: 7px;
-  background: transparent;
-  border: 0.5px solid rgba(255,255,255,0.1);
-  color: #636366;
-  font-size: 0.82rem;
-  font-family: inherit;
-  transition: background 0.12s;
-}
-.btn-cancel-sm:hover { background: rgba(255,255,255,0.06); color: #fff; }
-
-.btn-save {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 5px 12px;
-  border-radius: 7px;
-  background: #8E8E93;
-  border: none;
-  color: #fff;
-  font-size: 0.82rem;
-  font-weight: 600;
-  font-family: inherit;
-  transition: opacity 0.12s;
-}
-.btn-save:disabled { opacity: 0.5; }
-.btn-icon { width: 12px; height: 12px; }
-
+.shares { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.bar { height: 64px; flex-shrink: 0; display: flex; align-items: center; padding: 0 24px; }
+.bar-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+.content { flex: 1; overflow-y: auto; padding: 0 24px 40px; }
+.page-head { max-width: 760px; margin: 0 auto; padding: 8px 4px 20px; }
+.page-head .large-title { display: none; }
+.content :deep(.section) { max-width: 760px; margin-left: auto; margin-right: auto; }
+.state { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 70px 24px; text-align: center; }
+.empty-icon { width: 72px; height: 72px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: var(--blue); margin-bottom: 6px; }
+.share-row { --inset: 74px; cursor: pointer; padding-top: 12px; padding-bottom: 12px; }
+.share-row:hover { background: color-mix(in srgb, var(--cell) 94%, var(--label)); }
+.url { font-family: var(--font-mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.icon-action { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: var(--accent); flex-shrink: 0; }
+.icon-action:hover { background: var(--fill-3); }
 @media (max-width: 767px) {
-  .shares-list { padding: 0.75rem; }
-  .panel-topbar { padding-top: calc(14px + env(safe-area-inset-top)); }
+  .bar { display: none; }
+  .content { padding: calc(20px + env(safe-area-inset-top)) 16px calc(110px + env(safe-area-inset-bottom)); }
+  .page-head { padding: 24px 4px 18px; }
+  .page-head .large-title { display: block; }
+  .icon-action:first-of-type { display: none; }
 }
 </style>
