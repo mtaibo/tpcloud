@@ -8,7 +8,7 @@ import BlindSlider from '@/components/BlindSlider.vue'
 
 import { useDevices } from '@/config/devices'
 import { positions, handlePositions } from '@/config/useBlindAnimations'
-import { blindStatus, dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
+import { dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
 import { navigateToDevice } from '@/config/sections'
 
 // Every blind as a tile, like Home's accessories: its bar and up / stop / down right there, as in
@@ -55,31 +55,32 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
                     @keydown.enter="selectedId = b.id"
                 >
                     <div class="tile-top">
-                        <span class="tile-icon">
-                            <Blinds :size="22" :stroke-width="2" />
-                            <i class="level" :style="{ height: `${100 - pos(b.id)}%` }" />
-                        </span>
-                        <Lock v-if="b.locked" :size="15" :stroke-width="2.2" class="lock" />
-                    </div>
-                    <div class="tile-text">
-                        <span class="headline name">{{ b.name }}</span>
-                        <span class="footnote secondary">{{ b.locked ? 'Bloqueada' : blindStatus(b, positions[b.id]) }}</span>
-                    </div>
-                    <div class="stage" @click.stop>
-                        <BlindSlider
-                            class="slider"
-                            :fill-pos="positions[b.id] ?? 0"
-                            :handle-pos="handlePositions[b.id] ?? 0"
-                            :disabled="b.locked"
-                            @drag-start="dragStart(b.id, $event)"
-                            @drag-move="dragMove(b.id, $event)"
-                            @drag-end="setBlind(b.id, $event)"
-                        />
-                        <div class="buttons">
-                            <button type="button" aria-label="Subir" :disabled="b.locked" @click="moveBlind(b.id, 'up')"><ChevronUp :size="20" :stroke-width="2.4" /></button>
-                            <button type="button" aria-label="Parar" :disabled="b.locked" @click="stopBlind(b.id)"><Pause :size="15" :stroke-width="2.4" fill="currentColor" /></button>
-                            <button type="button" aria-label="Bajar" :disabled="b.locked" @click="moveBlind(b.id, 'down')"><ChevronDown :size="20" :stroke-width="2.4" /></button>
+                        <div class="tile-side">
+                            <span class="tile-icon">
+                                <Blinds :size="22" :stroke-width="2" />
+                                <i class="level" :style="{ height: `${100 - pos(b.id)}%` }" />
+                            </span>
                         </div>
+                        <div class="stage" @click.stop>
+                            <BlindSlider
+                                class="slider"
+                                :fill-pos="positions[b.id] ?? 0"
+                                :handle-pos="handlePositions[b.id] ?? 0"
+                                :disabled="b.locked"
+                                @drag-start="dragStart(b.id, $event)"
+                                @drag-move="dragMove(b.id, $event)"
+                                @drag-end="setBlind(b.id, $event)"
+                            />
+                            <div class="buttons">
+                                <button type="button" aria-label="Subir" :disabled="b.locked" @click="moveBlind(b.id, 'up')"><ChevronUp :size="20" :stroke-width="2.4" /></button>
+                                <button type="button" aria-label="Parar" :disabled="b.locked" @click="stopBlind(b.id)"><Pause :size="15" :stroke-width="2.4" fill="currentColor" /></button>
+                                <button type="button" aria-label="Bajar" :disabled="b.locked" @click="moveBlind(b.id, 'down')"><ChevronDown :size="20" :stroke-width="2.4" /></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="name-row">
+                        <span class="headline name">{{ b.name }}</span>
+                        <Lock v-if="b.locked" :size="15" :stroke-width="2.2" class="lock" />
                     </div>
                 </div>
             </div>
@@ -117,7 +118,8 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
 .tile:active { transform: scale(0.97); }
 @media (hover: hover) { .tile:hover { transform: translateY(-2px); } }
 .tile.offline { opacity: 0.55; }
-.tile-top { display: flex; align-items: flex-start; justify-content: space-between; }
+.tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.tile-side { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .tile-icon {
     position: relative;
     width: 44px;
@@ -134,11 +136,17 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
 .tile-icon svg { position: relative; z-index: 1; }
 .level { position: absolute; inset: 0 0 auto; background: rgba(0, 0, 0, 0.18); transition: height 0.2s linear; }
 .tile:not(.open) .level { display: none; }
-.lock { color: var(--label-3); }
-.tile-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lock { flex-shrink: 0; color: var(--label-3); }
+.name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* Two tiles a row on a phone: no room for the round icon, the bar and buttons take the width. */
+@media (max-width: 480px) {
+    .tile-side { display: none; }
+    .tile-top { justify-content: center; }
+    .stage { --round: 36px; }
+}
+.name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The bar and its buttons, as in the sheet: the bar as tall as the three and twice as wide as one. */
-.stage { --round: 40px; --gap: 8px; display: flex; justify-content: center; gap: 12px; cursor: default; }
+.stage { --round: 40px; --gap: 8px; display: flex; gap: 10px; cursor: default; }
 .slider { width: calc(2 * var(--round)); height: calc(3 * var(--round) + 2 * var(--gap)); border-radius: calc(var(--round) / 2); }
 .buttons { display: flex; flex-direction: column; gap: var(--gap); }
 .buttons button {
