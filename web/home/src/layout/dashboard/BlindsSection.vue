@@ -1,31 +1,17 @@
 <script setup>
-import { computed, ref } from 'vue'
-import { Blinds, ChevronDown, ChevronUp, Lock, Pause, Settings } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { Blinds, ChevronDown, ChevronUp, Lock, Pause } from 'lucide-vue-next'
 
-import Sheet from '@/ui/Sheet.vue'
-import BlindsControl from './BlindsControl.vue'
 import BlindSlider from '@/components/BlindSlider.vue'
 
 import { useDevices } from '@/config/devices'
 import { positions, handlePositions } from '@/config/useBlindAnimations'
 import { dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
-import { navigateToDevice } from '@/config/sections'
 
-// Every blind as a tile, like Home's accessories: its bar and up / stop / down right there, as in
-// its sheet. Tapping the rest of the tile opens that sheet.
+// Every blind as a tile, like Home's accessories: its bar and up / stop / down right there.
+// The tile itself does nothing when tapped; only its controls do.
 const store = useDevices()
 const blinds = computed(() => Object.entries(store.blinds).map(([id, d]) => ({ id, ...d })))
-
-const selectedId = ref(null)
-function settings() {
-    const id = selectedId.value
-    selectedId.value = null
-    navigateToDevice(id)
-}
-const open = computed({
-    get: () => !!selectedId.value && !!store.blinds[selectedId.value],
-    set: v => { if (!v) selectedId.value = null },
-})
 
 const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position ?? 0)
 </script>
@@ -49,10 +35,6 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
                     :key="b.id"
                     class="tile"
                     :class="{ open: pos(b.id) > 0, offline: !b.connection?.online }"
-                    role="button"
-                    tabindex="0"
-                    @click="selectedId = b.id"
-                    @keydown.enter="selectedId = b.id"
                 >
                     <div class="tile-top">
                         <div class="tile-side">
@@ -61,7 +43,7 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
                                 <i class="level" :style="{ height: `${100 - pos(b.id)}%` }" />
                             </span>
                         </div>
-                        <div class="stage" @click.stop>
+                        <div class="stage">
                             <BlindSlider
                                 class="slider"
                                 :fill-pos="positions[b.id] ?? 0"
@@ -86,14 +68,6 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
             </div>
         </div>
 
-        <Sheet v-model:open="open" :title="selectedId ? store.blinds[selectedId]?.name : ''">
-            <template #trailing>
-                <button class="icon-btn" type="button" aria-label="Ajustes del dispositivo" @click="settings">
-                    <Settings :size="20" :stroke-width="2" />
-                </button>
-            </template>
-            <BlindsControl v-if="selectedId" :id="selectedId" />
-        </Sheet>
     </div>
 </template>
 
@@ -112,11 +86,8 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
     padding: 16px;
     border-radius: var(--radius-card);
     background: var(--cell);
-    cursor: pointer;
-    transition: transform 0.3s var(--spring), background 0.3s, opacity 0.3s;
+    transition: opacity 0.3s;
 }
-.tile:active { transform: scale(0.97); }
-@media (hover: hover) { .tile:hover { transform: translateY(-2px); } }
 .tile.offline { opacity: 0.55; }
 .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .tile-side { display: flex; flex-direction: column; align-items: center; gap: 10px; }
@@ -146,7 +117,7 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
 }
 .name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The bar and its buttons, as in the sheet: the bar as tall as the three and twice as wide as one. */
-.stage { --round: 40px; --gap: 8px; display: flex; gap: 10px; cursor: default; }
+.stage { --round: 40px; --gap: 8px; display: flex; gap: 10px; }
 .slider { width: calc(2 * var(--round)); height: calc(3 * var(--round) + 2 * var(--gap)); border-radius: calc(var(--round) / 2); }
 .buttons { display: flex; flex-direction: column; gap: var(--gap); }
 .buttons button {
