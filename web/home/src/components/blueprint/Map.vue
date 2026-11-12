@@ -17,34 +17,34 @@ const rooms = computed(() => (map.storage.rooms ?? []).map(r => ({
     rx: Math.min(RADIUS, (r.w - GAP) / 4, (r.h - GAP) / 4),
 })))
 
-// A door between two rooms fills the wall line along its length, a little past the rooms' rounded
-// corners, clipped to the house. The front door (rooms on one side only) needs nothing.
-const inRoom = (x, y) => (map.storage.rooms ?? []).some(r => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h)
-const between = d => {
+// A door between two rooms fills the wall line along its length, wide enough to square off the
+// rooms' rounded corners beside it. A door that runs (nearly) the whole shared edge goes right to
+// the rooms' ends, so the two read as one shape with no nick at the corners. The front door
+// (rooms on one side only) needs nothing.
+const roomAt = (x, y) => (map.storage.rooms ?? []).find(r => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h)
+const doors = computed(() => (map.storage.doors ?? []).flatMap(d => {
+    const horizontal = d.y1 === d.y2
     const mx = (d.x1 + d.x2) / 2, my = (d.y1 + d.y2) / 2
-    return d.y1 === d.y2 ? inRoom(mx, my - 1) && inRoom(mx, my + 1) : inRoom(mx - 1, my) && inRoom(mx + 1, my)
-}
-const doors = computed(() => (map.storage.doors ?? []).filter(between).map(d => {
+    const a = horizontal ? roomAt(mx, my - 1) : roomAt(mx - 1, my)
+    const b = horizontal ? roomAt(mx, my + 1) : roomAt(mx + 1, my)
+    if (!a || !b) return []
+    // The stretch of wall the two rooms share, and the door along it.
+    const lo = horizontal ? Math.max(a.x, b.x) : Math.max(a.y, b.y)
+    const hi = horizontal ? Math.min(a.x + a.w, b.x + b.w) : Math.min(a.y + a.h, b.y + b.h)
+    let from = horizontal ? Math.min(d.x1, d.x2) : Math.min(d.y1, d.y2)
+    let to = horizontal ? Math.max(d.x1, d.x2) : Math.max(d.y1, d.y2)
+    from = from - lo < 3 ? lo + GAP / 2 : from
+    to = hi - to < 3 ? hi - GAP / 2 : to
     const across = GAP + RADIUS * 2
-    if (d.y1 === d.y2) {
-        const a = Math.min(d.x1, d.x2), b = Math.max(d.x1, d.x2)
-        return { x: a, y: d.y1 - across / 2, w: b - a, h: across }
-    }
-    const a = Math.min(d.y1, d.y2), b = Math.max(d.y1, d.y2)
-    return { x: d.x1 - across / 2, y: a, w: across, h: b - a }
+    return horizontal
+        ? [{ x: from, y: d.y1 - across / 2, w: to - from, h: across }]
+        : [{ x: d.x1 - across / 2, y: from, w: across, h: to - from }]
 }))
 </script>
 
 <template>
-    <defs>
-        <clipPath id="plan-house">
-            <!-- A hair larger than each room, so the clip has no seam where two rooms touch -->
-            <rect v-for="r in map.storage.rooms" :key="r.id" :x="r.x - 0.5" :y="r.y - 0.5" :width="r.w + 1" :height="r.h + 1" />
-        </clipPath>
-    </defs>
-
     <g class="house">
-        <rect v-for="(d, i) in doors" :key="i" :x="d.x" :y="d.y" :width="d.w" :height="d.h" class="room" clip-path="url(#plan-house)" />
+        <rect v-for="(d, i) in doors" :key="i" :x="d.x" :y="d.y" :width="d.w" :height="d.h" class="room" />
         <rect v-for="r in rooms" :key="r.id" :x="r.x" :y="r.y" :width="r.w" :height="r.h" :rx="r.rx" class="room" />
     </g>
 </template>

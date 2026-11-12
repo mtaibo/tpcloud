@@ -50,7 +50,8 @@ const pos = l => ({ left: `${(l.x / size.value.w) * 100}%`, top: `${(l.y / size.
     container-type: inline-size;
     --plan-bg: var(--bg);
     --plan-room: var(--cell);
-    --plan-track: color-mix(in srgb, var(--label) 14%, var(--plan-room));
+    --plan-blind: var(--orange);
+    --plan-track: color-mix(in srgb, var(--label) 16%, var(--plan-room));
     --plan-wall: color-mix(in srgb, var(--label) 30%, transparent);
 }
 svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
@@ -62,6 +63,13 @@ svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; o
     font-size: clamp(10px, 2.4cqw, 14px);
     font-weight: 600;
     letter-spacing: -0.1px;
-    color: var(--label-2);
+    color: var(--label);
+}
+/* Apart from the sidebar: in light the house floats on a soft shadow; in dark its rooms are a
+   step lighter than the sidebar's glass. */
+svg :deep(.house) { filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.05)) drop-shadow(0 6px 16px rgba(0, 0, 0, 0.06)); }
+@media (prefers-color-scheme: dark) {
+    .plan { --plan-room: #2c2c2e; }
+    svg :deep(.house) { filter: none; }
 }
 </style>

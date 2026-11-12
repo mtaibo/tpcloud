@@ -5,8 +5,8 @@ import { positions } from '@/config/useBlindAnimations'
 import { useBlueprint } from '@/config/blueprint'
 import { snapToWall } from './geometry'
 
-// The blinds on the plan: a capsule on the window's wall that fills green as far as the blind is
-// open (the dashboard's bar, drawn where the window is). In "config" mode (placing a new switch)
+// The blinds on the plan: a capsule on the window's wall that fills orange as far as the blind is
+// open, gray when it can't be moved, with a padlock on it while an admin has it locked. In "config" mode (placing a new switch)
 // they're all drawn the same and the picked one in the accent colour.
 const props = defineProps({
     mode:   { type: String, default: 'control' },
@@ -59,15 +59,25 @@ const onClick = id => emit(props.mode === 'config' ? 'pick' : 'select', id)
             class="level"
             :class="{ empty: open(c.id, c.blind) === 0 }"
         />
+        <g v-if="mode === 'control' && c.blind.locked" :transform="`translate(${c.x + c.w / 2}, ${c.y + c.h / 2})`" class="lock">
+            <circle r="7" />
+            <g transform="translate(-4.2, -4.6) scale(0.35)">
+                <rect x="5" y="10.5" width="14" height="10" rx="2.5" />
+                <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+            </g>
+        </g>
     </g>
 </template>
 
 <style scoped>
 .blind { cursor: pointer; pointer-events: all; }
 .track { fill: var(--plan-track); stroke: var(--plan-bg); stroke-width: 2.5; paint-order: stroke; transition: fill 0.2s; }
-.level { fill: var(--green); transition: width 0.4s var(--ease), height 0.4s var(--ease), fill 0.3s; }
+.level { fill: var(--plan-blind); transition: width 0.4s var(--ease), height 0.4s var(--ease), fill 0.3s; }
 .level.empty { fill: transparent; }
 .off .level { fill: var(--gray); }
+.lock circle { fill: var(--plan-blind); stroke: var(--plan-bg); stroke-width: 1.5; }
+.lock rect { fill: #fff; }
+.lock path { fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; }
 .config .track { fill: color-mix(in srgb, var(--accent) 35%, var(--plan-room)); }
 .picked .track { fill: var(--accent); }
 @media (hover: hover) { .blind:not(.config):hover .track { fill: color-mix(in srgb, var(--label) 22%, var(--plan-room)); } }
