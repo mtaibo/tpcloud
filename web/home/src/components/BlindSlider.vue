@@ -68,14 +68,15 @@ function onPointerUp(e) {
     gap: 3px;
     padding: 5px 5px 0;
     overflow: hidden;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 45%, transparent);
+    /* In the label colour, like the blinds on the plan: black in light, white in dark. */
+    background: color-mix(in srgb, var(--label) 8%, transparent);
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--label) 35%, transparent);
 }
 .slats i {
     flex-shrink: 0;
     height: 6px;
     border-radius: 3px;
-    background: color-mix(in srgb, var(--accent) 55%, var(--cell));
+    background: color-mix(in srgb, var(--label) 80%, var(--cell));
 }
 .handle {
     position: absolute;
@@ -83,8 +84,8 @@ function onPointerUp(e) {
     right: 22%;
     height: 6px;
     border-radius: 3px;
-    background: #fff;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    background: var(--cell);
+    box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--label) 30%, transparent), 0 1px 4px rgba(0, 0, 0, 0.3);
     pointer-events: none;
 }
 </style>
