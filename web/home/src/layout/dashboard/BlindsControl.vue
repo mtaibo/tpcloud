@@ -7,7 +7,7 @@ import BlindSlider from '@/components/BlindSlider.vue'
 import { useDevices } from '@/config/devices'
 import { positions, handlePositions, getAnim } from '@/config/useBlindAnimations'
 import { dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
-import { t } from '@/ui/i18n.js'
+import { lang, t } from '@/ui/i18n.js'
 import { toast } from '@/ui/dialog.js'
 import { api } from '@/config/api'
 import { session } from '@/config/user'
@@ -21,6 +21,8 @@ const device = computed(() => store.blinds[props.id])
 getAnim(props.id, device.value?.state?.position ?? 0)
 
 const fill = computed(() => positions[props.id] ?? 0)
+// How open it is, as the switch counts it, following the bar while it moves.
+const percent = computed(() => Math.round(Math.min(100, Math.max(0, fill.value))))
 const target = computed(() => handlePositions[props.id] ?? 0)
 const disabled = computed(() => !!device.value?.locked)
 
@@ -47,16 +49,19 @@ async function toggleLock() {
     <div v-if="device" class="control blind-control">
         <span v-if="device.locked" class="badge orange"><Lock :size="12" :stroke-width="2.4" />{{ t('Locked by an administrator', 'Bloqueada por un administrador') }}</span>
 
-        <div class="stage" :style="{ '--rows': isAdmin ? 4 : 3 }">
-            <BlindSlider
-                class="slider"
-                :fill-pos="fill"
-                :handle-pos="target"
-                :disabled="disabled"
-                @drag-start="dragStart(id, $event)"
-                @drag-move="dragMove(id, $event)"
-                @drag-end="setBlind(id, $event)"
-            />
+        <div class="stage">
+            <div class="column">
+                <BlindSlider
+                    class="slider"
+                    :fill-pos="fill"
+                    :handle-pos="target"
+                    :disabled="disabled"
+                    @drag-start="dragStart(id, $event)"
+                    @drag-move="dragMove(id, $event)"
+                    @drag-end="setBlind(id, $event)"
+                />
+                <span class="percent">{{ lang === 'es' ? `${percent} %` : `${percent}%` }}</span>
+            </div>
             <div class="buttons">
                 <button class="round" type="button" :aria-label="t('Raise', 'Subir')" :disabled="disabled" @click="moveBlind(id, 'up')">
                     <ChevronUp :size="24" :stroke-width="2.4" />
@@ -93,8 +98,12 @@ async function toggleLock() {
 <style scoped>
 .control { --round: 56px; --gap: 14px; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 8px 0 12px; }
 .stage { display: flex; align-items: center; justify-content: center; gap: 22px; }
-/* As tall as the column of buttons (three, or four with an admin's lock), and twice as wide as one. */
-.slider { width: calc(2 * var(--round)); height: calc(var(--rows) * var(--round) + (var(--rows) - 1) * var(--gap)); border-radius: calc(var(--round) / 2); }
+/* As tall as up / stop / down, and twice as wide as one; its percentage under it, level with the
+   admin's padlock. */
+.stage { align-items: flex-start; }
+.column { display: flex; flex-direction: column; gap: var(--gap); }
+.slider { width: calc(2 * var(--round)); height: calc(3 * var(--round) + 2 * var(--gap)); border-radius: calc(var(--round) / 2); }
+.percent { height: var(--round); display: grid; place-items: center; font-size: 22px; font-weight: 600; letter-spacing: -0.3px; font-variant-numeric: tabular-nums; color: var(--label); }
 .buttons { display: flex; flex-direction: column; gap: var(--gap); }
 .round {
     width: var(--round);
