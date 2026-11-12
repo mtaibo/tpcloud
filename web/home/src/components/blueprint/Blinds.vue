@@ -4,8 +4,8 @@ import { useDevices } from '@/config/devices'
 import { positions } from '@/config/useBlindAnimations'
 
 // The blinds on the plan: a capsule on the window's wall that fills in the label colour (black in
-// light, white in dark) as far as the blind is open, gray when it can't be moved, with a padlock
-// on it while an admin has it locked. In "config" mode (placing a new switch)
+// light, white in dark) as far as the blind is down, like its slats in the sheet: empty when it's
+// fully open, full when it's closed. Gray when it can't be moved, with a padlock while locked. In "config" mode (placing a new switch)
 // they're all drawn the same and the picked one in the accent colour.
 const props = defineProps({
     mode:   { type: String, default: 'control' },
@@ -30,8 +30,9 @@ const blinds = computed(() => {
     })
 })
 
-// Open 0..1, following the animation while it moves.
-const open = (id, b) => Math.min(1, Math.max(0, (positions[id] ?? b.state?.position ?? 0) / 100))
+// How much of the window it covers, 0..1 (tphome's position is how open it is), following the
+// animation while it moves.
+const cover = (id, b) => 1 - Math.min(1, Math.max(0, (positions[id] ?? b.state?.position ?? 0) / 100))
 const usable = b => b.connection?.online && !b.locked
 
 const onClick = id => emit(props.mode === 'config' ? 'pick' : 'select', id)
@@ -51,10 +52,10 @@ const onClick = id => emit(props.mode === 'config' ? 'pick' : 'select', id)
         <rect
             v-if="mode === 'control'"
             :x="c.x" :y="c.y" :rx="THICK / 2"
-            :width="c.horizontal ? Math.max(THICK, c.len * open(c.id, c.blind)) : c.w"
-            :height="c.horizontal ? c.h : Math.max(THICK, c.len * open(c.id, c.blind))"
+            :width="c.horizontal ? Math.max(THICK, c.len * cover(c.id, c.blind)) : c.w"
+            :height="c.horizontal ? c.h : Math.max(THICK, c.len * cover(c.id, c.blind))"
             class="level"
-            :class="{ empty: open(c.id, c.blind) === 0 }"
+            :class="{ empty: cover(c.id, c.blind) === 0 }"
         />
         <g v-if="mode === 'control' && c.blind.locked" :transform="`translate(${c.x + c.w / 2}, ${c.y + c.h / 2})`" class="lock">
             <circle r="7" />
