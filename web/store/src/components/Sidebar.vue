@@ -97,10 +97,10 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocDown))
         <Users :size="18" :stroke-width="1.9" class="item-icon" />
         <span class="item-label">Compartido</span>
       </button>
-      <button type="button" class="item" :class="{ active: store.panel === 'gallery' }" @click="store.panel = 'gallery'">
+      <a href="/photos/" class="item" title="Abrir la Galería">
         <Images :size="18" :stroke-width="1.9" class="item-icon" />
         <span class="item-label">Galería</span>
-      </button>
+      </a>
 
       <div class="group-head static"><span>Enlaces</span></div>
       <button type="button" class="item" :class="{ active: store.panel === 'shares' }" @click="store.panel = 'shares'">

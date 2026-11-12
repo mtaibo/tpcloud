@@ -39,13 +39,15 @@ ENV/
 
 
 # =============================================================================
-# Frontend  ·  Vue 3 / Node  (store + share)
+# Frontend  ·  Vue 3 / Node  (store + share + photos)
 # =============================================================================
 
 frontend/node_modules/
 frontend/dist/
 share-frontend/node_modules/
 share-frontend/dist/
+photos-frontend/node_modules/
+photos-frontend/dist/
 
 frontend/.cache/
 frontend/.npm

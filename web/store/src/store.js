@@ -15,7 +15,7 @@ export const store = reactive({
   path: '',
   history: [],
   index: -1,
-  panel: 'files', // files | shares | gallery | browse (phone only)
+  panel: 'files', // files | shares | browse (phone only)
   view: stored('tpstore-view', stored('gallery-mode', '0') === '1' ? 'icons' : 'list'),
   sortKey: stored('tpstore-sort', 'name'),
   sortAsc: stored('tpstore-sort-asc', '1') === '1',

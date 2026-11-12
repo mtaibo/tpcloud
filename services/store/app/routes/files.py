@@ -540,6 +540,8 @@ async def thumbnail_file(
         # instead of the page loading the video itself into every tile.
         source = await media.ensure_video_poster(file_path) if is_video else file_path
         cache_path = _thumb_cache_path(source, size)
+        if not cache_path.exists():
+            media.note_interactive()
         await _ensure_thumbnail(source, cache_path, size)
         return FileResponse(
             path=str(cache_path),
@@ -591,6 +593,7 @@ async def preview_file(
             headers={**file_headers(media_type), "Cache-Control": "no-store"},
         )
     if media.is_image(file_path):
+        media.note_interactive()
         try:
             preview = await media.ensure_image_preview(file_path)
         except Exception:

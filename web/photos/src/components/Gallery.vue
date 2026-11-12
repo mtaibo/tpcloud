@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Download, Images, Trash2 } from 'lucide-vue-next'
+import { ChevronLeft, Download, Images, Trash2 } from 'lucide-vue-next'
 import Spinner from '../ui/Spinner.vue'
 import Segmented from '../ui/Segmented.vue'
 import { openMenu } from '../menu.js'
@@ -15,12 +15,14 @@ import QuickLook from './QuickLook.vue'
 // same light thumbnails and previews as a share page so they come up at once.
 const PAGE = 200
 
-const filter = ref('all')
+// Which photos: picked in the sidebar on a computer, with the segmented control on a phone.
+const filter = defineModel('filter', { type: String, default: 'all' })
 const filters = [
   { value: 'all', label: 'Todas' },
   { value: 'camera', label: 'Cámara' },
   { value: 'screenshots', label: 'Capturas' },
 ]
+const titles = { all: 'Galería', camera: 'Cámara', screenshots: 'Capturas' }
 
 const photos = ref([])
 const cursor = ref(null)
@@ -150,12 +152,12 @@ onUnmounted(() => observer?.disconnect())
 <template>
   <section class="gallery">
     <header class="bar">
-      <h1 class="bar-title">Galería</h1>
-      <Segmented v-model="filter" :options="filters" class="filters" />
+      <h1 class="bar-title">{{ titles[filter] }}</h1>
     </header>
 
     <div ref="scroller" class="content">
       <div class="page-head">
+        <a href="/" class="back"><ChevronLeft :size="20" :stroke-width="2.4" /> TPCloud</a>
         <h1 class="large-title">Galería</h1>
         <Segmented v-model="filter" :options="filters" class="filters" />
       </div>
@@ -214,7 +216,6 @@ onUnmounted(() => observer?.disconnect())
 .gallery { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .bar { height: 64px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px; }
 .bar-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
-.bar .filters { width: 300px; }
 .content { flex: 1; overflow-y: auto; padding: 0 24px 40px; }
 .page-head { display: none; }
 .state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 80px 24px; text-align: center; }
@@ -243,7 +244,9 @@ onUnmounted(() => observer?.disconnect())
 @media (max-width: 767px) {
   .bar { display: none; }
   .content { padding: calc(20px + env(safe-area-inset-top)) 0 calc(110px + env(safe-area-inset-bottom)); }
-  .page-head { display: flex; flex-direction: column; gap: 14px; padding: 24px 20px 18px; }
+  .page-head { display: flex; flex-direction: column; gap: 14px; padding: 8px 20px 18px; }
+  .back { display: inline-flex; align-items: center; gap: 2px; margin-left: -6px; font-size: 17px; color: var(--accent); }
+  .page-head .large-title { margin-top: -6px; }
   .month-title { margin: 0 0 6px; padding: 8px 20px; font-size: 18px; }
   .grid { grid-template-columns: repeat(3, 1fr); gap: 2px; }
   .photo { border-radius: 0; }

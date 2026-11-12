@@ -16,7 +16,6 @@ const tabs = [
 ]
 
 const active = computed(() => {
-  if (store.panel === 'gallery') return 'gallery'
   if (store.panel === 'browse' || store.panel === 'shares') return 'browse'
   if (store.path === 'shared' || store.path.startsWith('shared/')) return 'shared'
   return 'home'
@@ -24,7 +23,7 @@ const active = computed(() => {
 
 function pick(id) {
   if (id === 'browse') store.panel = 'browse'
-  else if (id === 'gallery') store.panel = 'gallery'
+  else if (id === 'gallery') window.location.href = '/photos/'
   else if (id === 'shared') navigate('external', 'shared')
   else navigate('external', homePath.value)
 }

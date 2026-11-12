@@ -270,7 +270,7 @@ async def _transcode(file_path: Path) -> None:
 
 # ── Warming up a folder ───────────────────────────────────────────────────────
 
-def warm_up(files: list[Path], thumbnail_sizes: list[int], key=None) -> None:
+def warm_up(files: list[Path], thumbnail_sizes: list[int], key=None, previews: bool = True) -> None:
     """Starts making everything a page will ask for (a share or store folder, a page of the
     gallery), so it's ready by the time it does. The same folder or page already warming up
     isn't started again when it's opened twice."""
@@ -280,12 +280,12 @@ def warm_up(files: list[Path], thumbnail_sizes: list[int], key=None) -> None:
     if key in _warming:
         return
     _warming.add(key)
-    task = asyncio.get_running_loop().create_task(_warm_up(files, thumbnail_sizes))
+    task = asyncio.get_running_loop().create_task(_warm_up(files, thumbnail_sizes, previews))
     _background.add(task)
     task.add_done_callback(lambda t: (_background.discard(t), _warming.discard(key)))
 
 
-async def _warm_up(files: list[Path], thumbnail_sizes: list[int]) -> None:
+async def _warm_up(files: list[Path], thumbnail_sizes: list[int], previews: bool = True) -> None:
     from app.routes.files import _thumb_cache_path, _ensure_thumbnail, _THUMB_DIR
     _THUMB_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -298,7 +298,8 @@ async def _warm_up(files: list[Path], thumbnail_sizes: list[int]) -> None:
                 for size in thumbnail_sizes:
                     async with _warm_lane:
                         await _ensure_thumbnail(poster, _thumb_cache_path(poster, size), size)
-                queue_video_preview(file_path)
+                if previews:
+                    queue_video_preview(file_path)
             elif is_image(file_path):
                 for size in thumbnail_sizes:
                     async with _warm_lane:
@@ -306,7 +307,7 @@ async def _warm_up(files: list[Path], thumbnail_sizes: list[int]) -> None:
         except Exception:
             log.exception("Couldn't prepare %s", file_path)
     for file_path in files:
-        if is_image(file_path):
+        if previews and is_image(file_path):
             try:
                 await ensure_image_preview(file_path, background=True)
             except Exception:
@@ -363,23 +364,48 @@ def _missing_photo_thumbnails(sizes: list[int]) -> list[Path]:
     return missing
 
 
+# When someone last asked for a thumbnail or preview that wasn't made yet. The backfill stands
+# aside while that's recent, so whoever is scrolling gets every core.
+_interactive_at = 0.0
+BACKFILL_WORKERS = 3
+
+
+def note_interactive() -> None:
+    global _interactive_at
+    _interactive_at = asyncio.get_running_loop().time()
+
+
+async def _wait_for_quiet() -> None:
+    loop = asyncio.get_running_loop()
+    while loop.time() - _interactive_at < 2:
+        await asyncio.sleep(0.5)
+
+
 async def _make_missing_photo_thumbnails() -> None:
     from app.routes.files import STORE_THUMB_SIZES, _THUMB_DIR, _ensure_thumbnail, _thumb_cache_path
 
     missing = await run_in_threadpool(_missing_photo_thumbnails, STORE_THUMB_SIZES)
     if not missing:
         return
-    log.info("Preparing %d gallery thumbnails", len(missing))
+    log.warning("Preparing %d gallery thumbnails", len(missing))
     _THUMB_DIR.mkdir(parents=True, exist_ok=True)
-    # One at a time on the warm-up lane, so a visitor's own requests always go first.
-    for file_path in missing:
-        try:
-            source = await ensure_video_poster(file_path, background=True) if is_video(file_path) else file_path
-            for size in STORE_THUMB_SIZES:
-                async with _warm_lane:
+    queue = list(reversed(missing))  # pop() from the end = newest first
+
+    # A few at a time while nobody is browsing (the Pi has four cores), none while someone is.
+    async def worker():
+        while queue:
+            await _wait_for_quiet()
+            if not queue:  # another worker took the last one while this one waited
+                break
+            file_path = queue.pop()
+            try:
+                source = await ensure_video_poster(file_path, background=True) if is_video(file_path) else file_path
+                for size in STORE_THUMB_SIZES:
                     await _ensure_thumbnail(source, _thumb_cache_path(source, size), size)
-        except Exception:
-            log.warning("Couldn't make a thumbnail of %s", file_path)
+            except Exception:
+                log.warning("Couldn't make a thumbnail of %s", file_path)
+
+    await asyncio.gather(*(worker() for _ in range(BACKFILL_WORKERS)))
 
 
 def move_caches(old: Path, new: Path, mtime: int) -> None:

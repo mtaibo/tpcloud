@@ -39,6 +39,16 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  # The gallery, a section of its own at /photos; its data comes from store-api.
+  photos-frontend:
+    build: ./photos-frontend
+    container_name: tpphotos-frontend
+    networks:
+      - gateway
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
 networks:
   gateway:
     external: true

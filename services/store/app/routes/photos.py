@@ -315,7 +315,9 @@ async def list_photos(
             continue
         if media.is_image(file_path) or media.is_video(file_path):
             files.append(file_path)
-    media.warm_up(files, STORE_THUMB_SIZES, key=("photos", user["email"], cursor or ""))
+    # Thumbnails only: a page is 200 photos, and their viewer versions are made when one is
+    # opened (with its neighbours), not all at once ahead of time.
+    media.warm_up(files, STORE_THUMB_SIZES, key=("photos", user["email"], cursor or ""), previews=False)
 
     return {"items": [_serialize(p) for p in rows], "next_cursor": next_cursor}
 

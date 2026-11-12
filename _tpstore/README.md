@@ -14,7 +14,7 @@
 
 ---
 
-TPStore is the storage module of my personal cloud, [tpcloud](https://github.com/mtaibo/tpcloud). It's my replacement for Google Drive and iCloud Photos: a file browser at `/store`, public share links at `/share`, and the backend that my native app, [tpapp](https://github.com/mtaibo/tpapp), backs up my iPhone photos to. Everything lives on an external disk plugged into my home server.
+TPStore is the storage module of my personal cloud, [tpcloud](https://github.com/mtaibo/tpcloud). It's my replacement for Google Drive and iCloud Photos: a file browser at `/store`, a gallery of my iPhone photos at `/photos`, public share links at `/share`, and the backend that my native app, [tpapp](https://github.com/mtaibo/tpapp), backs up my iPhone photos to. Everything lives on an external disk plugged into my home server.
 
 ## Why I built it
 
@@ -50,6 +50,9 @@ The storage browser at `/store`, drawn after Finder on the desktop and Files on 
 ### 🔗 [`share-frontend`](share-frontend/)
 The public viewer at `/share`, in the same look as the browser: the shared folder up top with Download all and Save to Photos, photos and videos in a grid like Photos, other files in a list like Files. It asks for the link's password if it has one, steps through photos and videos full screen, saves them straight to the phone's gallery and downloads them.
 
+### 🖼️ [`photos-frontend`](photos-frontend/)
+The gallery at `/photos`, a section of its own next to the store: every photo backed up from the iPhone, newest first and grouped by month, filtered to the camera's or screenshots, full screen with download and delete. Its tiles and previews are the same light versions as a share page, and the API makes every photo's thumbnail ahead of time so scrolling back years doesn't wait for them.
+
 **Vue 3 · Vite · Nginx**
 
 </td>
@@ -78,7 +81,7 @@ The public viewer at `/share`, in the same look as the browser: the shared folde
                        tpcloud auth    external disk
 ```
 
-tpstore isn't a standalone deployment. It joins tpcloud's `tpcloud_gateway` Docker network, the gateway routes `/store` and `/share` to it (stripping the prefix, so the API still serves `/api/...`), and the API asks tpcloud's `auth` service who's behind every request. `share-frontend` has no backend of its own: every request it makes is served by the same API, against the same database.
+tpstore isn't a standalone deployment. It joins tpcloud's `tpcloud_gateway` Docker network, the gateway routes `/store`, `/share` and `/photos` to it (stripping the prefix, so the API still serves `/api/...`), and the API asks tpcloud's `auth` service who's behind every request. `share-frontend` and `photos-frontend` have no backend of their own: every request it makes is served by the same API, against the same database.
 
 ## How it works
 
@@ -159,4 +162,4 @@ cp .env.example .env    # EXTERNAL_DISK_PATH (the disk that holds the files) and
 docker compose up --build -d
 ```
 
-No routing to configure here: the tpcloud gateway reaches `store-api`, `store-frontend` and `share-frontend` by their service names on the shared network.
+No routing to configure here: the tpcloud gateway reaches `store-api`, `store-frontend`, `share-frontend` and `photos-frontend` by their service names on the shared network.
