@@ -94,6 +94,29 @@ targets:
       - package: tpapp
         product: TPAdminFeature
 
+  # Performance tests on a real iPhone (`make perf`).
+  TPAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: "$(TARGET_NAME)"
+        PRODUCT_BUNDLE_IDENTIFIER: com.migueltaibo.tpcloud.uitests
+        SDKROOT: iphoneos
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: G3YVULBVD2
+        TEST_TARGET_NAME: TPApp-iOS
+    dependencies:
+      - target: TPApp-iOS
+
 schemes:
   TPApp-iOS:
     build:
@@ -102,7 +125,9 @@ schemes:
     run:
       config: Debug
     test:
-      config: Debug
+      config: Release
+      targets:
+        - TPAppUITests
   TPApp-macOS:
     build:
       targets:

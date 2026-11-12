@@ -1,4 +1,4 @@
-.PHONY: build test generate open clean app device testflight
+.PHONY: build test generate open clean app device perf testflight
 
 build:
 	swift build
@@ -25,21 +25,31 @@ app: generate
 	cp -R App/build/Build/Products/Release/TPApp-macOS.app /Applications/TPCloud.app
 	open /Applications/TPCloud.app
 
-# Builds the iOS app, installs it on the first connected iPhone and opens it. Needs the iPhone paired
+# Builds the iOS app (Release: Debug's unoptimised Swift makes scrolling and zooming feel slower
+# than the real app), installs it on the first connected iPhone and opens it. Needs the iPhone paired
 # (by cable, or on the same Wi-Fi once paired), unlocked and in Developer Mode.
 # DEVICE=<udid> picks another one.
 DEVICE ?= $(shell xcrun devicectl list devices 2>/dev/null | awk '/physical/ {for (i=1;i<=NF;i++) if ($$i ~ /^[0-9A-F]+-[0-9A-F]+$$/ && length($$i) == 25) {print $$i; exit}}')
 DEVICE_BUILD = App/build-ios
-DEVICE_APP = $(DEVICE_BUILD)/Build/Products/Debug-iphoneos/TPApp-iOS.app
+DEVICE_APP = $(DEVICE_BUILD)/Build/Products/Release-iphoneos/TPApp-iOS.app
 
 device: generate
 	@test -n "$(DEVICE)" || (echo "No hay ningún iPhone conectado." && exit 1)
-	xcodebuild -project App/TPApp.xcodeproj -scheme TPApp-iOS -configuration Debug \
+	xcodebuild -project App/TPApp.xcodeproj -scheme TPApp-iOS -configuration Release \
 		-destination 'generic/platform=iOS' -derivedDataPath $(DEVICE_BUILD) -allowProvisioningUpdates -quiet build
 	@# Over Wi-Fi the first connection is often reset; a second try goes through.
 	xcrun devicectl device install app --device $(DEVICE) $(DEVICE_APP) \
 		|| (sleep 2 && xcrun devicectl device install app --device $(DEVICE) $(DEVICE_APP))
 	xcrun devicectl device process launch --device $(DEVICE) com.migueltaibo.tpcloud
+
+# Measures the Photos tab on the connected iPhone (signed in already): hitch ratio while flinging
+# and pinching, and how long photos take to open. TEST=<method> runs one test.
+perf: generate
+	@test -n "$(DEVICE)" || (echo "No hay ningún iPhone conectado." && exit 1)
+	xcodebuild test -project App/TPApp.xcodeproj -scheme TPApp-iOS -configuration Release \
+		-destination 'id=$(DEVICE)' -derivedDataPath App/build-perf -allowProvisioningUpdates \
+		$(if $(TEST),-only-testing:TPAppUITests/PhotosPerformanceTests/$(TEST)) \
+		| grep -E "PERF|Test Case.*(passed|failed)|error:"
 
 # Archives the iPhone and Mac apps and uploads both to App Store Connect (TestFlight). Needs Xcode signed
 # in with the developer account and the app created in App Store Connect with bundle id
