@@ -92,11 +92,9 @@ async function confirmSignOut() {
   <template v-else>
     <main ref="page" class="page">
       <header class="page-header">
-        <div class="top-line">
-          <p class="subheadline secondary date">{{ today }}</p>
-          <button class="btn-plain destructive sign-out" type="button" @click="confirmSignOut">{{ t('Log out', 'Cerrar sesión') }}</button>
-        </div>
+        <p class="subheadline secondary date">{{ today }}</p>
         <h1 class="large-title">{{ greeting }}</h1>
+        <button class="btn-plain destructive sign-out" type="button" @click="confirmSignOut">{{ t('Log out', 'Cerrar sesión') }}</button>
       </header>
 
       <div class="stack">
@@ -140,7 +138,12 @@ html.no-scroll, html.no-scroll body { overflow: hidden; height: 100%; }
 .splash { min-height: 100dvh; display: grid; place-items: center; }
 .date { font-weight: 600; text-transform: none; }
 .page { padding-top: calc(24px + env(safe-area-inset-top)); }
-.top-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+/* Log out beside the greeting; on a phone, where the greeting needs the width, beside the date. */
+.page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "date date" "title out"; column-gap: 16px; align-items: baseline; }
+.date { grid-area: date; }
+.page-header .large-title { grid-area: title; }
+.sign-out { grid-area: out; }
+@media (max-width: 600px) { .page-header { grid-template-areas: "date out" "title title"; } }
 .page-header .large-title { margin-top: 2px; }
 /* Plain red text over the large title, where iOS puts a bar's text buttons. */
 .sign-out { min-height: 0; padding: 0; font-size: 17px; }
