@@ -3,8 +3,9 @@ import { computed } from 'vue'
 import { useDevices } from '@/config/devices'
 import { positions } from '@/config/useBlindAnimations'
 
-// The blinds on the plan, each one drawn as covered as it really is. In "config" mode (placing a
-// new switch) they're all shown flat and the picked one is highlighted.
+// The blinds on the plan: a capsule on the window's wall that fills green as far as the blind is
+// open (the dashboard's bar, drawn where the window is). In "config" mode (placing a new switch)
+// they're all drawn the same and the picked one in the accent colour.
 const props = defineProps({
     mode:   { type: String, default: 'control' },
     picked: { type: String, default: null },
@@ -13,74 +14,56 @@ const emit = defineEmits(['select', 'pick'])
 
 const store = useDevices()
 
-const blinds = computed(() => (props.mode === 'config' ? (store.storage.blinds ?? {}) : store.blinds))
+const THICK = 8
 
-const isHorizontal = blind => blind.map.width > blind.map.height
+const blinds = computed(() => {
+    const source = props.mode === 'config' ? (store.storage.blinds ?? {}) : store.blinds
+    return Object.entries(source).filter(([, b]) => b.map).map(([id, b]) => {
+        const m = b.map
+        const horizontal = m.width >= m.height
+        const len = horizontal ? m.width : m.height
+        const x = horizontal ? m.x : m.x + m.width / 2 - THICK / 2
+        const y = horizontal ? m.y + m.height / 2 - THICK / 2 : m.y
+        return { id, blind: b, horizontal, len, x, y, w: horizontal ? len : THICK, h: horizontal ? THICK : len }
+    })
+})
 
-const cover = (id, blind) => {
-    if (props.mode === 'config' || !blind.state) return { w: blind.map.width, h: blind.map.height }
-    const t = (100 - (positions[id] ?? blind.state.position)) / 100
-    return isHorizontal(blind)
-        ? { w: blind.map.width * t, h: blind.map.height }
-        : { w: blind.map.width,     h: blind.map.height * t }
-}
+// Open 0..1, following the animation while it moves.
+const open = (id, b) => Math.min(1, Math.max(0, (positions[id] ?? b.state?.position ?? 0) / 100))
+const usable = b => b.connection?.online && !b.locked
 
 const onClick = id => emit(props.mode === 'config' ? 'pick' : 'select', id)
 </script>
 
 <template>
     <g
-        v-for="(blind, id) in blinds"
-        :key="id"
+        v-for="c in blinds"
+        :key="c.id"
         class="blind"
-        :class="{ offline: mode === 'control' && !blind.connection?.online, picked: picked === id }"
-        @click="onClick(id)"
+        :class="{ off: mode === 'control' && !usable(c.blind), picked: picked === c.id, config: mode === 'config' }"
+        @click.stop="onClick(c.id)"
     >
-        <!-- Hit area, a little larger than the blind -->
+        <!-- Hit area, well past the capsule -->
+        <rect :x="c.x - 10" :y="c.y - 10" :width="c.w + 20" :height="c.h + 20" fill="transparent" />
+        <rect :x="c.x" :y="c.y" :width="c.w" :height="c.h" :rx="THICK / 2" class="track" />
         <rect
-            :x="blind.map.x - 6" :y="blind.map.y - 6"
-            :width="blind.map.width + 12" :height="blind.map.height + 12"
-            fill="transparent" rx="4"
-        />
-
-        <rect
-            :x="blind.map.x" :y="blind.map.y" rx="1.5"
-            :width="blind.map.width" :height="blind.map.height"
-            class="track"
-        />
-
-        <rect
-            v-if="mode === 'config'"
-            :x="blind.map.x" :y="blind.map.y" rx="1.5"
-            :width="blind.map.width" :height="blind.map.height"
-            class="config-fill"
-        />
-        <rect
-            v-else
-            :x="blind.map.x" :y="blind.map.y" rx="1.5"
-            :width="cover(id, blind).w" :height="cover(id, blind).h"
-            :fill="isHorizontal(blind) ? 'url(#blind-slat-h)' : 'url(#blind-slat-v)'"
+            v-if="mode === 'control'"
+            :x="c.x" :y="c.y" :rx="THICK / 2"
+            :width="c.horizontal ? Math.max(THICK, c.len * open(c.id, c.blind)) : c.w"
+            :height="c.horizontal ? c.h : Math.max(THICK, c.len * open(c.id, c.blind))"
+            class="level"
+            :class="{ empty: open(c.id, c.blind) === 0 }"
         />
     </g>
-
-    <defs>
-        <!-- Wide blind seen from above: one stripe per slat, filling left to right. -->
-        <pattern id="blind-slat-h" x="0" y="0" width="5" height="7" patternUnits="userSpaceOnUse">
-            <rect width="5" height="7" style="fill: var(--plan-slat)" />
-            <rect x="4.2" width="0.8" height="7" style="fill: var(--plan-slat-edge)" />
-        </pattern>
-        <!-- Tall blind seen from the side: one stripe per slat, filling top to bottom. -->
-        <pattern id="blind-slat-v" x="0" y="0" width="7" height="4" patternUnits="userSpaceOnUse">
-            <rect width="7" height="4" style="fill: var(--plan-slat)" />
-            <rect y="3.4" width="7" height="0.6" style="fill: var(--plan-slat-edge)" />
-        </pattern>
-    </defs>
 </template>
 
 <style scoped>
-.blind { cursor: pointer; pointer-events: all; transition: opacity 0.3s; }
-.blind.offline { opacity: 0.35; }
-.track { fill: var(--plan-track); stroke: var(--plan-wall); stroke-width: 0.5; }
-.config-fill { fill: color-mix(in srgb, var(--accent) 25%, transparent); transition: fill 0.2s; }
-.picked .config-fill { fill: var(--accent); }
+.blind { cursor: pointer; pointer-events: all; }
+.track { fill: var(--plan-track); stroke: var(--plan-bg); stroke-width: 2.5; paint-order: stroke; transition: fill 0.2s; }
+.level { fill: var(--green); transition: width 0.4s var(--ease), height 0.4s var(--ease), fill 0.3s; }
+.level.empty { fill: transparent; }
+.off .level { fill: var(--gray); }
+.config .track { fill: color-mix(in srgb, var(--accent) 35%, var(--plan-room)); }
+.picked .track { fill: var(--accent); }
+@media (hover: hover) { .blind:not(.config):hover .track { fill: color-mix(in srgb, var(--label) 22%, var(--plan-room)); } }
 </style>

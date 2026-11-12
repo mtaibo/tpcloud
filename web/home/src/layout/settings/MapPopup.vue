@@ -78,5 +78,5 @@ watch(() => props.device, async d => {
 
 <style scoped>
 .intro { text-align: center; margin-bottom: 16px; }
-.plan-card { padding: 16px; border-radius: var(--radius-card); background: var(--cell); }
+.plan-card { padding: 16px; border-radius: var(--radius-card); background: var(--bg); }
 </style>

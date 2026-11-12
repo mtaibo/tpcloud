@@ -1,204 +1,69 @@
 <script setup>
+import { computed } from 'vue'
+import { useBlueprint } from '@/config/blueprint'
+import { openEdges } from '@/config/rooms'
 
-    import { computed } from 'vue'
-    import { useBlueprint } from '@/config/blueprint'
+// The house from above as cards: every room a rounded surface and a thin gap between rooms for
+// the walls. A room can be lit
+// warm (how open its blinds are) and picked out while its sheet is open.
+const props = defineProps({
+    light:     { type: Object, default: () => ({}) },  // room id → 0..1
+    selected:  { type: String, default: null },
+    clickable: { type: Object, default: () => ({}) },  // room id → true
+})
+const emit = defineEmits(['select'])
 
-    const map = useBlueprint()
+const map = useBlueprint()
 
-    const vb = computed(() => {
-        const parts = (map.storage.viewBox ?? '0 0 0 0').split(' ').map(Number)
-        return { w: parts[2] ?? 0, h: parts[3] ?? 0 }
-    })
+const GAP = 4
+const RADIUS = 9
 
-    const roomRx = computed(() => Math.round(Math.min(vb.value.w || 100, vb.value.h || 100) * 0.08))
+const rooms = computed(() => (map.storage.rooms ?? []).map(r => ({
+    ...r,
+    x: r.x + GAP / 2, y: r.y + GAP / 2,
+    w: r.w - GAP, h: r.h - GAP,
+    rx: Math.min(RADIUS, (r.w - GAP) / 4, (r.h - GAP) / 4),
+})))
 
-    // Classify wall segments by testing each boundary only within the room that owns it.
-    // This avoids generating phantom walls where a room-corner y/x passes through another room's interior.
-    const wallSegments = computed(() => {
-        const rooms = map.storage.rooms
-        if (!rooms) return { exterior: [], interiorPath: '' }
-        const xs = [...new Set(rooms.flatMap(r => [r.x, r.x + r.w]))].sort((a, b) => a - b)
-        const ys = [...new Set(rooms.flatMap(r => [r.y, r.y + r.h]))].sort((a, b) => a - b)
-        const inRoom = (x, y) => rooms.some(r => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h)
-        const sk = (x1, y1, x2, y2) => `${x1},${y1},${x2},${y2}`
+// Rooms that are one open space (the entrance and the hall, the lounge and its gallery) are
+// joined across the gap along the whole edge they share, a little past the rounded corners and
+// clipped to the house. Ordinary doors aren't drawn: the gap between cards is the wall.
+const bridges = computed(() => openEdges(map.storage.rooms ?? [], map.storage.doors ?? []).map(e => {
+    const across = GAP + RADIUS * 2
+    return e.vertical
+        ? { room: e.a, x: e.x - across / 2, y: e.y1 + GAP / 2, w: across, h: Math.max(0, e.y2 - e.y1 - GAP) }
+        : { room: e.a, x: e.x1 + GAP / 2, y: e.y - across / 2, w: Math.max(0, e.x2 - e.x1 - GAP), h: across }
+}))
 
-        const exteriorSet = new Set(), interiorSet = new Set()
-        const exterior = [], interiorParts = []
-
-        // Horizontal boundaries: only test x-intervals within the room that has that y-edge
-        for (const y of ys) {
-            for (const room of rooms.filter(r => r.y === y || r.y + r.h === y)) {
-                const rxs = xs.filter(x => x >= room.x && x <= room.x + room.w)
-                for (let i = 0; i < rxs.length - 1; i++) {
-                    const xm = (rxs[i] + rxs[i + 1]) / 2
-                    const above = inRoom(xm, y - 0.5), below = inRoom(xm, y + 0.5)
-                    const key = sk(rxs[i], y, rxs[i + 1], y)
-                    if (above !== below && !exteriorSet.has(key)) {
-                        exteriorSet.add(key)
-                        exterior.push({ x1: rxs[i], y1: y, x2: rxs[i + 1], y2: y })
-                    } else if (above && below && !interiorSet.has(key)) {
-                        interiorSet.add(key)
-                        interiorParts.push(`M${rxs[i]},${y}L${rxs[i + 1]},${y}`)
-                    }
-                }
-            }
-        }
-
-        // Vertical boundaries: only test y-intervals within the room that has that x-edge
-        for (const x of xs) {
-            for (const room of rooms.filter(r => r.x === x || r.x + r.w === x)) {
-                const rys = ys.filter(y => y >= room.y && y <= room.y + room.h)
-                for (let j = 0; j < rys.length - 1; j++) {
-                    const ym = (rys[j] + rys[j + 1]) / 2
-                    const left = inRoom(x - 0.5, ym), right = inRoom(x + 0.5, ym)
-                    const key = sk(x, rys[j], x, rys[j + 1])
-                    if (left !== right && !exteriorSet.has(key)) {
-                        exteriorSet.add(key)
-                        exterior.push({ x1: x, y1: rys[j], x2: x, y2: rys[j + 1] })
-                    } else if (left && right && !interiorSet.has(key)) {
-                        interiorSet.add(key)
-                        interiorParts.push(`M${x},${rys[j]}L${x},${rys[j + 1]}`)
-                    }
-                }
-            }
-        }
-
-        return { exterior, interiorPath: interiorParts.join('') }
-    })
-
-    // Trace exterior segments into a closed polygon with rounded corners
-    const exteriorOutlinePath = computed(() => {
-        const segs = wallSegments.value.exterior
-        if (!segs.length) return ''
-
-        const adj = new Map()
-        const k = (x, y) => `${x},${y}`
-        for (const seg of segs) {
-            const k1 = k(seg.x1, seg.y1), k2 = k(seg.x2, seg.y2)
-            if (!adj.has(k1)) adj.set(k1, { x: seg.x1, y: seg.y1, nb: [] })
-            if (!adj.has(k2)) adj.set(k2, { x: seg.x2, y: seg.y2, nb: [] })
-            adj.get(k1).nb.push(k2)
-            adj.get(k2).nb.push(k1)
-        }
-
-        const startKey = [...adj.keys()].reduce((a, b) => {
-            const na = adj.get(a), nb = adj.get(b)
-            return nb.y < na.y || (nb.y === na.y && nb.x < na.x) ? b : a
-        })
-
-        const raw = []
-        let cur = startKey, prev = null
-        do {
-            const node = adj.get(cur)
-            raw.push({ x: node.x, y: node.y })
-            const next = node.nb.find(n => n !== prev) ?? node.nb[0]
-            prev = cur
-            cur = next
-        } while (cur !== startKey && raw.length <= segs.length)
-
-        // Drop collinear vertices
-        const n = raw.length
-        const poly = raw.filter((c, i) => {
-            const p = raw[(i - 1 + n) % n], nx = raw[(i + 1) % n]
-            return (c.x - p.x) * (nx.y - p.y) - (c.y - p.y) * (nx.x - p.x) !== 0
-        })
-
-        if (poly.length < 3) return ''
-
-        // Quadratic bezier arcs only at convex corners (cross product > 0).
-        // Concave corners (inward notches) get a sharp angle to avoid visual gaps.
-        const r = 12
-        const m = poly.length
-        let d = ''
-
-        for (let i = 0; i < m; i++) {
-            const pv = poly[(i - 1 + m) % m]
-            const cv = poly[i]
-            const nx = poly[(i + 1) % m]
-
-            const dx1 = cv.x - pv.x, dy1 = cv.y - pv.y
-            const len1 = Math.hypot(dx1, dy1)
-            const dx2 = nx.x - cv.x, dy2 = nx.y - cv.y
-            const len2 = Math.hypot(dx2, dy2)
-
-            const cross = dx1 * dy2 - dy1 * dx2
-
-            if (cross > 0) {
-                const cr = Math.min(r, len1 / 2, len2 / 2)
-                const p1x = cv.x - (dx1 / len1) * cr, p1y = cv.y - (dy1 / len1) * cr
-                const p2x = cv.x + (dx2 / len2) * cr, p2y = cv.y + (dy2 / len2) * cr
-                d += i === 0 ? `M${p1x},${p1y}` : `L${p1x},${p1y}`
-                d += `Q${cv.x},${cv.y} ${p2x},${p2y}`
-            } else {
-                d += i === 0 ? `M${cv.x},${cv.y}` : `L${cv.x},${cv.y}`
-            }
-        }
-
-        return d + 'Z'
-    })
-
+const fill = id => `color-mix(in srgb, var(--plan-sun) ${Math.round((props.light[id] ?? 0) * 100)}%, var(--plan-room))`
 </script>
 
 <template>
-
     <defs>
-        <mask id="door-mask">
-            <rect :width="vb.w" :height="vb.h" fill="white"/>
-            <line
-                v-for="(door, i) in map.storage.doors"
-                :key="i"
-                :x1="door.x1" :y1="door.y1"
-                :x2="door.x2" :y2="door.y2"
-                stroke="black"
-                stroke-width="8"
-            />
-        </mask>
+        <clipPath id="plan-house">
+            <!-- A hair larger than each room, so the clip has no seam where two rooms touch -->
+            <rect v-for="r in map.storage.rooms" :key="r.id" :x="r.x - 0.5" :y="r.y - 0.5" :width="r.w + 1" :height="r.h + 1" />
+        </clipPath>
     </defs>
 
-    <!-- Rooms (fill only) -->
-    <g>
+    <g class="house">
+        <rect v-for="b in bridges" :key="`${b.x},${b.y}`" :x="b.x" :y="b.y" :width="b.w" :height="b.h" class="bridge" :style="{ fill: fill(b.room) }" clip-path="url(#plan-house)" />
         <rect
-            v-for="room in map.storage.rooms"
-            :key="room.id"
-            :x="room.x" :y="room.y"
-            :width="room.w" :height="room.h"
-            :rx="roomRx" :ry="roomRx"
-            fill="none"
+            v-for="r in rooms"
+            :key="r.id"
+            :x="r.x" :y="r.y" :width="r.w" :height="r.h" :rx="r.rx"
+            class="room"
+            :class="{ selected: selected === r.id, clickable: clickable[r.id] }"
+            :style="{ fill: fill(r.id) }"
+            @click="clickable[r.id] && emit('select', r.id)"
         />
     </g>
-
-    <!-- Interior walls (shared walls between rooms) -->
-    <path
-        :d="wallSegments.interiorPath"
-        fill="none"
-        stroke-width="2"
-        style="stroke: var(--plan-wall);"
-        stroke-linecap="round"
-        mask="url(#door-mask)"
-    />
-
-    <!-- Exterior outline with rounded corners -->
-    <path
-        :d="exteriorOutlinePath"
-        fill="none"
-        stroke-width="2"
-        style="stroke: var(--plan-wall);"
-        stroke-linecap="round"
-        mask="url(#door-mask)"
-    />
-
-    <!-- Room labels -->
-    <g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', sans-serif"
-       font-size="11"
-       font-weight="600"
-       letter-spacing="1.2"
-       style="fill: var(--plan-label); text-transform: uppercase; pointer-events: none;">
-        <text
-            v-for="(label, i) in map.storage.labels"
-            :key="i"
-            :x="label.x" :y="label.y"
-            text-anchor="middle"
-        >{{ label.text }}</text>
-    </g>
-
 </template>
+
+<style scoped>
+.room { transition: fill 0.6s var(--ease), stroke 0.2s; stroke: transparent; stroke-width: 2; }
+.room.clickable { cursor: pointer; }
+@media (hover: hover) { .room.clickable:hover { stroke: color-mix(in srgb, var(--label) 12%, transparent); } }
+.room.selected { stroke: var(--accent); }
+.bridge { transition: fill 0.6s var(--ease); }
+</style>
