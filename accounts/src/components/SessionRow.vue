@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import Icon from '@ui/Icon.vue'
 import ListRow from '@ui/ListRow.vue'
 import { ago, deviceIcon, methodNames, where } from '@ui/format.js'
+import { t } from '@ui/i18n.js'
 
 const props = defineProps({
   session: { type: Object, required: true },
@@ -12,7 +13,7 @@ const props = defineProps({
 defineEmits(['click'])
 
 const active = computed(() => props.session.current || Date.now() - new Date(props.session.last_seen_at) < 5 * 60000)
-const lastSeen = computed(() => (props.session.current ? 'Este dispositivo' : active.value ? 'Activa ahora' : `Activa ${ago(props.session.last_seen_at)}`))
+const lastSeen = computed(() => (props.session.current ? t('This device', 'Este dispositivo') : active.value ? t('Active now', 'Activa ahora') : t(`Active ${ago(props.session.last_seen_at)}`, `Activa ${ago(props.session.last_seen_at)}`)))
 </script>
 
 <template>
@@ -23,7 +24,7 @@ const lastSeen = computed(() => (props.session.current ? 'Este dispositivo' : ac
         <i v-if="active" class="dot" />
       </span>
     </template>
-    <span class="row-title">{{ session.device?.label || session.device_info || 'Dispositivo desconocido' }}</span>
+    <span class="row-title">{{ session.device?.label || session.device_info || t('Unknown device', 'Dispositivo desconocido') }}</span>
     <span class="row-subtitle">{{ where(session) }}</span>
     <span class="row-subtitle small" :class="{ live: session.current }">{{ lastSeen }} · {{ methodNames[session.auth_method] || session.auth_method }}</span>
   </ListRow>

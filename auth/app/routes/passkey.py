@@ -137,7 +137,7 @@ def login_complete(
 def check(request: Request, session: DBSession = Depends(get_session)):
     if _valid_session(request, session):
         return Response(status_code=200)
-    raise HTTPException(status_code=401, detail="no autenticado")
+    raise HTTPException(status_code=401, detail="Not signed in.")
 
 
 @router.get("/me")
@@ -150,9 +150,10 @@ def me(request: Request, session: DBSession = Depends(get_session)):
                 "email": user.email,
                 "display_name": user.display_name,
                 "is_admin": user.is_admin,
+                "language": user.language,
                 "modules": MODULES,
             }
-    raise HTTPException(status_code=401, detail="no autenticado")
+    raise HTTPException(status_code=401, detail="Not signed in.")
 
 
 @router.post("/logout")

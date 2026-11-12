@@ -1,4 +1,5 @@
 <script setup>
+import { t } from '@ui/i18n.js'
 import { computed, ref, watch } from 'vue'
 import ListSection from '@ui/ListSection.vue'
 import ListRow from '@ui/ListRow.vue'
@@ -19,7 +20,7 @@ async function saveName(e) {
   try {
     await api('/auth/account/profile', { method: 'PATCH', body: { display_name: value } })
     await store.reload()
-    toast('Nombre actualizado')
+    toast(t('Name updated', 'Nombre actualizado'))
   } catch (err) {
     name.value = profile.value.display_name
     toast(err.message, 'warning')
@@ -29,7 +30,7 @@ async function saveName(e) {
 </script>
 
 <template>
-  <Page title="Perfil">
+  <Page :title="t('Profile', 'Perfil')">
     <template #header>
       <div class="hero">
         <span class="avatar" style="width: 96px; height: 96px; font-size: 38px">{{ initials(profile.display_name) }}</span>
@@ -38,22 +39,22 @@ async function saveName(e) {
       </div>
     </template>
 
-    <ListSection footer="Así aparece tu nombre en TPCloud y en sus módulos.">
+    <ListSection :footer="t('This is how your name appears in TPCloud and its modules.', 'Así aparece tu nombre en TPCloud y en sus módulos.')">
       <ListRow>
-        <span class="row-title row-label">Nombre</span>
+        <span class="row-title row-label">{{ t('Name', 'Nombre') }}</span>
         <template #trailing>
           <input
             v-model="name"
             class="row-input trailing"
             autocomplete="name"
-            aria-label="Nombre"
+            :aria-label="t('Name', 'Nombre')"
             @keydown.enter="saveName"
             @blur="saveName"
           />
         </template>
       </ListRow>
-      <ListRow title="Correo" :value="profile.email" />
-      <ListRow title="Cuenta" :value="profile.is_admin ? 'Administrador' : 'Usuario'" />
+      <ListRow :title="t('Email', 'Correo')" :value="profile.email" />
+      <ListRow :title="t('Account', 'Cuenta')" :value="profile.is_admin ? t('Administrator', 'Administrador') : t('User', 'Usuario')" />
     </ListSection>
   </Page>
 </template>

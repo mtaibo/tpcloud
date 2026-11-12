@@ -19,6 +19,15 @@ PENDING_TOTP_DURATION = timedelta(minutes=10)
 LAST_SEEN_INTERVAL = timedelta(minutes=1)
 
 
+LANGUAGES = ("en", "es")
+
+
+def say(user, en: str, es: str) -> str:
+    """A message in the account's language. Spanish until one is picked, as the web and the
+    app always were; the sign-in endpoints answer in English only."""
+    return en if user is not None and getattr(user, "language", None) == "en" else es
+
+
 def detect_client_type(request) -> str:
     """The native app (iOS/macOS) tags its requests with X-TP-Client; browsers never send it."""
     return "native" if request.headers.get("X-TP-Client") else "web"

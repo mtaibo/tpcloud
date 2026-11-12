@@ -16,13 +16,13 @@ def _get_db_session_and_user(request: Request, session: DBSession):
         select(SessionModel).where(SessionModel.session_id == session_id)
     ).first()
     if not db_session:
-        raise HTTPException(status_code=401, detail="sesión inválida")
+        raise HTTPException(status_code=401, detail="Invalid session.")
     if db_session.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
-        raise HTTPException(status_code=401, detail="sesión expirada")
+        raise HTTPException(status_code=401, detail="Session expired.")
 
     user = session.get(User, db_session.user_id)
     if not user:
-        raise HTTPException(status_code=401, detail="usuario no encontrado")
+        raise HTTPException(status_code=401, detail="User not found.")
 
     return db_session, user
 
@@ -30,7 +30,7 @@ def _get_db_session_and_user(request: Request, session: DBSession):
 def require_login(request: Request, session: DBSession = Depends(get_session)) -> User:
     db_session, user = _get_db_session_and_user(request, session)
     if not db_session.totp_verified:
-        raise HTTPException(status_code=403, detail="Verificación TOTP pendiente")
+        raise HTTPException(status_code=403, detail="Two-step verification pending")
     return user
 
 

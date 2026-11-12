@@ -2,10 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AlertHost from '@ui/AlertHost.vue'
 import Icon from '@ui/Icon.vue'
-import NavBar from '@ui/NavBar.vue'
 import Spinner from '@ui/Spinner.vue'
 import { api, signOut } from '@ui/api.js'
 import { ask } from '@ui/dialog.js'
+import { locale, syncLang, t } from '@ui/i18n.js'
 import QuickAccess from './QuickAccess.vue'
 
 const user = ref(null)
@@ -13,22 +13,22 @@ const profile = ref(null)
 const activity = ref([])
 
 // Only the modules this server runs (auth reports them in /me).
-const allServices = [
-  { module: 'store', name: 'Archivos', description: 'Tus archivos y fotos', icon: 'folder', tint: 'blue', url: '/store/' },
-  { module: 'store', name: 'Galería', description: 'Las fotos de tu iPhone', icon: 'photo', tint: 'pink', url: '/photos/' },
-  { module: 'store', name: 'Compartido', description: 'Carpetas abiertas con enlace', icon: 'link', tint: 'teal', url: '/share/' },
-  { module: 'home', name: 'Casa', description: 'Luces, persianas y enchufes', icon: 'house', tint: 'orange', url: '/home/' },
-  { module: null, name: 'Cuenta', description: 'Seguridad y dispositivos', icon: 'person', tint: 'gray', url: '/accounts' },
+const allServices = () => [
+  { module: 'store', name: t('Files', 'Archivos'), description: t('Your files and photos', 'Tus archivos y fotos'), icon: 'folder', tint: 'blue', url: '/store/' },
+  { module: 'store', name: t('Photos', 'Galería'), description: t('The photos from your iPhone', 'Las fotos de tu iPhone'), icon: 'photo', tint: 'pink', url: '/photos/' },
+  { module: 'store', name: t('Shared', 'Compartido'), description: t('Folders open with a link', 'Carpetas abiertas con enlace'), icon: 'link', tint: 'teal', url: '/share/' },
+  { module: 'home', name: t('Home', 'Casa'), description: t('Lights, blinds and plugs', 'Luces, persianas y enchufes'), icon: 'house', tint: 'orange', url: '/home/' },
+  { module: null, name: t('Account', 'Cuenta'), description: t('Security and devices', 'Seguridad y dispositivos'), icon: 'person', tint: 'gray', url: '/accounts' },
 ]
-const services = computed(() => allServices.filter(s => !s.module || user.value?.modules?.includes(s.module)))
+const services = computed(() => allServices().filter(s => !s.module || user.value?.modules?.includes(s.module)))
 
 const greeting = computed(() => {
   const h = new Date().getHours()
-  const part = h < 6 ? 'Buenas noches' : h < 13 ? 'Buenos días' : h < 21 ? 'Buenas tardes' : 'Buenas noches'
+  const part = h < 6 || h >= 21 ? t('Good evening', 'Buenas noches') : h < 13 ? t('Good morning', 'Buenos días') : t('Good afternoon', 'Buenas tardes')
   return `${part}, ${user.value.display_name.split(' ')[0]}`
 })
 const today = computed(() => {
-  const text = new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())
+  const text = new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())
   return text.charAt(0).toUpperCase() + text.slice(1)
 })
 // Failed sign-ins this week that the owner hasn't confirmed as their own (in Cuenta → Actividad).
@@ -44,9 +44,30 @@ const onWide = e => { desktop.value = e.matches }
 wide.addEventListener('change', onWide)
 onBeforeUnmount(() => wide.removeEventListener('change', onWide))
 
+// The dashboard doesn't scroll: it's one screen. Only a window too short to show all of it
+// (a phone on its side, a small laptop window) gets scrolling back, so nothing is cut off.
+const page = ref(null)
+let fit = null
+function lockScroll() {
+  const last = page.value?.lastElementChild
+  const fits = !last || last.getBoundingClientRect().bottom + window.scrollY + 16 <= window.innerHeight
+  document.documentElement.classList.toggle('no-scroll', fits)
+}
+onMounted(() => {
+  fit = new ResizeObserver(lockScroll)
+  fit.observe(document.body)
+  window.addEventListener('resize', lockScroll)
+})
+onBeforeUnmount(() => {
+  fit?.disconnect()
+  window.removeEventListener('resize', lockScroll)
+  document.documentElement.classList.remove('no-scroll')
+})
+
 onMounted(async () => {
   window.history.replaceState(null, '', '/')
   user.value = await api('/auth/passkey/me')
+  syncLang(user.value)
   const [p, a] = await Promise.allSettled([api('/auth/account/profile'), api('/auth/account/activity?limit=40')])
   if (p.status === 'fulfilled') profile.value = p.value
   if (a.status === 'fulfilled') activity.value = a.value
@@ -54,11 +75,11 @@ onMounted(async () => {
 
 async function confirmSignOut() {
   const ok = await ask({
-    title: '¿Cerrar sesión?',
-    message: 'Tendrás que volver a iniciar sesión en este navegador.',
+    title: t('Log out?', '¿Cerrar sesión?'),
+    message: t('You’ll have to sign in again on this browser.', 'Tendrás que volver a iniciar sesión en este navegador.'),
     actions: [
-      { label: 'Cancelar', role: 'cancel', value: false },
-      { label: 'Cerrar sesión', role: 'destructive', value: true },
+      { label: t('Cancel', 'Cancelar'), role: 'cancel', value: false },
+      { label: t('Log out', 'Cerrar sesión'), role: 'destructive', value: true },
     ],
   })
   if (ok) signOut()
@@ -69,17 +90,13 @@ async function confirmSignOut() {
   <div v-if="!user" class="splash"><Spinner :size="26" /></div>
 
   <template v-else>
-    <NavBar :title="greeting" />
-
-    <main class="page">
+    <main ref="page" class="page">
       <header class="page-header">
-        <div class="heading">
+        <div class="top-line">
           <p class="subheadline secondary date">{{ today }}</p>
-          <h1 class="large-title">{{ greeting }}</h1>
+          <button class="btn-plain destructive sign-out" type="button" @click="confirmSignOut">{{ t('Log out', 'Cerrar sesión') }}</button>
         </div>
-        <button class="icon-btn sign-out" title="Cerrar sesión" aria-label="Cerrar sesión" @click="confirmSignOut">
-          <Icon name="sign-out" :size="20" :weight="2" />
-        </button>
+        <h1 class="large-title">{{ greeting }}</h1>
       </header>
 
       <div class="stack">
@@ -100,7 +117,9 @@ async function confirmSignOut() {
       <a v-if="failures" href="/accounts/activity" class="banner">
         <Icon name="warning" :size="22" />
         <span class="subheadline">
-          {{ failures === 1 ? '1 intento fallido' : `${failures} intentos fallidos` }} de entrar en tu cuenta esta semana. Revísalo.
+          {{ failures === 1
+            ? t('1 failed attempt to get into your account this week. Check it.', '1 intento fallido de entrar en tu cuenta esta semana. Revísalo.')
+            : t(`${failures} failed attempts to get into your account this week. Check them.`, `${failures} intentos fallidos de entrar en tu cuenta esta semana. Revísalo.`) }}
         </span>
         <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
       </a>
@@ -111,21 +130,20 @@ async function confirmSignOut() {
 </template>
 
 <style>
-/* The dashboard is one screen: no bounce, and if a short window ever needs to scroll, no bar. */
+/* The dashboard is one screen: no bounce, no bar, and no scrolling while it all fits. */
 html { overscroll-behavior: none; scrollbar-width: none; }
 html::-webkit-scrollbar { display: none; }
+html.no-scroll, html.no-scroll body { overflow: hidden; height: 100%; }
 </style>
 
 <style scoped>
 .splash { min-height: 100dvh; display: grid; place-items: center; }
 .date { font-weight: 600; text-transform: none; }
-.page-header { display: flex; align-items: flex-end; gap: 12px; }
-.heading { flex: 1; min-width: 0; }
+.page { padding-top: calc(24px + env(safe-area-inset-top)); }
+.top-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .page-header .large-title { margin-top: 2px; }
-/* Beside the large title, like the account button in the App Store. */
-.sign-out { margin-bottom: -2px; }
-/* Arrow out to the right, like the system's rectangle.portrait.and.arrow.right. */
-.sign-out .icon { transform: scaleX(-1); }
+/* Plain red text over the large title, where iOS puts a bar's text buttons. */
+.sign-out { min-height: 0; padding: 0; font-size: 17px; }
 
 .stack { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; }
 .grid {
@@ -152,9 +170,9 @@ html::-webkit-scrollbar { display: none; }
 
 /* Wider: sideways tiles, the first one across the top, and an odd one out across the bottom. */
 @media (min-width: 601px) {
-  .tile { align-items: center; padding: 16px 20px 16px 16px; }
-  .tile:first-child { grid-column: span 2; padding: 22px 24px 22px 20px; }
-  .tile:first-child .tile-icon { width: 64px; height: 64px; border-radius: 18px; }
+  .tile { align-items: center; padding: 12px 20px 12px 12px; }
+  .tile:first-child { grid-column: span 2; padding: 16px 24px 16px 16px; }
+  .tile:first-child .tile-icon { width: 60px; height: 60px; border-radius: 17px; }
   .tile:last-child:nth-child(even) { grid-column: span 2; }
   .tile-text { flex: 1; min-width: 0; }
   .tile-chevron { display: block; }

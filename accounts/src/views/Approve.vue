@@ -8,6 +8,7 @@ import Spinner from '@ui/Spinner.vue'
 import Toggle from '@ui/Toggle.vue'
 import { api } from '@ui/api.js'
 import { deviceIcon } from '@ui/format.js'
+import { t } from '@ui/i18n.js'
 
 // Opened by scanning the QR code on a login page: shows who's asking and lets this (already
 // signed-in) device let them in.
@@ -22,7 +23,7 @@ let timer = null
 
 const where = computed(() => {
   const r = request.value
-  return r && r.location && r.location !== r.ip_address ? r.location : 'Ubicación desconocida'
+  return r && r.location && r.location !== r.ip_address ? r.location : t('Unknown location', 'Ubicación desconocida')
 })
 
 onMounted(async () => {
@@ -35,7 +36,7 @@ onMounted(async () => {
       left.value -= 1
       if (left.value <= 0 && state.value === 'ready') {
         state.value = 'gone'
-        message.value = 'El código ha caducado. Genera otro en la pantalla de inicio de sesión.'
+        message.value = t('The code has expired. Make a new one on the sign-in screen.', 'El código ha caducado. Genera otro en la pantalla de inicio de sesión.')
       }
     }, 1000)
   } catch (e) {
@@ -69,38 +70,38 @@ async function decide(approve) {
     <div v-else-if="state === 'ready'" class="content">
       <div class="hero">
         <span class="device"><Icon :name="deviceIcon(request.device.kind)" :size="46" :weight="1.5" /></span>
-        <h1 class="title-1">¿Iniciar sesión en {{ request.device.label }}?</h1>
-        <p class="subheadline secondary">Entrará en tu cuenta <strong>{{ request.account.email }}</strong>.</p>
+        <h1 class="title-1">{{ t(`Sign in on ${request.device.label}?`, `¿Iniciar sesión en ${request.device.label}?`) }}</h1>
+        <p class="subheadline secondary">{{ t('It will get into your account', 'Entrará en tu cuenta') }} <strong>{{ request.account.email }}</strong>.</p>
       </div>
 
       <ListSection>
-        <ListRow icon="location" tint="red" title="Desde" :value="where" wrap-value />
+        <ListRow icon="location" tint="red" :title="t('From', 'Desde')" :value="where" wrap-value />
         <ListRow icon="network" tint="teal" title="IP" :value="request.ip_address" />
-        <ListRow icon="clock" tint="orange" title="Caduca en" :value="`${left} s`" />
+        <ListRow icon="clock" tint="orange" :title="t('Expires in', 'Caduca en')" :value="`${left} s`" />
       </ListSection>
 
       <ListSection>
-        <ListRow title="Mantener la sesión iniciada">
-          <template #trailing><Toggle v-model="remember" label="Mantener la sesión iniciada" :disabled="!!busy" /></template>
+        <ListRow :title="t('Stay signed in', 'Mantener la sesión iniciada')">
+          <template #trailing><Toggle v-model="remember" :label="t('Stay signed in', 'Mantener la sesión iniciada')" :disabled="!!busy" /></template>
         </ListRow>
         <template #footer>
           {{ remember
-            ? 'Seguirá dentro 30 días desde la última vez que lo use. Desactívalo si es un ordenador compartido.'
-            : 'Se cerrará al cerrar el navegador o tras 12 horas sin usarlo.' }}
+            ? t('It stays signed in for 30 days from the last time it’s used. Turn it off on a shared computer.', 'Seguirá dentro 30 días desde la última vez que lo use. Desactívalo si es un ordenador compartido.')
+            : t('It signs out when the browser closes or after 12 hours unused.', 'Se cerrará al cerrar el navegador o tras 12 horas sin usarlo.') }}
         </template>
       </ListSection>
 
       <div class="warning">
         <Icon name="warning" :size="20" />
-        <p class="footnote">Permítelo solo si eres tú quien está delante de esa pantalla ahora mismo. Si alguien te ha pasado este código, recházalo.</p>
+        <p class="footnote">{{ t('Only allow it if you’re the one in front of that screen right now. If someone sent you this code, decline it.', 'Permítelo solo si eres tú quien está delante de esa pantalla ahora mismo. Si alguien te ha pasado este código, recházalo.') }}</p>
       </div>
 
       <div class="buttons">
         <button class="btn btn-prominent block" type="button" :disabled="!!busy" @click="decide(true)">
           <Spinner v-if="busy === 'approve'" :size="18" style="color: #fff" />
-          <span v-else>Permitir</span>
+          <span v-else>{{ t('Allow', 'Permitir') }}</span>
         </button>
-        <button class="btn btn-glass destructive block" type="button" :disabled="!!busy" @click="decide(false)">No, rechazar</button>
+        <button class="btn btn-glass destructive block" type="button" :disabled="!!busy" @click="decide(false)">{{ t('No, decline', 'No, rechazar') }}</button>
       </div>
     </div>
 
@@ -108,13 +109,13 @@ async function decide(approve) {
       <span class="result-icon" :class="state === 'approved' ? 'green' : state === 'denied' ? 'red' : 'gray'">
         <Icon :name="state === 'approved' ? 'checkmark' : state === 'denied' ? 'xmark' : 'clock'" :size="40" :weight="2.6" />
       </span>
-      <h1 class="title-2">{{ state === 'approved' ? 'Listo' : state === 'denied' ? 'Rechazado' : 'Código no válido' }}</h1>
+      <h1 class="title-2">{{ state === 'approved' ? t('Done', 'Listo') : state === 'denied' ? t('Declined', 'Rechazado') : t('Code not valid', 'Código no válido') }}</h1>
       <p class="subheadline secondary">
         {{ state === 'approved'
-          ? 'Ya puedes seguir en el otro dispositivo. Lo verás en tus dispositivos y en tu actividad.'
-          : state === 'denied' ? 'No ha entrado nadie. Queda anotado en tu actividad.' : message }}
+          ? t('You can carry on on the other device. You’ll see it in your devices and your activity.', 'Ya puedes seguir en el otro dispositivo. Lo verás en tus dispositivos y en tu actividad.')
+          : state === 'denied' ? t('Nobody got in. It’s noted in your activity.', 'No ha entrado nadie. Queda anotado en tu actividad.') : message }}
       </p>
-      <a href="/accounts/sessions" class="btn btn-bordered medium">Ver mis dispositivos</a>
+      <a href="/accounts/sessions" class="btn btn-bordered medium">{{ t('See my devices', 'Ver mis dispositivos') }}</a>
     </div>
   </main>
 </template>

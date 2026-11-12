@@ -22,7 +22,7 @@ from dependencies import require_login
 from models import Session as SessionModel, User
 from security import ExpiringDict, FailureLimiter, clear_cookie, set_short_cookie
 from sessions import start_session
-from utils import device_for_request, get_client_ip, lookup_location, record_event
+from utils import device_for_request, get_client_ip, lookup_location, record_event, say
 
 router = APIRouter(prefix="/auth/qr")
 
@@ -113,7 +113,7 @@ def details(request_id: str, user: User = Depends(require_login)):
     """What the person scanning sees before approving: which device asks, from where."""
     item = _get(request_id)
     if not item or item.status in ("approved", "denied"):
-        raise HTTPException(status_code=410, detail="Este código ya no es válido. Genera otro en la pantalla de inicio de sesión.")
+        raise HTTPException(status_code=410, detail=say(user, "This code is no longer valid. Make a new one on the sign-in screen.", "Este código ya no es válido. Genera otro en la pantalla de inicio de sesión."))
     if item.location is None:
         item.location = lookup_location(item.ip)
     if item.status == "pending":
@@ -138,7 +138,7 @@ def approve(
 ):
     item = _get(request_id)
     if not item or item.status in ("approved", "denied"):
-        raise HTTPException(status_code=410, detail="Este código ya no es válido. Genera otro en la pantalla de inicio de sesión.")
+        raise HTTPException(status_code=410, detail=say(user, "This code is no longer valid. Make a new one on the sign-in screen.", "Este código ya no es válido. Genera otro en la pantalla de inicio de sesión."))
     approver = _approver(request, db)
     item.remember = bool((body or {}).get("remember", True))
     item.status = "approved"

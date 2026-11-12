@@ -1,5 +1,6 @@
 import { reactive, ref } from 'vue'
 import { api } from '@ui/api.js'
+import { syncLang } from '@ui/i18n.js'
 
 // What every screen shares: who's signed in and their profile (passkeys, sessions…), reloaded
 // after anything changes it.
@@ -8,6 +9,7 @@ export const store = reactive({
   profile: null,
   async load() {
     this.me = await api('/auth/passkey/me')
+    syncLang(this.me)
     await this.reload()
   },
   async reload() {

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from '@ui/Icon.vue'
 import NavBar from '@ui/NavBar.vue'
+import { t } from '@ui/i18n.js'
 import { wide } from '../store.js'
 
 // A pushed screen: the bar with its back button, then the large title.
@@ -27,7 +28,7 @@ function back() {
   <div>
     <NavBar :title="title">
       <template #leading>
-        <button v-if="showBack" class="icon-btn" type="button" aria-label="Atrás" @click="back">
+        <button v-if="showBack" class="icon-btn" type="button" :aria-label="t('Back', 'Atrás')" @click="back">
           <Icon name="chevron-left" :size="22" :weight="2.4" />
         </button>
       </template>

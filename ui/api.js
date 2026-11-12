@@ -1,3 +1,5 @@
+import { t } from './i18n.js'
+
 // fetch for the auth API: JSON in and out, the server's `detail` as the error message, and
 // back to /login (remembering this page) when the session is gone.
 export async function api(path, { method = 'GET', body, signedOut = 'redirect' } = {}) {
@@ -8,12 +10,12 @@ export async function api(path, { method = 'GET', body, signedOut = 'redirect' }
   })
   if (res.status === 401 && signedOut === 'redirect') {
     signIn()
-    throw new Error('Tu sesión ha caducado')
+    throw new Error(t('Your session has expired', 'Tu sesión ha caducado'))
   }
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null
   if (!res.ok) {
     const detail = data?.detail
-    const err = new Error(typeof detail === 'string' ? detail : 'Algo ha fallado. Vuelve a intentarlo.')
+    const err = new Error(typeof detail === 'string' ? detail : t('Something went wrong. Try again.', 'Algo ha fallado. Vuelve a intentarlo.'))
     err.status = res.status
     throw err
   }

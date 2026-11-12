@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '@ui/Icon.vue'
 import { api } from '@ui/api.js'
 import { toast } from '@ui/dialog.js'
+import { lang, t } from '@ui/i18n.js'
 
 // The desktop dashboard's quick access, under the services: the blinds used every day and how
 // the server is doing. Each card asks its own module and stays away if that module doesn't answer.
@@ -27,7 +28,7 @@ async function load(target, path) {
 const loadBlinds = () => load(blinds, '/home/api/devices/blinds')
 const loadServer = () => load(server, '/admin/api/system')
 
-// ---------- Persianas ----------
+// ---------- {{ t('Blinds', 'Persianas') }} ----------
 
 const pinned = computed(() => {
   const list = blinds.value ?? []
@@ -38,11 +39,11 @@ const pinned = computed(() => {
 const usable = b => b.connection?.online && !b.locked
 
 function blindState(b) {
-  if (b.locked) return 'Bloqueada'
-  if (!b.connection?.online) return 'Sin conexión'
-  if (b.state?.motor_state) return 'Moviéndose…'
+  if (b.locked) return t('Locked', 'Bloqueada')
+  if (!b.connection?.online) return t('Offline', 'Sin conexión')
+  if (b.state?.motor_state) return t('Moving…', 'Moviéndose…')
   const pos = Math.round(b.state?.position ?? 0)
-  return pos >= 100 ? 'Abierta' : pos <= 0 ? 'Cerrada' : `Abierta al ${pos} %`
+  return pos >= 100 ? t('Open', 'Abierta') : pos <= 0 ? t('Closed', 'Cerrada') : t(`${pos}% open`, `Abierta al ${pos} %`)
 }
 
 let followUp = null
@@ -50,7 +51,7 @@ async function command(b, action) {
   try {
     await api(`/home/api/commands/${b.id}/${action}`, { method: 'POST' })
   } catch {
-    toast(`${b.name} no ha respondido`, 'warning')
+    toast(t(`${b.name} didn’t respond`, `${b.name} no ha respondido`), 'warning')
   }
   // The state comes back over the next seconds while it moves.
   clearTimeout(followUp)
@@ -58,13 +59,14 @@ async function command(b, action) {
   followUp = setTimeout(loadBlinds, 1500)
 }
 
-// ---------- Servidor ----------
+// ---------- {{ t('Server', 'Servidor') }} ----------
 
 function bytes(n) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let i = 0
   while (n >= 1000 && i < units.length - 1) { n /= 1000; i++ }
-  return `${n.toFixed(n < 10 && i > 2 ? 1 : 0).replace('.', ',')} ${units[i]}`
+  const text = n.toFixed(n < 10 && i > 2 ? 1 : 0)
+  return `${lang.value === 'es' ? text.replace('.', ',') : text} ${units[i]}`
 }
 
 function uptime(seconds) {
@@ -74,11 +76,11 @@ function uptime(seconds) {
 }
 
 // tpadmin's disks by name: the SD card the system runs from and the external storage drive.
-const DISK_NAMES = { system: 'Raspberry', storage: 'Disco externo' }
+const DISK_NAMES = { system: () => 'Raspberry', storage: () => t('External drive', 'Disco externo') }
 const disks = computed(() =>
   (server.value?.disks ?? [])
     .filter(d => DISK_NAMES[d.name])
-    .map(d => ({ ...d, label: DISK_NAMES[d.name], share: d.used / d.total })),
+    .map(d => ({ ...d, label: DISK_NAMES[d.name](), share: d.used / d.total })),
 )
 
 // Both cards change while the page is open.
@@ -104,24 +106,23 @@ onBeforeUnmount(() => {
 <template>
   <section v-if="pinned.length" class="quick-card">
     <a href="/home/" class="quick-head">
-      <span class="quick-icon" style="background: var(--orange)"><Icon name="house" :size="24" :weight="1.9" /></span>
-      <span class="headline">Persianas</span>
-      <span class="footnote secondary">Abrir Casa</span>
+      <span class="quick-icon" style="background: var(--orange)"><Icon name="house" :size="20" :weight="2" /></span>
+      <span class="headline">{{ t('Blinds', 'Persianas') }}</span>
+      <span class="footnote secondary">{{ t('Open Home', 'Abrir Casa') }}</span>
       <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
     </a>
     <div class="cells">
-      <div v-for="b in pinned" :key="b.id" class="cell" :class="{ off: !usable(b) }">
+      <div v-for="b in pinned" :key="b.id" class="cell">
         <span class="blind-top">
-          <span class="level"><i :style="{ height: `${100 - (b.state?.position ?? 0)}%` }" /></span>
           <span class="cell-text">
             <span class="subheadline name">{{ b.name }}</span>
             <span class="footnote secondary">{{ blindState(b) }}</span>
           </span>
         </span>
         <span class="controls">
-          <button class="control" :disabled="!usable(b)" title="Subir" @click="command(b, 'up')"><Icon name="chevron-up" :size="18" :weight="2.4" /></button>
-          <button class="control" :disabled="!usable(b)" title="Parar" @click="command(b, 'stop')"><Icon name="stop" :size="15" :weight="2.2" /></button>
-          <button class="control" :disabled="!usable(b)" title="Bajar" @click="command(b, 'down')"><Icon name="chevron-down" :size="18" :weight="2.4" /></button>
+          <button class="control" :disabled="!usable(b)" :title="t('Raise', 'Subir')" @click="command(b, 'up')"><Icon name="chevron-up" :size="18" :weight="2.4" /></button>
+          <button class="control" :disabled="!usable(b)" :title="t('Stop', 'Parar')" @click="command(b, 'stop')"><Icon name="stop" :size="15" :weight="2.2" /></button>
+          <button class="control" :disabled="!usable(b)" :title="t('Lower', 'Bajar')" @click="command(b, 'down')"><Icon name="chevron-down" :size="18" :weight="2.4" /></button>
         </span>
       </div>
     </div>
@@ -129,22 +130,22 @@ onBeforeUnmount(() => {
 
   <section v-if="server" class="quick-card">
     <div class="quick-head">
-      <span class="quick-icon" style="background: var(--indigo)"><Icon name="server" :size="24" :weight="1.9" /></span>
-      <span class="headline">Servidor</span>
+      <span class="quick-icon" style="background: var(--indigo)"><Icon name="server" :size="20" :weight="2" /></span>
+      <span class="headline">{{ t('Server', 'Servidor') }}</span>
     </div>
     <div class="cells server">
       <div class="cell stat">
-        <span class="footnote secondary">Temperatura</span>
+        <span class="footnote secondary">{{ t('Temperature', 'Temperatura') }}</span>
         <span class="stat-value">{{ server.temperature_c == null ? '—' : `${Math.round(server.temperature_c)} °C` }}</span>
       </div>
       <div class="cell stat">
-        <span class="footnote secondary">Encendido</span>
+        <span class="footnote secondary">{{ t('Uptime', 'Encendido') }}</span>
         <span class="stat-value">{{ uptime(server.uptime_seconds) }}</span>
       </div>
       <div v-for="d in disks" :key="d.name" class="cell disk">
         <span class="disk-top">
           <span class="subheadline name">{{ d.label }}</span>
-          <span class="footnote secondary">{{ bytes(d.free) }} libres de {{ bytes(d.total) }}</span>
+          <span class="footnote secondary">{{ t(`${bytes(d.free)} free of ${bytes(d.total)}`, `${bytes(d.free)} libres de ${bytes(d.total)}`) }}</span>
         </span>
         <span class="meter"><i :style="{ width: `${d.share * 100}%` }" :class="{ full: d.share > 0.9 }" /></span>
       </div>
@@ -154,20 +155,20 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .quick-card {
-  padding: 20px;
+  padding: 16px 20px 20px;
   border-radius: var(--radius-card);
   background: var(--cell);
 }
-.quick-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.quick-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .quick-head .headline { flex: 1; }
-.quick-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: #fff; flex-shrink: 0; }
+.quick-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: #fff; flex-shrink: 0; }
 
 .cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
 .cell {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 12px 14px;
   border-radius: 18px;
   background: var(--fill-4);
 }
@@ -175,22 +176,10 @@ onBeforeUnmount(() => {
 .cell-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .name { font-weight: 600; }
 
-/* A little window that fills from the top as the blind comes down. */
-.level {
-  position: relative;
-  flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--yellow) 55%, var(--cell));
-}
-.level i { position: absolute; inset: 0 0 auto; background: var(--gray); transition: height 0.4s var(--ease); }
-.cell.off .level { opacity: 0.4; }
 .controls { display: flex; gap: 6px; margin-top: auto; }
 .control {
   flex: 1;
-  height: 34px;
+  height: 32px;
   display: grid;
   place-items: center;
   border-radius: 999px;
@@ -202,12 +191,12 @@ onBeforeUnmount(() => {
 .control:active:not(:disabled) { transform: scale(0.92); }
 .control:disabled { opacity: 0.35; cursor: default; }
 
-.cells.server { grid-template-columns: 1fr 1fr; }
+.cells.server { grid-template-columns: 1fr 1fr 1.6fr 1.6fr; }
 .stat { gap: 4px; }
 .stat-value { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: 0.35px; }
-/* Each disk takes a whole row, so its bar has room to read. */
-.disk { grid-column: 1 / -1; gap: 10px; }
-.disk-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+/* A disk: its name and space over the bar. */
+.disk { justify-content: space-between; gap: 8px; }
+.disk-top { display: flex; flex-direction: column; gap: 1px; }
 .meter { height: 8px; border-radius: 999px; background: var(--fill-3); overflow: hidden; }
 .meter i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
 .meter i.full { background: var(--orange); }

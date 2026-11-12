@@ -12,7 +12,7 @@ from config import ORIGIN, RP_ID, RP_NAME, SESSION_COOKIE
 from models import LoginEvent, PasskeyCredential, Session as SessionModel, User
 from security import ExpiringDict, user_failures
 from sessions import session_json
-from utils import device_for_request, iso, record_event
+from utils import LANGUAGES, device_for_request, iso, record_event, say
 import webauthn
 from webauthn.helpers import options_to_json
 from webauthn.helpers.structs import (
@@ -63,6 +63,7 @@ def get_profile(
         "has_password": user.password_hash is not None,
         "totp_enabled": user.totp_secret is not None,
         "failures_reviewed_at": iso(user.failures_reviewed_at),
+        "language": user.language,
         "passkeys": [
             {
                 "credential_id": p.credential_id,
@@ -130,13 +131,19 @@ def update_profile(
     user: User = Depends(require_login),
     session: DBSession = Depends(get_session),
 ):
-    new_name = body.get("display_name", "").strip()
-    if not new_name:
-        raise HTTPException(status_code=400, detail="display_name no puede estar vacío")
-    user.display_name = new_name
+    # Either field on its own: the name from Perfil, the language from Idioma.
+    if "language" in body:
+        if body["language"] not in LANGUAGES:
+            raise HTTPException(status_code=400, detail=say(user, "Unknown language", "Idioma desconocido"))
+        user.language = body["language"]
+    if "display_name" in body:
+        new_name = str(body.get("display_name") or "").strip()
+        if not new_name:
+            raise HTTPException(status_code=400, detail=say(user, "The name can't be empty", "El nombre no puede estar vacío"))
+        user.display_name = new_name
     session.add(user)
     session.commit()
-    return {"display_name": user.display_name}
+    return {"display_name": user.display_name, "language": user.language}
 
 
 @router.patch("/password")
@@ -148,7 +155,7 @@ def change_password(
 ):
     new_password = str(body.get("new_password", "")).strip()
     if not new_password or len(new_password) < 12:
-        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 12 caracteres")
+        raise HTTPException(status_code=400, detail=say(user, "The password must be at least 12 characters long", "La contraseña debe tener al menos 12 caracteres"))
 
     if user.password_hash:
         user_key = f"user:{user.id}"
@@ -156,7 +163,7 @@ def change_password(
         current_password = str(body.get("current_password", ""))
         if not bcrypt.checkpw(current_password.encode(), user.password_hash.encode()):
             user_failures.fail(user_key)
-            raise HTTPException(status_code=401, detail="Contraseña actual incorrecta")
+            raise HTTPException(status_code=401, detail=say(user, "The current password is incorrect", "Contraseña actual incorrecta"))
 
     db_user = session.get(User, user.id)
     db_user.password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
@@ -183,12 +190,12 @@ def delete_passkey(
 
     target = next((p for p in passkeys if p.credential_id == credential_id), None)
     if not target:
-        raise HTTPException(status_code=404, detail="Passkey no encontrada")
+        raise HTTPException(status_code=404, detail=say(user, "Passkey not found", "Passkey no encontrada"))
 
     # Prevent lockout: require either a password or another passkey
     has_password = user.password_hash is not None
     if not has_password and len(passkeys) <= 1:
-        raise HTTPException(status_code=400, detail="No puedes eliminar tu única passkey sin tener contraseña configurada")
+        raise HTTPException(status_code=400, detail=say(user, "You can't delete your only passkey without a password set", "No puedes eliminar tu única passkey sin tener contraseña configurada"))
 
     session.delete(target)
     session.commit()
@@ -224,7 +231,7 @@ def add_passkey_complete(
 ):
     challenge = _pending_add_challenges.pop(user.id)
     if not challenge:
-        raise HTTPException(status_code=400, detail="No hay registro pendiente")
+        raise HTTPException(status_code=400, detail=say(user, "No passkey is being added", "No hay registro pendiente"))
 
     try:
         verification = webauthn.verify_registration_response(
@@ -234,7 +241,7 @@ def add_passkey_complete(
             expected_origin=ORIGIN,
         )
     except Exception:
-        raise HTTPException(status_code=400, detail="Verificación fallida")
+        raise HTTPException(status_code=400, detail=say(user, "The passkey couldn't be verified", "Verificación fallida"))
 
     credential = PasskeyCredential(
         user_id=user.id,
@@ -263,7 +270,7 @@ def revoke_session(
     ).first()
 
     if not db_session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=say(user, "Session not found", "Sesión no encontrada"))
 
     record_event(request, user.id, "revoked", db_session.auth_method, db_session.device_info)
     session.delete(db_session)

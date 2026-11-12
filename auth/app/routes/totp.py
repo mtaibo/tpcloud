@@ -7,6 +7,7 @@ from dependencies import require_login
 from config import RP_NAME
 from models import User
 from security import user_failures, verify_totp
+from utils import say
 
 router = APIRouter(prefix="/auth/account/totp")
 
@@ -34,13 +35,13 @@ def totp_setup_complete(
 ):
     secret = _pending_totp_secrets.get(user.id)
     if not secret:
-        raise HTTPException(status_code=400, detail="No hay configuración TOTP pendiente")
+        raise HTTPException(status_code=400, detail=say(user, "Two-step verification isn't being set up", "No hay configuración TOTP pendiente"))
 
     user_key = f"user:{user.id}"
     user_failures.check(user_key)
     if not verify_totp(secret, str(body.get("code", "")), user.id):
         user_failures.fail(user_key)
-        raise HTTPException(status_code=401, detail="Código incorrecto")
+        raise HTTPException(status_code=401, detail=say(user, "Incorrect code", "Código incorrecto"))
 
     db_user = session.get(User, user.id)
     db_user.totp_secret = secret
@@ -58,13 +59,13 @@ def totp_disable(
     session: DBSession = Depends(get_session),
 ):
     if not user.totp_secret:
-        raise HTTPException(status_code=400, detail="TOTP no está configurado")
+        raise HTTPException(status_code=400, detail=say(user, "Two-step verification isn't set up", "TOTP no está configurado"))
 
     user_key = f"user:{user.id}"
     user_failures.check(user_key)
     if not verify_totp(user.totp_secret, str(body.get("code", "")), user.id):
         user_failures.fail(user_key)
-        raise HTTPException(status_code=401, detail="Código incorrecto")
+        raise HTTPException(status_code=401, detail=say(user, "Incorrect code", "Código incorrecto"))
 
     db_user = session.get(User, user.id)
     db_user.totp_secret = None

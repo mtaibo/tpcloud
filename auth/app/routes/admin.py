@@ -8,7 +8,7 @@ from database import get_session
 from dependencies import require_admin
 from models import LoginEvent, PasskeyCredential, Session as SessionModel, User
 from sessions import session_json
-from utils import iso
+from utils import iso, say
 
 router = APIRouter(prefix="/auth/admin")
 
@@ -56,15 +56,15 @@ def create_user(
     password = body.get("password", "")
 
     if not email:
-        raise HTTPException(status_code=400, detail="Email requerido")
+        raise HTTPException(status_code=400, detail=say(admin, "An email is required", "Email requerido"))
     if not password or len(password) < 12:
-        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 12 caracteres")
+        raise HTTPException(status_code=400, detail=say(admin, "The password must be at least 12 characters long", "La contraseña debe tener al menos 12 caracteres"))
     if not display_name:
         display_name = email.split("@")[0]
 
     existing = session.exec(select(User).where(User.email == email)).first()
     if existing:
-        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
+        raise HTTPException(status_code=409, detail=say(admin, "There's already a user with that email", "Ya existe un usuario con ese email"))
 
     password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     new_user = User(
@@ -92,10 +92,10 @@ def toggle_admin(
     session: DBSession = Depends(get_session),
 ):
     if user_id == admin.id:
-        raise HTTPException(status_code=400, detail="No puedes cambiar tu propio rol")
+        raise HTTPException(status_code=400, detail=say(admin, "You can't change your own role", "No puedes cambiar tu propio rol"))
     user = session.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        raise HTTPException(status_code=404, detail=say(admin, "User not found", "Usuario no encontrado"))
     user.is_admin = not user.is_admin
     session.add(user)
     session.commit()
@@ -109,10 +109,10 @@ def delete_user(
     session: DBSession = Depends(get_session),
 ):
     if user_id == admin.id:
-        raise HTTPException(status_code=400, detail="No puedes eliminarte a ti mismo")
+        raise HTTPException(status_code=400, detail=say(admin, "You can't delete yourself", "No puedes eliminarte a ti mismo"))
     user = session.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        raise HTTPException(status_code=404, detail=say(admin, "User not found", "Usuario no encontrado"))
 
     for p in session.exec(select(PasskeyCredential).where(PasskeyCredential.user_id == user_id)).all():
         session.delete(p)
@@ -155,7 +155,7 @@ def revoke_session(
 ):
     db_session = session.get(SessionModel, session_row_id)
     if not db_session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=say(admin, "Session not found", "Sesión no encontrada"))
     session.delete(db_session)
     session.commit()
     return {"status": "revocada"}

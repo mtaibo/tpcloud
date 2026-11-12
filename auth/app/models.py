@@ -16,6 +16,8 @@ class User(SQLModel, table=True):
     totp_secret: Optional[str] = Field(default=None)
     # Failed sign-ins up to here were confirmed as the owner's own, so they no longer warn.
     failures_reviewed_at: Optional[datetime] = Field(default=None)
+    # "en" or "es", picked in Cuenta → Idioma; unset until then (the web follows the browser).
+    language: Optional[str] = Field(default=None)
 
 
 class PasskeyCredential(SQLModel, table=True):

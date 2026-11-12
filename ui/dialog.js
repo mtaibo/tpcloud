@@ -1,4 +1,5 @@
 import { reactive } from 'vue'
+import { t } from './i18n.js'
 
 // One alert at a time, asked for from anywhere and answered with a promise, like
 // SwiftUI's .alert / .confirmationDialog. <AlertHost /> draws it.
@@ -10,12 +11,12 @@ export function ask({ title, message = '', actions }) {
   })
 }
 
-export function confirmDestructive(title, message, label = 'Eliminar') {
+export function confirmDestructive(title, message, label = t('Delete', 'Eliminar')) {
   return ask({
     title,
     message,
     actions: [
-      { label: 'Cancelar', role: 'cancel', value: false },
+      { label: t('Cancel', 'Cancelar'), role: 'cancel', value: false },
       { label, role: 'destructive', value: true },
     ],
   })

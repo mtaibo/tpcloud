@@ -2,6 +2,7 @@
 import { onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
 import Spinner from './Spinner.vue'
+import { t } from './i18n.js'
 
 // A sheet with the iOS 26 bar: ✕ on the left, the title, and a ✓ that confirms (when the sheet
 // has something to confirm). From the bottom on a phone, centred on a wider screen.
@@ -38,7 +39,7 @@ onBeforeUnmount(() => {
       <div v-if="open" class="overlay" @click.self="close">
         <div class="sheet" role="dialog" aria-modal="true" :aria-label="title">
           <div class="sheet-bar">
-            <button class="icon-btn" type="button" aria-label="Cerrar" @click="close">
+            <button class="icon-btn" type="button" :aria-label="t('Close', 'Cerrar')" @click="close">
               <Icon name="xmark" :size="20" :weight="2.2" />
             </button>
             <div class="navbar-title">{{ title }}</div>
@@ -46,7 +47,7 @@ onBeforeUnmount(() => {
               v-if="confirmable"
               class="icon-btn prominent"
               type="button"
-              aria-label="Aceptar"
+              :aria-label="t('Done', 'Aceptar')"
               :disabled="!canConfirm || busy"
               @click="emit('confirm')"
             >
