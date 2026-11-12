@@ -12,8 +12,9 @@ import GalleryThumb from './GalleryThumb.vue'
 import QuickLook from './QuickLook.vue'
 import { locale, t } from '../ui/i18n.js'
 
-// The photos backed up from the phone, newest first and grouped by month like Photos, with the
-// same light thumbnails and previews as a share page so they come up at once.
+// The photos backed up from the phone, grouped by month like Photos: newest at the bottom, where
+// the view starts, and older ones loading in above as you scroll up. Same light thumbnails and
+// previews as a share page so they come up at once.
 const PAGE = 200
 
 // Which photos: "all", "camera", "screenshots" or "album:<id>", picked in the sidebar on a
@@ -44,10 +45,11 @@ const error = ref('')
 const look = ref(null)
 const sentinel = ref(null)
 const scroller = ref(null)
+const current = ref('') // the month at the top of the view, shown under the title
 let generation = 0
 let observer = null
 
-const monthFormat = new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric' })
+const monthName = new Intl.DateTimeFormat(locale(), { month: 'long' })
 const dayFormat = new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 function toItem(p) {
@@ -58,16 +60,21 @@ function toItem(p) {
     // Its readable name on the server (ID123_20240229_1755.heic), which downloads keep too.
     name: p.path.split('/').at(-1),
     date,
-    month: date ? monthFormat.format(date).replace(/^./, c => c.toUpperCase()) : t('No date', 'Sin fecha'),
+    month: date ? monthName.format(date).replace(/^./, c => c.toUpperCase()) : t('No date', 'Sin fecha'),
+    year: date ? String(date.getFullYear()) : '',
   }
 }
 
+// The API pages newest first; on screen it's oldest first, so the newest photo is the last tile.
+const ordered = computed(() => photos.value.slice().reverse())
+
 const months = computed(() => {
   const groups = []
-  for (const p of photos.value) {
+  for (const p of ordered.value) {
+    const key = `${p.year}-${p.month}`
     const last = groups.at(-1)
-    if (last && last.label === p.month) last.items.push(p)
-    else groups.push({ label: p.month, items: [p] })
+    if (last && last.key === key) last.items.push(p)
+    else groups.push({ key, month: p.month, year: p.year, items: [p] })
   }
   return groups
 })
@@ -87,9 +94,17 @@ async function loadMore() {
     if (!res.ok) { error.value = t('The photos couldn’t be loaded.', 'No se han podido cargar las fotos.'); return }
     const data = await res.json()
     favoritesId.value = data.favorites_album ?? favoritesId.value
+    // Older photos go in above what's on screen: keep the distance to the bottom so the view
+    // doesn't move. The first page instead starts at the bottom, on the newest.
+    const el = scroller.value
+    const first = !photos.value.length
+    const fromBottom = el ? el.scrollHeight - el.scrollTop : 0
     photos.value = photos.value.concat(data.items.map(toItem))
     cursor.value = data.next_cursor
     done.value = !data.next_cursor
+    await nextTick()
+    if (el) el.scrollTop = first ? el.scrollHeight : el.scrollHeight - fromBottom
+    updateCurrent()
   } catch {
     if (mine === generation) error.value = t('No connection. Try again.', 'No hay conexión. Vuelve a intentarlo.')
   } finally {
@@ -101,10 +116,27 @@ async function loadMore() {
   }
 }
 
+// The sentinel sits above the oldest month: load more once it comes within 800 px of the top.
 function checkSentinel() {
   const el = sentinel.value
-  if (!el || done.value || loading.value || error.value) return
-  if (el.getBoundingClientRect().top < window.innerHeight + 800) loadMore()
+  if (!el || !scroller.value || done.value || loading.value || error.value || !photos.value.length) return
+  if (el.getBoundingClientRect().bottom > scroller.value.getBoundingClientRect().top - 800) loadMore()
+}
+
+// Which month is at the top of the view (under the header on a phone).
+let frame = 0
+function updateCurrent() {
+  cancelAnimationFrame(frame)
+  frame = requestAnimationFrame(() => {
+    const el = scroller.value
+    if (!el) return
+    const top = el.getBoundingClientRect().top + (parseFloat(getComputedStyle(el).scrollPaddingTop) || 0)
+    let label = ''
+    for (const s of el.querySelectorAll('.month')) {
+      if (s.getBoundingClientRect().bottom > top + 1) { label = s.dataset.label; break }
+    }
+    current.value = label
+  })
 }
 
 function reset() {
@@ -113,7 +145,7 @@ function reset() {
   cursor.value = null
   done.value = false
   loading.value = false
-  scroller.value?.scrollTo({ top: 0 })
+  current.value = ''
   loadMore()
 }
 watch(section, reset)
@@ -181,24 +213,32 @@ function onContext(p, e) {
 }
 
 onMounted(() => {
-  observer = new IntersectionObserver(([e]) => { if (e.isIntersecting) loadMore() }, { root: scroller.value, rootMargin: '800px 0px' })
+  observer = new IntersectionObserver(([e]) => { if (e.isIntersecting && photos.value.length) loadMore() }, { root: scroller.value, rootMargin: '800px 0px' })
   if (sentinel.value) observer.observe(sentinel.value)
   loadMore()
 })
-onUnmounted(() => observer?.disconnect())
+onUnmounted(() => { observer?.disconnect(); cancelAnimationFrame(frame) })
 </script>
 
 <template>
   <section class="gallery">
     <header class="bar">
       <h1 class="bar-title">{{ title }}</h1>
+      <span v-if="current" class="bar-sub">{{ current }}</span>
     </header>
 
-    <div ref="scroller" class="content">
-      <div class="page-head">
-        <a href="/" class="back"><ChevronLeft :size="20" :stroke-width="2.4" /> TPCloud</a>
-        <h1 class="large-title">{{ t('Photos', 'Galería') }}</h1>
-        <Segmented v-model="section" :options="filters" class="filters" />
+    <!-- On a phone: the title floats over the photos, like Photos, and the filters at the bottom. -->
+    <div class="page-head">
+      <a href="/" class="back"><ChevronLeft :size="20" :stroke-width="2.4" /> TPCloud</a>
+      <h1 class="large-title">{{ title }}</h1>
+      <p class="head-sub">{{ current || '\u00a0' }}</p>
+    </div>
+    <div class="filters glass"><Segmented v-model="section" :options="filters" /></div>
+
+    <div ref="scroller" class="content" @scroll.passive="updateCurrent">
+      <div ref="sentinel" class="sentinel">
+        <Spinner v-if="photos.length && loading" :size="20" />
+        <button v-else-if="photos.length && error" type="button" class="btn btn-bordered small" @click="loadMore">{{ t('Try again', 'Reintentar') }}</button>
       </div>
 
       <div v-if="!photos.length && loading" class="state"><Spinner :size="26" /></div>
@@ -219,8 +259,8 @@ onUnmounted(() => observer?.disconnect())
         </template>
       </div>
 
-      <section v-for="m in months" :key="m.label" class="month">
-        <h2 class="month-title">{{ m.label }}</h2>
+      <section v-for="m in months" :key="m.key" class="month" :data-label="`${m.month} ${m.year}`.trim()">
+        <h2 class="month-title">{{ m.month }} <span>{{ m.year }}</span></h2>
         <div class="grid">
           <button
             v-for="p in m.items"
@@ -237,16 +277,11 @@ onUnmounted(() => observer?.disconnect())
           </button>
         </div>
       </section>
-
-      <div ref="sentinel" class="sentinel">
-        <Spinner v-if="photos.length && loading" :size="20" />
-        <button v-else-if="photos.length && error" type="button" class="btn btn-bordered small" @click="loadMore">{{ t('Try again', 'Reintentar') }}</button>
-      </div>
     </div>
 
     <QuickLook
       v-if="look"
-      :items="photos"
+      :items="ordered"
       :entry="look"
       :urls="photoMediaUrls"
       :subtitle="subtitle"
@@ -254,7 +289,7 @@ onUnmounted(() => observer?.disconnect())
       :favorite="favoritesId ? (p => p.favorite) : null"
       @favorite="toggleFavorite"
       @delete="remove"
-      @change="p => { look = p; if (photos.indexOf(p) > photos.length - 10) loadMore() }"
+      @change="p => { look = p; if (ordered.indexOf(p) < 10) loadMore() }"
       @download="download"
       @close="look = null"
     />
@@ -262,43 +297,72 @@ onUnmounted(() => observer?.disconnect())
 </template>
 
 <style scoped>
-.gallery { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
-.bar { height: 64px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px; }
+.gallery { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.bar { height: 64px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 24px; }
 .bar-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
-.content { flex: 1; overflow-y: auto; padding: 0 24px 40px; }
-.page-head { display: none; }
+.bar-sub { font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+/* overflow-anchor off: loadMore keeps the place itself when older months go in above. */
+.content { flex: 1; overflow-y: auto; overflow-anchor: none; padding: 0 24px 24px; }
+.page-head, .filters { display: none; }
 .state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 80px 24px; text-align: center; }
 .empty-icon { width: 72px; height: 72px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: linear-gradient(180deg, #ffb340, #ff7a00); margin-bottom: 6px; }
 
-.month { margin-bottom: 26px; }
-.month-title {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  margin: 0 -24px 8px;
-  padding: 8px 28px;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.4px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
+.month + .month { margin-top: 22px; }
+.month-title { margin: 0 0 8px 2px; font-size: 20px; font-weight: 700; letter-spacing: -0.4px; }
+.month-title span { font-weight: 600; color: var(--label-3); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 3px; }
 .photo { position: relative; aspect-ratio: 1; border-radius: 6px; background: var(--fill-3); overflow: hidden; transition: opacity 0.15s, transform 0.25s; -webkit-touch-callout: none; }
 .photo:hover { opacity: 0.88; }
 .photo.long-pressing { transform: scale(0.95); }
 .fav-badge { position: absolute; left: 6px; bottom: 6px; color: #fff; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)); pointer-events: none; }
 .empty-icon.favorites { background: linear-gradient(180deg, #ff5f8f, #ff2d55); }
-.sentinel { min-height: 60px; display: grid; place-items: center; }
+.sentinel { min-height: 48px; display: grid; place-items: center; }
 
 @media (max-width: 767px) {
   .bar { display: none; }
-  .content { padding: calc(20px + env(safe-area-inset-top)) 0 calc(110px + env(safe-area-inset-bottom)); }
-  .page-head { display: flex; flex-direction: column; gap: 14px; padding: 8px 20px 18px; }
-  .back { display: inline-flex; align-items: center; gap: 2px; margin-left: -6px; font-size: 17px; color: var(--accent); }
-  .page-head .large-title { margin-top: -6px; }
-  .month-title { margin: 0 0 6px; padding: 8px 20px; font-size: 18px; }
+  .content {
+    --head: calc(126px + env(safe-area-inset-top));
+    padding: var(--head) 0 calc(84px + env(safe-area-inset-bottom));
+    scroll-padding-top: var(--head);
+  }
+  .page-head {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    padding: calc(10px + env(safe-area-inset-top)) 20px 30px;
+    pointer-events: none;
+  }
+  /* Photos' top edge: the photos blur and darken behind the title and fade back in below it. */
+  .page-head::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    mask-image: linear-gradient(to bottom, #000 72%, transparent);
+    -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent);
+  }
+  .page-head > * { pointer-events: auto; }
+  .back { align-self: flex-start; display: inline-flex; align-items: center; gap: 2px; margin-left: -6px; font-size: 17px; color: var(--accent); }
+  .page-head .large-title { margin-top: 4px; }
+  .head-sub { font-size: 15px; font-weight: 600; color: var(--label-2); font-variant-numeric: tabular-nums; }
+  .filters {
+    position: absolute;
+    left: 50%;
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    z-index: 3;
+    display: block;
+    width: min(360px, calc(100% - 40px));
+    padding: 4px;
+    border-radius: 14px;
+    transform: translateX(-50%);
+  }
+  .month + .month { margin-top: 18px; }
+  .month-title { margin: 0 0 6px; padding: 0 20px; font-size: 18px; }
   .grid { grid-template-columns: repeat(3, 1fr); gap: 2px; }
   .photo { border-radius: 0; }
 }
