@@ -2,11 +2,10 @@
 import { computed } from 'vue'
 import { useDevices } from '@/config/devices'
 import { positions } from '@/config/useBlindAnimations'
-import { useBlueprint } from '@/config/blueprint'
-import { snapToWall } from './geometry'
 
-// The blinds on the plan: a capsule on the window's wall that fills orange as far as the blind is
-// open, gray when it can't be moved, with a padlock on it while an admin has it locked. In "config" mode (placing a new switch)
+// The blinds on the plan: a capsule on the window's wall that fills in the label colour (black in
+// light, white in dark) as far as the blind is open, gray when it can't be moved, with a padlock
+// on it while an admin has it locked. In "config" mode (placing a new switch)
 // they're all drawn the same and the picked one in the accent colour.
 const props = defineProps({
     mode:   { type: String, default: 'control' },
@@ -15,7 +14,6 @@ const props = defineProps({
 const emit = defineEmits(['select', 'pick'])
 
 const store = useDevices()
-const map = useBlueprint()
 
 const THICK = 7
 
@@ -25,10 +23,9 @@ const blinds = computed(() => {
         const m = b.map
         const horizontal = m.width >= m.height
         const len = horizontal ? m.width : m.height
-        // Centred on the edge of its room's card.
-        const line = snapToWall(map.storage.rooms ?? [], m)
-        const x = horizontal ? m.x : line - THICK / 2
-        const y = horizontal ? line - THICK / 2 : m.y
+        // Centred on the wall line it sits on.
+        const x = horizontal ? m.x : m.x + m.width / 2 - THICK / 2
+        const y = horizontal ? m.y + m.height / 2 - THICK / 2 : m.y
         return { id, blind: b, horizontal, len, x, y, w: horizontal ? len : THICK, h: horizontal ? THICK : len }
     })
 })
@@ -76,9 +73,9 @@ const onClick = id => emit(props.mode === 'config' ? 'pick' : 'select', id)
 .level.empty { fill: transparent; }
 .off .level { fill: var(--gray); }
 .lock circle { fill: var(--plan-blind); stroke: var(--plan-bg); stroke-width: 1.5; }
-.lock rect { fill: #fff; }
-.lock path { fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; }
-.config .track { fill: color-mix(in srgb, var(--accent) 35%, var(--plan-room)); }
+.lock rect { fill: var(--plan-bg); }
+.lock path { fill: none; stroke: var(--plan-bg); stroke-width: 3; stroke-linecap: round; }
+.config .track { fill: color-mix(in srgb, var(--accent) 35%, var(--plan-bg)); }
 .picked .track { fill: var(--accent); }
-@media (hover: hover) { .blind:not(.config):hover .track { fill: color-mix(in srgb, var(--label) 22%, var(--plan-room)); } }
+@media (hover: hover) { .blind:not(.config):hover .track { fill: color-mix(in srgb, var(--label) 22%, var(--plan-bg)); } }
 </style>
