@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '@ui/Icon.vue'
 import { api } from '@ui/api.js'
-import { ask, toast } from '@ui/dialog.js'
+import { toast } from '@ui/dialog.js'
 import { lang, t } from '@ui/i18n.js'
 
 // The desktop dashboard's quick access, under the services: the blinds used every day and how
@@ -65,20 +65,6 @@ async function command(b, action) {
 // buttons and every command until it's unlocked.
 async function toggleLock(b) {
   const locking = !b.locked
-  if (locking) {
-    const ok = await ask({
-      title: t(`Lock ${b.name}?`, `¿Bloquear ${b.name}?`),
-      message: t(
-        'Its lights will go off and it won’t move, from its buttons or from here, until an administrator unlocks it.',
-        'Se apagarán sus luces y no se podrá mover ni con los botones ni desde aquí hasta que un administrador la desbloquee.',
-      ),
-      actions: [
-        { label: t('Cancel', 'Cancelar'), role: 'cancel', value: false },
-        { label: t('Lock', 'Bloquear'), role: 'destructive', value: true },
-      ],
-    })
-    if (!ok) return
-  }
   try {
     await api(`/home/api/admin/${b.id}/${locking ? 'lock' : 'unlock'}`, { method: 'POST' })
     b.locked = locking
