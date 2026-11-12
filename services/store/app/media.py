@@ -179,6 +179,7 @@ async def ensure_video_poster(file_path: Path, background: bool = False) -> Path
 def _build_image_preview(file_path: Path, target: Path) -> None:
     from PIL import Image, ImageOps
     with Image.open(file_path) as img:
+        img.draft("RGB", (PREVIEW_IMAGE_SIZE, PREVIEW_IMAGE_SIZE))  # JPEGs decode at a reduced scale
         img = ImageOps.exif_transpose(img).convert("RGB")
         img.thumbnail((PREVIEW_IMAGE_SIZE, PREVIEW_IMAGE_SIZE), Image.LANCZOS)
         tmp = target.with_suffix(".tmp.jpg")
@@ -309,6 +310,67 @@ async def _warm_up(files: list[Path], thumbnail_sizes: list[int]) -> None:
                 await ensure_image_preview(file_path, background=True)
             except Exception:
                 log.exception("Couldn't prepare %s", file_path)
+
+
+# ── Keeping the gallery's thumbnails ready ────────────────────────────────────
+
+async def keep_photo_thumbnails(interval: float = 600) -> None:
+    """Makes the thumbnail of every backed-up photo ahead of time, newest first, then checks
+    again every few minutes for new ones. A share folder is fast because it's been warmed up by
+    the time it's opened; the gallery is the whole library (thousands of photos, 0.3-0.8 s each
+    on the Pi), so it's prepared once in the background instead of while someone scrolls."""
+    await asyncio.sleep(30)  # let the API finish starting up first
+    while True:
+        try:
+            await _make_missing_photo_thumbnails()
+        except Exception:
+            log.exception("Couldn't prepare the gallery's thumbnails")
+        await asyncio.sleep(interval)
+
+
+def _missing_photo_thumbnails(sizes: list[int]) -> list[Path]:
+    from sqlmodel import Session, select
+    from app.database import engine
+    from app.models import Photo
+    from app.routes.files import _thumb_cache_path
+    from app.utils import get_base
+
+    with Session(engine) as db:
+        paths = db.exec(select(Photo.path).order_by(Photo.taken_at.desc(), Photo.id.desc())).all()
+    base = get_base("external")
+    missing = []
+    for rel in paths:
+        file_path = base / rel.lstrip("/")
+        try:
+            if is_image(file_path):
+                if any(not _thumb_cache_path(file_path, s).exists() for s in sizes):
+                    missing.append(file_path)
+            elif is_video(file_path) and FFMPEG:
+                poster = _cache_path(file_path, f"poster{POSTER_SIZE}", "jpg")
+                if not poster.exists() or any(not _thumb_cache_path(poster, s).exists() for s in sizes):
+                    missing.append(file_path)
+        except OSError:
+            continue  # gone from disk
+    return missing
+
+
+async def _make_missing_photo_thumbnails() -> None:
+    from app.routes.files import STORE_THUMB_SIZES, _THUMB_DIR, _ensure_thumbnail, _thumb_cache_path
+
+    missing = await run_in_threadpool(_missing_photo_thumbnails, STORE_THUMB_SIZES)
+    if not missing:
+        return
+    log.info("Preparing %d gallery thumbnails", len(missing))
+    _THUMB_DIR.mkdir(parents=True, exist_ok=True)
+    # One at a time on the warm-up lane, so a visitor's own requests always go first.
+    for file_path in missing:
+        try:
+            source = await ensure_video_poster(file_path, background=True) if is_video(file_path) else file_path
+            for size in STORE_THUMB_SIZES:
+                async with _warm_lane:
+                    await _ensure_thumbnail(source, _thumb_cache_path(source, size), size)
+        except Exception:
+            log.warning("Couldn't make a thumbnail of %s", file_path)
 
 
 def cache_headers(private: bool) -> dict:

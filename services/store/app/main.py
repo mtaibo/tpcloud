@@ -1,9 +1,11 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 
+from app import media
 from app.database import init_db
 from app.routes.files import router as files_router
 from app.routes.admin import router as admin_router
@@ -30,7 +32,10 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     init_db()
+    # The gallery's thumbnails are made ahead of time in the background (see media.py).
+    thumbnails = asyncio.create_task(media.keep_photo_thumbnails())
     yield
+    thumbnails.cancel()
 
 
 app = FastAPI(title="TPStore API", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)

@@ -68,6 +68,9 @@ def _thumb_cache_path(file_path: Path, size: int) -> Path:
 def _build_thumbnail(file_path: Path, cache_path: Path, size: int) -> None:
     from PIL import Image
     with Image.open(file_path) as img:
+        # A JPEG decodes straight at 1/2, 1/4 or 1/8 scale (still at least `size` each way),
+        # several times faster than decoding a 12 MP photo whole just to shrink it.
+        img.draft("RGB", (size, size))
         img = img.convert("RGB")
         w, h = img.size
         min_dim = min(w, h)
