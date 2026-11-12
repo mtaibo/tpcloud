@@ -99,6 +99,14 @@
 	redir /store /store/ 308
 	handle /store/* {
 		route {
+			# Thumbnails, posters and previews skip the gateway's session check: store-api checks
+			# the session itself on every one of them (against auth, cached and shared across a
+			# burst), and a gallery asks for hundreds at once, each paying for both checks.
+			@store_media path /store/api/files/thumbnail /store/api/files/poster /store/api/files/preview
+			handle @store_media {
+				uri strip_prefix /store
+				reverse_proxy store-api:8000
+			}
 			import protected
 			uri strip_prefix /store
 			# Thumbnails set their own long caching; other API answers are never cached.
