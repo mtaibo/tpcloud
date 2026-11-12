@@ -1,41 +1,38 @@
 <script setup>
 import { computed } from 'vue'
 import { useBlueprint } from '@/config/blueprint'
-import { openEdges } from '@/config/rooms'
+import { GAP } from './geometry'
 
-// The house from above as cards: every room a rounded surface and a thin gap between rooms for
-// the walls. A room can be lit
-// warm (how open its blinds are) and picked out while its sheet is open.
-const props = defineProps({
-    light:     { type: Object, default: () => ({}) },  // room id → 0..1
-    selected:  { type: String, default: null },
-    clickable: { type: Object, default: () => ({}) },  // room id → true
-})
-const emit = defineEmits(['select'])
-
+// The house from above as cards: every room a softly rounded surface and a thin line of the
+// page's background between rooms for the walls. Each door is a break in that line, so the
+// house reads as one shape with its rooms marked off, not as loose pieces.
 const map = useBlueprint()
 
-const GAP = 4
-const RADIUS = 9
+const RADIUS = 6
 
 const rooms = computed(() => (map.storage.rooms ?? []).map(r => ({
-    ...r,
+    id: r.id,
     x: r.x + GAP / 2, y: r.y + GAP / 2,
     w: r.w - GAP, h: r.h - GAP,
     rx: Math.min(RADIUS, (r.w - GAP) / 4, (r.h - GAP) / 4),
 })))
 
-// Rooms that are one open space (the entrance and the hall, the lounge and its gallery) are
-// joined across the gap along the whole edge they share, a little past the rounded corners and
-// clipped to the house. Ordinary doors aren't drawn: the gap between cards is the wall.
-const bridges = computed(() => openEdges(map.storage.rooms ?? [], map.storage.doors ?? []).map(e => {
+// A door between two rooms fills the wall line along its length, a little past the rooms' rounded
+// corners, clipped to the house. The front door (rooms on one side only) needs nothing.
+const inRoom = (x, y) => (map.storage.rooms ?? []).some(r => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h)
+const between = d => {
+    const mx = (d.x1 + d.x2) / 2, my = (d.y1 + d.y2) / 2
+    return d.y1 === d.y2 ? inRoom(mx, my - 1) && inRoom(mx, my + 1) : inRoom(mx - 1, my) && inRoom(mx + 1, my)
+}
+const doors = computed(() => (map.storage.doors ?? []).filter(between).map(d => {
     const across = GAP + RADIUS * 2
-    return e.vertical
-        ? { room: e.a, x: e.x - across / 2, y: e.y1 + GAP / 2, w: across, h: Math.max(0, e.y2 - e.y1 - GAP) }
-        : { room: e.a, x: e.x1 + GAP / 2, y: e.y - across / 2, w: Math.max(0, e.x2 - e.x1 - GAP), h: across }
+    if (d.y1 === d.y2) {
+        const a = Math.min(d.x1, d.x2), b = Math.max(d.x1, d.x2)
+        return { x: a, y: d.y1 - across / 2, w: b - a, h: across }
+    }
+    const a = Math.min(d.y1, d.y2), b = Math.max(d.y1, d.y2)
+    return { x: d.x1 - across / 2, y: a, w: across, h: b - a }
 }))
-
-const fill = id => `color-mix(in srgb, var(--plan-sun) ${Math.round((props.light[id] ?? 0) * 100)}%, var(--plan-room))`
 </script>
 
 <template>
@@ -47,23 +44,11 @@ const fill = id => `color-mix(in srgb, var(--plan-sun) ${Math.round((props.light
     </defs>
 
     <g class="house">
-        <rect v-for="b in bridges" :key="`${b.x},${b.y}`" :x="b.x" :y="b.y" :width="b.w" :height="b.h" class="bridge" :style="{ fill: fill(b.room) }" clip-path="url(#plan-house)" />
-        <rect
-            v-for="r in rooms"
-            :key="r.id"
-            :x="r.x" :y="r.y" :width="r.w" :height="r.h" :rx="r.rx"
-            class="room"
-            :class="{ selected: selected === r.id, clickable: clickable[r.id] }"
-            :style="{ fill: fill(r.id) }"
-            @click="clickable[r.id] && emit('select', r.id)"
-        />
+        <rect v-for="(d, i) in doors" :key="i" :x="d.x" :y="d.y" :width="d.w" :height="d.h" class="room" clip-path="url(#plan-house)" />
+        <rect v-for="r in rooms" :key="r.id" :x="r.x" :y="r.y" :width="r.w" :height="r.h" :rx="r.rx" class="room" />
     </g>
 </template>
 
 <style scoped>
-.room { transition: fill 0.6s var(--ease), stroke 0.2s; stroke: transparent; stroke-width: 2; }
-.room.clickable { cursor: pointer; }
-@media (hover: hover) { .room.clickable:hover { stroke: color-mix(in srgb, var(--label) 12%, transparent); } }
-.room.selected { stroke: var(--accent); }
-.bridge { transition: fill 0.6s var(--ease); }
+.room { fill: var(--plan-room); }
 </style>

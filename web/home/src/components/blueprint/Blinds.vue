@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import { useDevices } from '@/config/devices'
 import { positions } from '@/config/useBlindAnimations'
+import { useBlueprint } from '@/config/blueprint'
+import { snapToWall } from './geometry'
 
 // The blinds on the plan: a capsule on the window's wall that fills green as far as the blind is
 // open (the dashboard's bar, drawn where the window is). In "config" mode (placing a new switch)
@@ -13,8 +15,9 @@ const props = defineProps({
 const emit = defineEmits(['select', 'pick'])
 
 const store = useDevices()
+const map = useBlueprint()
 
-const THICK = 8
+const THICK = 7
 
 const blinds = computed(() => {
     const source = props.mode === 'config' ? (store.storage.blinds ?? {}) : store.blinds
@@ -22,8 +25,10 @@ const blinds = computed(() => {
         const m = b.map
         const horizontal = m.width >= m.height
         const len = horizontal ? m.width : m.height
-        const x = horizontal ? m.x : m.x + m.width / 2 - THICK / 2
-        const y = horizontal ? m.y + m.height / 2 - THICK / 2 : m.y
+        // Centred on the edge of its room's card.
+        const line = snapToWall(map.storage.rooms ?? [], m)
+        const x = horizontal ? m.x : line - THICK / 2
+        const y = horizontal ? line - THICK / 2 : m.y
         return { id, blind: b, horizontal, len, x, y, w: horizontal ? len : THICK, h: horizontal ? THICK : len }
     })
 })
