@@ -1,17 +1,23 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { BookImage, Camera, Cloud, Folder, Heart, Images, Smartphone } from 'lucide-vue-next'
+import { BookImage, Camera, ChevronRight, Cloud, Folder, Heart, Images, LogOut, Smartphone, User } from 'lucide-vue-next'
 import AlertHost from './ui/AlertHost.vue'
 import Spinner from './ui/Spinner.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import Gallery from './components/Gallery.vue'
 import { syncLang, t } from './ui/i18n.js'
+import { openMenu } from './menu.js'
+import { formatSize } from './utils/formatSize.js'
 
 // The gallery as a section of its own, next to the store it keeps its photos in (and that
 // serves its API): the photos backed up from the iPhone, and in time albums too.
 const user = ref(null)
 const section = ref('all') // all | camera | screenshots | album:<id>
 const albums = ref([])
+const disk = ref(null)
+
+const initials = computed(() => (user.value?.display_name || '?').split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join(''))
+const usedPct = computed(() => (disk.value ? Math.round((disk.value.used / (disk.value.used + disk.value.free)) * 100) : 0))
 
 const sections = computed(() => [
   { value: 'all', label: t('Library', 'Biblioteca'), icon: Images },
@@ -30,7 +36,30 @@ onMounted(async () => {
     return
   }
   loadAlbums()
+  loadDisk()
 })
+
+// The same storage meter as Archivos': the photos live on the same disk.
+async function loadDisk() {
+  try {
+    const res = await fetch('/store/api/files/disk')
+    if (res.ok) disk.value = await res.json()
+  } catch { /* the meter just stays hidden */ }
+}
+
+function userMenu(e) {
+  openMenu(e.currentTarget, [
+    { label: t('Your account', 'Tu cuenta'), icon: User, action: () => { window.location.href = '/accounts' } },
+    { label: t('Back to TPCloud', 'Volver a TPCloud'), icon: Cloud, action: () => { window.location.href = '/' } },
+    { separator: true },
+    { label: t('Log out', 'Cerrar sesión'), icon: LogOut, danger: true, action: logout },
+  ])
+}
+
+async function logout() {
+  await fetch('/auth/passkey/logout', { method: 'POST' })
+  window.location.href = '/login'
+}
 
 // Favoritos and, later, albums of your own, each with how many photos it holds.
 async function loadAlbums() {
@@ -77,11 +106,24 @@ async function loadAlbums() {
             <span class="item-count">{{ a.count }}</span>
           </button>
         </template>
+
+        <div class="group-head"><span>{{ t('Locations', 'Ubicaciones') }}</span></div>
+        <a href="/store/" class="item" :title="t('Open Files', 'Abrir Archivos')">
+          <Folder :size="18" :stroke-width="1.9" class="item-icon" />
+          <span class="item-label">{{ t('Files', 'Archivos') }}</span>
+        </a>
       </nav>
-      <div class="foot">
-        <a href="/store/" class="item"><Folder :size="18" :stroke-width="1.9" class="item-icon" /><span class="item-label">{{ t('Files', 'Archivos') }}</span></a>
-        <a href="/" class="item"><Cloud :size="18" :stroke-width="1.9" class="item-icon" /><span class="item-label">TPCloud</span></a>
+
+      <div v-if="disk" class="storage">
+        <div class="meter"><i :style="{ width: `${usedPct}%` }" :class="{ full: usedPct > 90 }" /></div>
+        <p>{{ t(`${formatSize(disk.free)} available of ${formatSize(disk.used + disk.free)}`, `${formatSize(disk.free)} disponibles de ${formatSize(disk.used + disk.free)}`) }}</p>
       </div>
+
+      <button type="button" class="user" @click="userMenu">
+        <span class="avatar" style="width: 30px; height: 30px; font-size: 12px">{{ initials }}</span>
+        <span class="user-name">{{ user.display_name }}</span>
+        <ChevronRight :size="14" :stroke-width="2.4" class="user-chevron" />
+      </button>
     </aside>
     <main class="main"><Gallery v-model:section="section" :albums="albums" @albums-changed="loadAlbums" /></main>
   </div>
@@ -142,7 +184,15 @@ body { overflow: hidden; }
 .item-icon { flex-shrink: 0; color: var(--accent); }
 .item-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item-count { flex-shrink: 0; font-size: 12px; color: var(--label-3); font-variant-numeric: tabular-nums; }
-.foot { padding-top: 8px; border-top: 0.5px solid var(--separator); }
+.storage { padding: 10px 10px 8px; border-top: 0.5px solid var(--separator); }
+.meter { height: 6px; border-radius: 3px; background: var(--fill-3); overflow: hidden; }
+.meter i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.meter i.full { background: var(--orange); }
+.storage p { margin-top: 6px; font-size: 11.5px; color: var(--label-2); }
+.user { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 12px; text-align: left; color: var(--label); }
+.user:hover { background: var(--fill-4); }
+.user-name { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-chevron { color: var(--label-3); transform: rotate(-90deg); }
 
 @media (max-width: 767px) {
   .sidebar { display: none; }

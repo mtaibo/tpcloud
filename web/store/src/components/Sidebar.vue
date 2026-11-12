@@ -89,7 +89,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocDown))
         </div>
       </template>
 
-      <div class="group-head static"><span>Ubicaciones</span></div>
+      <div class="group-head static"><span>{{ t('Locations', 'Ubicaciones') }}</span></div>
       <button type="button" class="item" :class="{ active: isActive('external', homePath) }" @click="navigate('external', homePath)">
         <House :size="18" :stroke-width="1.9" class="item-icon" />
         <span class="item-label">{{ t('Home', 'Inicio') }}</span>
