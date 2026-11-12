@@ -155,7 +155,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 .look-btn:hover, .arrow:hover { background: rgba(255, 255, 255, 0.24); }
 .look-btn:active, .arrow:active { transform: scale(0.92); }
-.stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; padding: 8px 72px calc(28px + env(safe-area-inset-bottom)); }
+/* Fixed tracks so the media's max-width/max-height resolve against the stage and a tall video
+   fits on screen instead of growing the row past it. */
+.stage { position: relative; flex: 1; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; padding: 8px 72px calc(28px + env(safe-area-inset-bottom)); }
 .media { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 10px; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5); user-select: none; -webkit-user-drag: none; }
 img.media { opacity: 0; transition: opacity 0.25s; }
 img.media.loaded { opacity: 1; }
