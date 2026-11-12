@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AlertHost from '@ui/AlertHost.vue'
 import Icon from '@ui/Icon.vue'
+import ListRow from '@ui/ListRow.vue'
+import ListSection from '@ui/ListSection.vue'
 import Spinner from '@ui/Spinner.vue'
 import { api, signOut } from '@ui/api.js'
 import { ask } from '@ui/dialog.js'
@@ -94,7 +96,6 @@ async function confirmSignOut() {
       <header class="page-header">
         <p class="subheadline secondary date">{{ today }}</p>
         <h1 class="large-title">{{ greeting }}</h1>
-        <button class="btn-plain destructive sign-out" type="button" @click="confirmSignOut">{{ t('Log out', 'Cerrar sesión') }}</button>
       </header>
 
       <div class="stack">
@@ -121,6 +122,10 @@ async function confirmSignOut() {
         </span>
         <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
       </a>
+
+      <ListSection>
+        <ListRow :title="t('Log out', 'Cerrar sesión')" clickable destructive centered @click="confirmSignOut" />
+      </ListSection>
     </main>
 
     <AlertHost />
@@ -138,17 +143,9 @@ html.no-scroll, html.no-scroll body { overflow: hidden; height: 100%; }
 .splash { min-height: 100dvh; display: grid; place-items: center; }
 .date { font-weight: 600; text-transform: none; }
 .page { padding-top: calc(24px + env(safe-area-inset-top)); }
-/* Log out beside the greeting; on a phone, where the greeting needs the width, beside the date. */
-.page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "date date" "title out"; column-gap: 16px; align-items: baseline; }
-.date { grid-area: date; }
-.page-header .large-title { grid-area: title; }
-.sign-out { grid-area: out; }
-@media (max-width: 600px) { .page-header { grid-template-areas: "date out" "title title"; } }
 .page-header .large-title { margin-top: 2px; }
-/* Plain red text over the large title, where iOS puts a bar's text buttons. */
-.sign-out { min-height: 0; padding: 0; font-size: 17px; }
 
-.stack { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; }
+.stack { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -189,7 +186,7 @@ html.no-scroll, html.no-scroll body { overflow: hidden; height: 100%; }
   align-items: center;
   gap: 12px;
   padding: 14px 20px;
-  margin-bottom: 26px;
+  margin-bottom: 14px;
   border-radius: 20px;
   background: color-mix(in srgb, var(--orange) 16%, var(--cell));
 }
