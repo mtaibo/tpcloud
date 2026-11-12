@@ -84,6 +84,14 @@ const sharedUrls = {
 }
 const saveItems = ref(null)
 
+// Closing goes back to where the visitor came from on this site (the list of shares, say), or
+// to that list when the link was opened on its own.
+function leaveSharedFile() {
+  const cameFromHere = document.referrer && new URL(document.referrer).origin === location.origin
+  if (cameFromHere && history.length > 1) history.back()
+  else location.href = '/share/'
+}
+
 watch(shareInfo, (info) => { if (info?.is_file) document.title = info.label })
 
 function onAuthenticated(st) {
@@ -111,7 +119,7 @@ function onAuthenticated(st) {
       <MediaViewer
         :items="[sharedItem]"
         :urls="sharedUrls"
-        :closable="false"
+        @close="leaveSharedFile"
         @download="downloadLink(sharedUrls.download(), shareInfo.label)"
         @save="saveItems = [sharedItem]"
       />

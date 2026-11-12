@@ -12,8 +12,6 @@ const props = defineProps({
   items: Array,
   startIndex: { type: Number, default: 0 },
   urls: Object,
-  // A share of one photo or video opens straight in here, with nothing behind it to close to.
-  closable: { type: Boolean, default: true },
 })
 const emit = defineEmits(['close', 'download', 'save'])
 
@@ -44,7 +42,7 @@ watch(index, (i) => {
 }, { immediate: true })
 
 function close() {
-  if (props.closable) emit('close')
+  emit('close')
 }
 
 function onKeydown(e) {
@@ -78,8 +76,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   <Teleport to="body">
     <div class="look" @click.self="close" @touchstart.passive="onTouchStart" @touchend="onTouchEnd">
       <header class="look-bar">
-        <button v-if="closable" type="button" class="look-btn" aria-label="Close" @click="close"><X :size="20" :stroke-width="2.2" /></button>
-        <span v-else />
+        <button type="button" class="look-btn" aria-label="Close" @click="close"><X :size="20" :stroke-width="2.2" /></button>
         <div class="look-title">
           <span class="look-name">{{ current?.name }}</span>
           <span v-if="items.length > 1" class="look-count">{{ index + 1 }} of {{ items.length }}</span>
