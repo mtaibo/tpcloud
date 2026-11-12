@@ -138,6 +138,11 @@ public struct HTTPClient: Sendable {
         return try decode(data)
     }
 
+    /// A JSON POST whose answer isn't JSON (e.g. a packed batch of images).
+    public func postForData<Body: Encodable>(_ path: String, query: [String: String] = [:], body: Body) async throws -> Data {
+        try await execute(path: path, method: "POST", query: query, body: body)
+    }
+
     /// Raw binary GET for responses that aren't JSON, e.g. file downloads.
     public func getData(_ path: String, query: [String: String] = [:]) async throws -> Data {
         try await execute(path: path, method: "GET", query: query, body: Optional<EmptyBody>.none)

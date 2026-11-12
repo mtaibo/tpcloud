@@ -170,6 +170,50 @@ public struct PhotosClient: Sendable {
         try await client.get("/api/photos/sanitize/status")
     }
 
+    /// Most photo ids one `thumbnails(ids:)` call takes (the server's limit).
+    public static let thumbnailsPerRequest = 300
+
+    /// Many photos' 320 px thumbnails in one round trip, by photo id; ids with none are left out.
+    /// One request per thumbnail meant thousands of round trips through the tunnel for a library.
+    public func thumbnails(ids: [Int]) async throws -> [Int: Data] {
+        struct Body: Encodable { let ids: [Int] }
+        let data = try await client.postForData("/api/photos/thumbnails", body: Body(ids: Array(ids.prefix(Self.thumbnailsPerRequest))))
+        return Self.unpackThumbnails(data)
+    }
+
+    /// The server's packing: for each photo a 4-byte id and a 4-byte length (big-endian), then
+    /// that many bytes of JPEG.
+    static func unpackThumbnails(_ data: Data) -> [Int: Data] {
+        var result: [Int: Data] = [:]
+        let bytes = [UInt8](data)
+        var offset = 0
+        func readUInt32(_ at: Int) -> Int {
+            Int(bytes[at]) << 24 | Int(bytes[at + 1]) << 16 | Int(bytes[at + 2]) << 8 | Int(bytes[at + 3])
+        }
+        while offset + 8 <= bytes.count {
+            let id = readUInt32(offset)
+            let length = readUInt32(offset + 4)
+            offset += 8
+            guard offset + length <= bytes.count else { break }
+            if length > 0 { result[id] = Data(bytes[offset..<offset + length]) }
+            offset += length
+        }
+        return result
+    }
+
+    /// The light version the web viewer shows: a 2048 px JPEG the server makes once and keeps.
+    /// `v` is the photo's checksum (a backed-up photo never changes), so the response is cached
+    /// as immutable and a second look never touches the network.
+    public func previewURL(for photo: Photo) -> URL {
+        var components = URLComponents(url: client.baseURL.appending(path: "/api/files/preview"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "path", value: photo.path),
+            URLQueryItem(name: "location", value: photo.location.rawValue),
+            URLQueryItem(name: "v", value: photo.checksum)
+        ]
+        return components.url!
+    }
+
     public func originalURL(for photo: Photo) -> URL {
         var components = URLComponents(url: client.baseURL.appending(path: "/api/files/view"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
