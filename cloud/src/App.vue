@@ -39,7 +39,7 @@ const failures = computed(() => {
   return activity.value.filter(e => e.kind === 'failed' && Date.now() - new Date(e.at) < 7 * 86400000 && new Date(e.at) > reviewed).length
 })
 
-// The quick-access column only fits beside the services on a desktop-sized window.
+// Quick access (blinds, server) is only for a desktop-sized window.
 const wide = window.matchMedia('(min-width: 900px)')
 const desktop = ref(wide.matches)
 const onWide = e => { desktop.value = e.matches }
@@ -79,34 +79,32 @@ async function confirmSignOut() {
         <h1 class="large-title">{{ greeting }}</h1>
       </header>
 
-      <div class="layout">
-        <div class="services">
-          <div class="grid">
-            <a v-for="s in services" :key="s.name" :href="s.url" class="tile">
-              <span class="tile-icon" :style="{ background: `var(--${s.tint})` }"><Icon :name="s.icon" :size="28" :weight="1.9" /></span>
-              <span class="tile-text">
-                <span class="headline">{{ s.name }}</span>
-                <span class="footnote secondary">{{ s.description }}</span>
-              </span>
-              <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron tile-chevron" />
-            </a>
-          </div>
-
-          <a v-if="failures" href="/accounts/activity" class="banner">
-            <Icon name="warning" :size="22" />
-            <span class="subheadline">
-              {{ failures === 1 ? '1 intento fallido' : `${failures} intentos fallidos` }} de entrar en tu cuenta esta semana. Revísalo.
+      <div class="stack">
+        <div class="grid">
+          <a v-for="s in services" :key="s.name" :href="s.url" class="tile">
+            <span class="tile-icon" :style="{ background: `var(--${s.tint})` }"><Icon :name="s.icon" :size="28" :weight="1.9" /></span>
+            <span class="tile-text">
+              <span class="headline">{{ s.name }}</span>
+              <span class="footnote secondary">{{ s.description }}</span>
             </span>
-            <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
+            <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron tile-chevron" />
           </a>
-
-          <ListSection>
-            <ListRow title="Cerrar sesión" clickable destructive centered @click="confirmSignOut" />
-          </ListSection>
         </div>
 
         <QuickAccess v-if="desktop" :user="user" />
       </div>
+
+      <a v-if="failures" href="/accounts/activity" class="banner">
+        <Icon name="warning" :size="22" />
+        <span class="subheadline">
+          {{ failures === 1 ? '1 intento fallido' : `${failures} intentos fallidos` }} de entrar en tu cuenta esta semana. Revísalo.
+        </span>
+        <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
+      </a>
+
+      <ListSection>
+        <ListRow title="Cerrar sesión" clickable destructive centered @click="confirmSignOut" />
+      </ListSection>
     </main>
 
     <AlertHost />
@@ -124,11 +122,11 @@ html::-webkit-scrollbar { display: none; }
 .date { font-weight: 600; text-transform: none; }
 .page-header .large-title { margin-top: 2px; }
 
+.stack { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; }
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
-  margin-bottom: 28px;
 }
 .tile {
   display: flex;
@@ -155,12 +153,6 @@ html::-webkit-scrollbar { display: none; }
   .tile:last-child:nth-child(even) { grid-column: span 2; }
   .tile-text { flex: 1; min-width: 0; }
   .tile-chevron { display: block; }
-}
-
-/* Desktop: the services on the left, quick access on the right. */
-@media (min-width: 900px) {
-  .page { max-width: calc(1040px + 2 * var(--gutter)); }
-  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 32px; align-items: start; }
 }
 
 .tile-icon { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 15px; color: #fff; }

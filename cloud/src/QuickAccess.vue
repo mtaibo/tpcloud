@@ -1,36 +1,41 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '@ui/Icon.vue'
-import ListSection from '@ui/ListSection.vue'
 import { api } from '@ui/api.js'
 import { toast } from '@ui/dialog.js'
 
-// The desktop dashboard's side column: the things worth doing without opening a module. Each
-// panel asks its own module and quietly stays away if that module doesn't answer.
+// The desktop dashboard's quick access, under the services: the blinds used every day and how
+// the server is doing. Each card asks its own module and stays away if that module doesn't answer.
 const props = defineProps({ user: { type: Object, required: true } })
+
+// The blinds worth a button here (tphome ids); any others are a click away in Casa. If none of
+// these exist on a server, its first three are shown instead.
+const PINNED_BLINDS = ['B0101', 'B0102', 'B0301']
 
 const has = module => props.user.modules?.includes(module)
 
 const blinds = ref(null)
-const photos = ref(null)
-const disk = ref(null)
 const server = ref(null)
 
-async function load(target, path, pick = data => data) {
+async function load(target, path) {
   try {
-    target.value = pick(await api(path))
+    target.value = await api(path)
   } catch {
     target.value = null
   }
 }
-
 const loadBlinds = () => load(blinds, '/home/api/devices/blinds')
 const loadServer = () => load(server, '/admin/api/system')
 
 // ---------- Persianas ----------
 
+const pinned = computed(() => {
+  const list = blinds.value ?? []
+  const chosen = PINNED_BLINDS.map(id => list.find(b => b.id === id)).filter(Boolean)
+  return chosen.length ? chosen : list.slice(0, 3)
+})
+
 const usable = b => b.connection?.online && !b.locked
-const anyUsable = computed(() => blinds.value?.some(usable))
 
 function blindState(b) {
   if (b.locked) return 'Bloqueada'
@@ -41,24 +46,19 @@ function blindState(b) {
 }
 
 let followUp = null
-async function command(list, action) {
-  const results = await Promise.allSettled(list.map(b => api(`/home/api/commands/${b.id}/${action}`, { method: 'POST' })))
-  if (results.some(r => r.status === 'rejected')) toast('Alguna persiana no ha respondido', 'warning')
-  // The states come back over the next seconds while they move.
+async function command(b, action) {
+  try {
+    await api(`/home/api/commands/${b.id}/${action}`, { method: 'POST' })
+  } catch {
+    toast(`${b.name} no ha respondido`, 'warning')
+  }
+  // The state comes back over the next seconds while it moves.
   clearTimeout(followUp)
   loadBlinds()
   followUp = setTimeout(loadBlinds, 1500)
 }
-const all = action => command(blinds.value.filter(usable), action)
 
-// ---------- Fotos ----------
-
-function thumbnail(p) {
-  const params = new URLSearchParams({ path: p.path, location: 'external', size: '320', v: p.checksum })
-  return `/store/api/files/thumbnail?${params}`
-}
-
-// ---------- Almacenamiento y servidor ----------
+// ---------- Servidor ----------
 
 function bytes(n) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -66,25 +66,22 @@ function bytes(n) {
   while (n >= 1000 && i < units.length - 1) { n /= 1000; i++ }
   return `${n.toFixed(n < 10 && i > 2 ? 1 : 0).replace('.', ',')} ${units[i]}`
 }
-const diskShare = computed(() => (disk.value ? disk.value.used / disk.value.total : 0))
 
 function uptime(seconds) {
   const d = Math.floor(seconds / 86400)
   const h = Math.floor((seconds % 86400) / 3600)
   return d ? `${d} d ${h} h` : `${h} h ${Math.floor((seconds % 3600) / 60)} min`
 }
-const stats = computed(() => {
-  const s = server.value
-  if (!s) return []
-  return [
-    { label: 'CPU', value: s.cpu_percent == null ? '—' : `${Math.round(s.cpu_percent)} %` },
-    { label: 'Temperatura', value: s.temperature_c == null ? '—' : `${Math.round(s.temperature_c)} °C` },
-    { label: 'Memoria', value: `${Math.round((100 * s.memory.used) / s.memory.total)} %` },
-    { label: 'Encendido', value: uptime(s.uptime_seconds) },
-  ]
-})
 
-// Blinds and the server change while the page is open; the rest is read once.
+// tpadmin's disks by name: the SD card the system runs from and the external storage drive.
+const DISK_NAMES = { system: 'Raspberry', storage: 'Disco externo' }
+const disks = computed(() =>
+  (server.value?.disks ?? [])
+    .filter(d => DISK_NAMES[d.name])
+    .map(d => ({ ...d, label: DISK_NAMES[d.name], share: d.used / d.total })),
+)
+
+// Both cards change while the page is open.
 let timer = null
 function refresh() {
   if (document.hidden) return
@@ -93,10 +90,6 @@ function refresh() {
 }
 
 onMounted(() => {
-  if (has('store')) {
-    load(photos, '/store/api/photos?limit=8', data => data.items)
-    load(disk, '/store/api/files/disk')
-  }
   refresh()
   timer = setInterval(refresh, 5000)
   document.addEventListener('visibilitychange', refresh)
@@ -109,71 +102,79 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <aside class="quick">
-    <ListSection v-if="blinds?.length">
-      <template #header>Persianas</template>
-      <template #action><a href="/home/" class="btn-plain">Abrir Casa</a></template>
-
-      <div class="row blind all">
-        <span class="row-body"><span class="row-title">Todas</span></span>
-        <span class="controls">
-          <button class="control" :disabled="!anyUsable" title="Subir todas" @click="all('up')"><Icon name="chevron-up" :size="18" :weight="2.4" /></button>
-          <button class="control" :disabled="!anyUsable" title="Parar todas" @click="all('stop')"><Icon name="stop" :size="15" :weight="2.2" /></button>
-          <button class="control" :disabled="!anyUsable" title="Bajar todas" @click="all('down')"><Icon name="chevron-down" :size="18" :weight="2.4" /></button>
-        </span>
-      </div>
-      <div v-for="b in blinds" :key="b.id" class="row blind">
-        <span class="level" :class="{ off: !usable(b) }"><i :style="{ height: `${100 - (b.state?.position ?? 0)}%` }" /></span>
-        <span class="row-body">
-          <span class="row-title">{{ b.name }}</span>
-          <span class="row-subtitle small">{{ blindState(b) }}</span>
+  <section v-if="pinned.length" class="quick-card">
+    <a href="/home/" class="quick-head">
+      <span class="quick-icon" style="background: var(--orange)"><Icon name="house" :size="24" :weight="1.9" /></span>
+      <span class="headline">Persianas</span>
+      <span class="footnote secondary">Abrir Casa</span>
+      <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
+    </a>
+    <div class="cells">
+      <div v-for="b in pinned" :key="b.id" class="cell" :class="{ off: !usable(b) }">
+        <span class="blind-top">
+          <span class="level"><i :style="{ height: `${100 - (b.state?.position ?? 0)}%` }" /></span>
+          <span class="cell-text">
+            <span class="subheadline name">{{ b.name }}</span>
+            <span class="footnote secondary">{{ blindState(b) }}</span>
+          </span>
         </span>
         <span class="controls">
-          <button class="control" :disabled="!usable(b)" title="Subir" @click="command([b], 'up')"><Icon name="chevron-up" :size="18" :weight="2.4" /></button>
-          <button class="control" :disabled="!usable(b)" title="Parar" @click="command([b], 'stop')"><Icon name="stop" :size="15" :weight="2.2" /></button>
-          <button class="control" :disabled="!usable(b)" title="Bajar" @click="command([b], 'down')"><Icon name="chevron-down" :size="18" :weight="2.4" /></button>
+          <button class="control" :disabled="!usable(b)" title="Subir" @click="command(b, 'up')"><Icon name="chevron-up" :size="18" :weight="2.4" /></button>
+          <button class="control" :disabled="!usable(b)" title="Parar" @click="command(b, 'stop')"><Icon name="stop" :size="15" :weight="2.2" /></button>
+          <button class="control" :disabled="!usable(b)" title="Bajar" @click="command(b, 'down')"><Icon name="chevron-down" :size="18" :weight="2.4" /></button>
         </span>
       </div>
-    </ListSection>
+    </div>
+  </section>
 
-    <ListSection v-if="photos?.length">
-      <template #header>Fotos recientes</template>
-      <template #action><a href="/photos/" class="btn-plain">Ver todas</a></template>
-      <div class="photos">
-        <a v-for="p in photos" :key="p.id" href="/photos/" class="photo">
-          <img :src="thumbnail(p)" :alt="p.original_filename" loading="lazy" @error="e => e.target.classList.add('missing')" />
-        </a>
+  <section v-if="server" class="quick-card">
+    <div class="quick-head">
+      <span class="quick-icon" style="background: var(--indigo)"><Icon name="server" :size="24" :weight="1.9" /></span>
+      <span class="headline">Servidor</span>
+    </div>
+    <div class="cells server">
+      <div class="cell stat">
+        <span class="footnote secondary">Temperatura</span>
+        <span class="stat-value">{{ server.temperature_c == null ? '—' : `${Math.round(server.temperature_c)} °C` }}</span>
       </div>
-    </ListSection>
-
-    <ListSection v-if="disk">
-      <template #header>Almacenamiento</template>
-      <template #action><a href="/store/" class="btn-plain">Archivos</a></template>
-      <div class="panel">
-        <div class="meter"><i :style="{ width: `${diskShare * 100}%` }" :class="{ full: diskShare > 0.9 }" /></div>
-        <p class="footnote secondary">{{ bytes(disk.free) }} libres de {{ bytes(disk.total) }}</p>
+      <div class="cell stat">
+        <span class="footnote secondary">Encendido</span>
+        <span class="stat-value">{{ uptime(server.uptime_seconds) }}</span>
       </div>
-    </ListSection>
-
-    <ListSection v-if="server">
-      <template #header>Servidor</template>
-      <div class="stats">
-        <div v-for="s in stats" :key="s.label" class="stat">
-          <span class="caption secondary">{{ s.label }}</span>
-          <span class="headline">{{ s.value }}</span>
-        </div>
+      <div v-for="d in disks" :key="d.name" class="cell disk">
+        <span class="disk-top">
+          <span class="subheadline name">{{ d.label }}</span>
+          <span class="footnote secondary">{{ bytes(d.free) }} libres de {{ bytes(d.total) }}</span>
+        </span>
+        <span class="meter"><i :style="{ width: `${d.share * 100}%` }" :class="{ full: d.share > 0.9 }" /></span>
       </div>
-    </ListSection>
-  </aside>
+    </div>
+  </section>
 </template>
 
 <style scoped>
-/* Its first card lines up with the first service tile; the header sits above it. */
-.quick { min-width: 0; margin-top: -28px; }
+.quick-card {
+  padding: 20px;
+  border-radius: var(--radius-card);
+  background: var(--cell);
+}
+.quick-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.quick-head .headline { flex: 1; }
+.quick-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: #fff; flex-shrink: 0; }
 
-.blind { gap: 12px; padding-right: 12px; }
-.blind.all { --inset: 20px; }
-.blind:not(.all) { --inset: 62px; }
+.cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.cell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--fill-4);
+}
+.blind-top { display: flex; align-items: center; gap: 12px; }
+.cell-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.name { font-weight: 600; }
+
 /* A little window that fills from the top as the blind comes down. */
 .level {
   position: relative;
@@ -185,11 +186,11 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--yellow) 55%, var(--cell));
 }
 .level i { position: absolute; inset: 0 0 auto; background: var(--gray); transition: height 0.4s var(--ease); }
-.level.off { opacity: 0.4; }
-.controls { display: flex; gap: 6px; flex-shrink: 0; }
+.cell.off .level { opacity: 0.4; }
+.controls { display: flex; gap: 6px; margin-top: auto; }
 .control {
-  width: 32px;
-  height: 32px;
+  flex: 1;
+  height: 34px;
   display: grid;
   place-items: center;
   border-radius: 999px;
@@ -198,22 +199,16 @@ onBeforeUnmount(() => {
   transition: transform 0.25s var(--spring), background-color 0.15s;
 }
 .control:hover:not(:disabled) { background: var(--fill-2); }
-.control:active:not(:disabled) { transform: scale(0.9); }
+.control:active:not(:disabled) { transform: scale(0.92); }
 .control:disabled { opacity: 0.35; cursor: default; }
 
-.photos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
-.photo { aspect-ratio: 1; overflow: hidden; background: var(--fill-3); }
-.photo img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s var(--ease); }
-.photo img.missing { visibility: hidden; }
-@media (hover: hover) { .photo:hover img { transform: scale(1.05); } }
-
-.panel { padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
+.cells.server { grid-template-columns: 1fr 1fr; }
+.stat { gap: 4px; }
+.stat-value { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: 0.35px; }
+/* Each disk takes a whole row, so its bar has room to read. */
+.disk { grid-column: 1 / -1; gap: 10px; }
+.disk-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .meter { height: 8px; border-radius: 999px; background: var(--fill-3); overflow: hidden; }
 .meter i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
 .meter i.full { background: var(--orange); }
-
-.stats { display: grid; grid-template-columns: 1fr 1fr; }
-.stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 20px; }
-.stat:nth-child(n + 3) { border-top: 0.5px solid var(--separator); }
-.stat:nth-child(even) { border-left: 0.5px solid var(--separator); }
 </style>
