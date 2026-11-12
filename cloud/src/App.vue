@@ -2,8 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AlertHost from '@ui/AlertHost.vue'
 import Icon from '@ui/Icon.vue'
-import ListSection from '@ui/ListSection.vue'
-import ListRow from '@ui/ListRow.vue'
 import NavBar from '@ui/NavBar.vue'
 import Spinner from '@ui/Spinner.vue'
 import { api, signOut } from '@ui/api.js'
@@ -75,8 +73,13 @@ async function confirmSignOut() {
 
     <main class="page">
       <header class="page-header">
-        <p class="subheadline secondary date">{{ today }}</p>
-        <h1 class="large-title">{{ greeting }}</h1>
+        <div class="heading">
+          <p class="subheadline secondary date">{{ today }}</p>
+          <h1 class="large-title">{{ greeting }}</h1>
+        </div>
+        <button class="icon-btn sign-out" title="Cerrar sesión" aria-label="Cerrar sesión" @click="confirmSignOut">
+          <Icon name="sign-out" :size="20" :weight="2" />
+        </button>
       </header>
 
       <div class="stack">
@@ -101,10 +104,6 @@ async function confirmSignOut() {
         </span>
         <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
       </a>
-
-      <ListSection>
-        <ListRow title="Cerrar sesión" clickable destructive centered @click="confirmSignOut" />
-      </ListSection>
     </main>
 
     <AlertHost />
@@ -120,7 +119,13 @@ html::-webkit-scrollbar { display: none; }
 <style scoped>
 .splash { min-height: 100dvh; display: grid; place-items: center; }
 .date { font-weight: 600; text-transform: none; }
+.page-header { display: flex; align-items: flex-end; gap: 12px; }
+.heading { flex: 1; min-width: 0; }
 .page-header .large-title { margin-top: 2px; }
+/* Beside the large title, like the account button in the App Store. */
+.sign-out { margin-bottom: -2px; }
+/* Arrow out to the right, like the system's rectangle.portrait.and.arrow.right. */
+.sign-out .icon { transform: scaleX(-1); }
 
 .stack { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; }
 .grid {
