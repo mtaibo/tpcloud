@@ -5,19 +5,19 @@ export function formatSize(bytes) {
   let value = bytes / 1000
   let unit = 0
   while (value >= 1000 && unit < units.length - 1) { value /= 1000; unit++ }
-  return `${value.toLocaleString('es-ES', { maximumFractionDigits: value < 10 ? 1 : 0 })} ${units[unit]}`
+  return `${value.toLocaleString('en-US', { maximumFractionDigits: value < 10 ? 1 : 0 })} ${units[unit]}`
 }
 
-const time = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', minute: '2-digit' })
-const day = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' })
+const day = new Intl.DateTimeFormat('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
 
-/** Like Finder: "Hoy, 10:32", "Ayer, 18:05", "3 nov 2026, 9:12". */
+/** Like Finder: "Today, 10:32 AM", "Yesterday, 6:05 PM", "Nov 3, 2026, 9:12 AM". */
 export function formatDate(seconds) {
   if (!seconds) return '—'
   const d = new Date(seconds * 1000)
   const start = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
   const days = Math.round((start(new Date()) - start(d)) / 86400000)
-  if (days === 0) return `Hoy, ${time.format(d)}`
-  if (days === 1) return `Ayer, ${time.format(d)}`
-  return `${day.format(d).replace('.', '')}, ${time.format(d)}`
+  if (days === 0) return `Today, ${time.format(d)}`
+  if (days === 1) return `Yesterday, ${time.format(d)}`
+  return `${day.format(d)}, ${time.format(d)}`
 }

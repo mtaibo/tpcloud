@@ -36,18 +36,18 @@ onMounted(async () => {
           }
         }
       } catch {}
-      error.value = 'Este enlace no existe o ya no está compartido.'
+      error.value = "This link doesn't exist or is no longer shared."
       loading.value = false
       return
     }
     if (!res.ok) {
-      error.value = 'No se ha podido abrir el enlace.'
+      error.value = "This link couldn't be opened."
       loading.value = false
       return
     }
     shareInfo.value = await res.json()
   } catch {
-    error.value = 'No hay conexión. Vuelve a intentarlo.'
+    error.value = 'No connection. Try again.'
   } finally {
     loading.value = false
   }
@@ -78,7 +78,7 @@ function onAuthenticated(st) {
   <div v-else-if="loading" class="center"><Spinner :size="26" /></div>
   <div v-else-if="error" class="center">
     <FileIcon :entry="{ type: 'share-link', name: '' }" :size="84" class="faded" />
-    <h1 class="title-2">Enlace no disponible</h1>
+    <h1 class="title-2">Link Unavailable</h1>
     <p class="subheadline secondary">{{ error }}</p>
   </div>
   <template v-else-if="shareInfo">

@@ -13,7 +13,7 @@ export function extOf(entry) {
   return name.includes('.') ? name.split('.').pop().toLowerCase() : ''
 }
 
-/** What an entry is, for its icon, its colour and the "Tipo" column. */
+/** What an entry is, for its icon, its colour and the "Kind" column. */
 export function kindOf(entry) {
   if (entry.type === 'upload-pending') return 'upload'
   if (entry.type === 'share-link') return 'share'
@@ -33,26 +33,26 @@ export function kindOf(entry) {
 }
 
 const KIND_NAMES = {
-  upload: 'Subiendo',
-  share: 'Enlace compartido',
-  folder: 'Carpeta',
-  image: 'Imagen',
-  video: 'Vídeo',
+  upload: 'Uploading',
+  share: 'Share Link',
+  folder: 'Folder',
+  image: 'Image',
+  video: 'Video',
   audio: 'Audio',
-  archive: 'Archivo comprimido',
-  pdf: 'Documento PDF',
-  sheet: 'Hoja de cálculo',
-  slides: 'Presentación',
-  word: 'Documento',
-  text: 'Texto',
-  code: 'Código fuente',
-  file: 'Documento',
+  archive: 'Archive',
+  pdf: 'PDF Document',
+  sheet: 'Spreadsheet',
+  slides: 'Presentation',
+  word: 'Document',
+  text: 'Text',
+  code: 'Source Code',
+  file: 'Document',
 }
 
 export function kindName(entry) {
   const kind = kindOf(entry)
   const ext = extOf(entry)
-  if ((kind === 'image' || kind === 'video' || kind === 'audio') && ext) return `${KIND_NAMES[kind]} ${ext.toUpperCase()}`
+  if ((kind === 'image' || kind === 'video' || kind === 'audio') && ext) return `${ext.toUpperCase()} ${KIND_NAMES[kind]}`
   return KIND_NAMES[kind]
 }
 

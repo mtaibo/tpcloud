@@ -21,14 +21,14 @@ async function submit() {
       body: JSON.stringify({ password: password.value }),
     })
     if (!res.ok) {
-      error.value = 'Contraseña incorrecta'
+      error.value = 'Incorrect password'
       return
     }
     const { session_token } = await res.json()
     localStorage.setItem(`share-session-${props.token}`, session_token)
     emit('authenticated', session_token)
   } catch {
-    error.value = 'No hay conexión. Vuelve a intentarlo.'
+    error.value = 'No connection. Try again.'
   } finally {
     loading.value = false
   }
@@ -43,14 +43,14 @@ function onKeydown(e) {
   <main class="wall">
     <form class="content" :class="{ shake: !!error }" @submit.prevent="submit">
       <span class="lock"><Lock :size="34" :stroke-width="2" /></span>
-      <h1 class="title-1">{{ label || 'Carpeta protegida' }}</h1>
-      <p class="subheadline secondary">Quien te ha compartido esto le ha puesto contraseña. Escríbela para entrar.</p>
+      <h1 class="title-1">{{ label || 'Protected Folder' }}</h1>
+      <p class="subheadline secondary">Whoever shared this protected it with a password. Enter it to continue.</p>
       <div class="card field">
         <input
           v-model="password"
           class="row-input"
           type="password"
-          placeholder="Contraseña"
+          placeholder="Password"
           autocomplete="current-password"
           autofocus
           @input="error = ''"
@@ -59,7 +59,7 @@ function onKeydown(e) {
       <p v-if="error" class="footnote danger">{{ error }}</p>
       <button type="submit" class="btn btn-prominent block" :disabled="loading || !password">
         <Spinner v-if="loading" :size="18" style="color: #fff" />
-        <span v-else>Entrar</span>
+        <span v-else>Continue</span>
       </button>
     </form>
   </main>

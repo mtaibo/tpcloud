@@ -60,14 +60,14 @@ const batchLabel = computed(() => {
   const videos = batch.value.filter(isVideo).length
   const photos = batch.value.length - videos
   const parts = []
-  if (photos) parts.push(photos === 1 ? '1 foto' : `${photos} fotos`)
-  if (videos) parts.push(videos === 1 ? '1 vídeo' : `${videos} vídeos`)
-  return parts.join(' y ')
+  if (photos) parts.push(photos === 1 ? '1 photo' : `${photos} photos`)
+  if (videos) parts.push(videos === 1 ? '1 video' : `${videos} videos`)
+  return parts.join(' and ')
 })
 
 async function fetchFile(item, signal) {
   const res = await fetch(props.downloadUrl(item), { signal })
-  if (!res.ok || !res.body) throw new Error(`No se pudo descargar «${item.name}»`)
+  if (!res.ok || !res.body) throw new Error(`Couldn't download "${item.name}"`)
   const reader = res.body.getReader()
   const chunks = []
   while (true) {
@@ -101,7 +101,7 @@ async function downloadBatch() {
     phase.value = 'ready'
   } catch (e) {
     if (e.name === 'AbortError') return
-    errorText.value = e.message || 'La descarga ha fallado'
+    errorText.value = e.message || 'The download failed'
     phase.value = 'error'
   }
 }
@@ -115,7 +115,7 @@ async function save() {
   } catch (e) {
     // Closing the sheet without saving: keep the batch ready to try again or skip.
     phase.value = 'ready'
-    if (e.name !== 'AbortError') errorText.value = e.message || 'No se pudo abrir el menú de compartir'
+    if (e.name !== 'AbortError') errorText.value = e.message || "Couldn't open the share sheet"
   }
 }
 
@@ -143,10 +143,10 @@ onUnmounted(() => abort?.abort())
   <Teleport to="body">
     <Transition name="sheet" appear>
       <div class="overlay" @click.self="close">
-        <div class="sheet" role="dialog" aria-label="Guardar en Fotos">
+        <div class="sheet" role="dialog" aria-label="Save to Photos">
           <div class="sheet-bar">
-            <button type="button" class="icon-btn" aria-label="Cerrar" @click="close"><X :size="20" :stroke-width="2.2" /></button>
-            <div class="navbar-title">Guardar en Fotos</div>
+            <button type="button" class="icon-btn" aria-label="Close" @click="close"><X :size="20" :stroke-width="2.2" /></button>
+            <div class="navbar-title">Save to Photos</div>
             <span />
           </div>
           <div class="sheet-body">
@@ -156,33 +156,33 @@ onUnmounted(() => abort?.abort())
                 <ImageDown v-else :size="34" />
               </span>
               <template v-if="phase === 'done'">
-                <p class="title-3">{{ savedCount === 1 ? '1 elemento guardado' : `${savedCount} elementos guardados` }}</p>
-                <p class="subheadline secondary">Ya están en tu app Fotos.</p>
+                <p class="title-3">{{ savedCount === 1 ? '1 item saved' : `${savedCount} items saved` }}</p>
+                <p class="subheadline secondary">They're in your Photos app now.</p>
               </template>
               <template v-else>
                 <p class="title-3">{{ batchLabel }}</p>
                 <p class="subheadline secondary">
-                  <template v-if="batches.length > 1">Parte {{ batchIndex + 1 }} de {{ batches.length }} · </template>{{ formatSize(batchBytes) }}
+                  <template v-if="batches.length > 1">Part {{ batchIndex + 1 }} of {{ batches.length }} · </template>{{ formatSize(batchBytes) }}
                 </p>
               </template>
             </div>
 
             <template v-if="phase !== 'done'">
               <p v-if="batchIndex === 0 && batches.length > 1" class="footnote secondary hint">
-                Son {{ props.items.length }} elementos ({{ formatSize(totalBytes) }}). Van por partes para que el móvil no se quede sin memoria: pulsa «Guardar» al terminar cada una.
+                That's {{ props.items.length }} items ({{ formatSize(totalBytes) }}). They go in parts so your phone doesn't run out of memory: tap Save as each one finishes.
               </p>
               <div class="bar"><i :style="{ width: `${progress * 100}%` }" /></div>
               <p v-if="errorText" class="footnote danger err">{{ errorText }}</p>
               <div class="actions">
-                <button v-if="phase === 'error'" type="button" class="btn btn-prominent block" @click="downloadBatch">Reintentar</button>
+                <button v-if="phase === 'error'" type="button" class="btn btn-prominent block" @click="downloadBatch">Try Again</button>
                 <button v-else type="button" class="btn btn-prominent block" :disabled="phase !== 'ready'" @click="save">
-                  <template v-if="phase === 'downloading'">Preparando… {{ Math.round(progress * 100) }} %</template>
-                  <template v-else>Guardar {{ batch.length === 1 ? '1 elemento' : `${batch.length} elementos` }}</template>
+                  <template v-if="phase === 'downloading'">Preparing… {{ Math.round(progress * 100) }}%</template>
+                  <template v-else>Save {{ batch.length === 1 ? '1 Item' : `${batch.length} Items` }}</template>
                 </button>
-                <button v-if="batches.length > 1 && phase !== 'downloading'" type="button" class="btn btn-plain block" @click="next">Saltar esta parte</button>
+                <button v-if="batches.length > 1 && phase !== 'downloading'" type="button" class="btn btn-plain block" @click="next">Skip This Part</button>
               </div>
             </template>
-            <button v-else type="button" class="btn btn-prominent block" @click="close">Hecho</button>
+            <button v-else type="button" class="btn btn-prominent block" @click="close">Done</button>
           </div>
         </div>
       </div>

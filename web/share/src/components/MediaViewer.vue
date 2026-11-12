@@ -72,14 +72,14 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   <Teleport to="body">
     <div class="look" @click.self="emit('close')" @touchstart.passive="onTouchStart" @touchend="onTouchEnd">
       <header class="look-bar">
-        <button type="button" class="look-btn" aria-label="Cerrar" @click="emit('close')"><X :size="20" :stroke-width="2.2" /></button>
+        <button type="button" class="look-btn" aria-label="Close" @click="emit('close')"><X :size="20" :stroke-width="2.2" /></button>
         <div class="look-title">
           <span class="look-name">{{ current?.name }}</span>
-          <span v-if="items.length > 1" class="look-count">{{ index + 1 }} de {{ items.length }}</span>
+          <span v-if="items.length > 1" class="look-count">{{ index + 1 }} of {{ items.length }}</span>
         </div>
         <div class="look-actions">
-          <button v-if="canSaveToPhotos" type="button" class="look-btn" aria-label="Guardar en Fotos" @click="emit('save', current)"><ImageDown :size="19" /></button>
-          <button type="button" class="look-btn" aria-label="Descargar el original" @click="emit('download', current)"><Download :size="19" /></button>
+          <button v-if="canSaveToPhotos" type="button" class="look-btn" aria-label="Save to Photos" @click="emit('save', current)"><ImageDown :size="19" /></button>
+          <button type="button" class="look-btn" aria-label="Download Original" @click="emit('download', current)"><Download :size="19" /></button>
         </div>
       </header>
 
@@ -108,8 +108,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         </template>
       </div>
 
-      <button v-if="hasPrev" type="button" class="arrow left" aria-label="Anterior" @click="prev"><ChevronLeft :size="26" :stroke-width="2.2" /></button>
-      <button v-if="hasNext" type="button" class="arrow right" aria-label="Siguiente" @click="next"><ChevronRight :size="26" :stroke-width="2.2" /></button>
+      <button v-if="hasPrev" type="button" class="arrow left" aria-label="Previous" @click="prev"><ChevronLeft :size="26" :stroke-width="2.2" /></button>
+      <button v-if="hasNext" type="button" class="arrow right" aria-label="Next" @click="next"><ChevronRight :size="26" :stroke-width="2.2" /></button>
     </div>
   </Teleport>
 </template>

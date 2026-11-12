@@ -13,7 +13,7 @@ import MediaViewer from './MediaViewer.vue'
 import SaveToPhotos from './SaveToPhotos.vue'
 
 // A shared folder as its visitors see it: the folder up top with what they can do with it,
-// photos and videos in a grid like Photos, everything else in a list like Files.
+// subfolders and other files in a list like Files, photos and videos in a grid like Photos.
 const props = defineProps({
   token: String,
   shareInfo: Object,
@@ -41,7 +41,7 @@ const crumbs = computed(() => currentPath.value.split('/').filter(Boolean))
 const title = computed(() => crumbs.value.at(-1) || rootLabel.value)
 const parentPath = computed(() => (crumbs.value.length ? crumbs.value.slice(0, -1).join('/') : null))
 
-const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' })
+const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 const sorted = computed(() => [...entries.value].sort((a, b) => {
   const da = a.type === 'directory'
   const db = b.type === 'directory'
@@ -56,12 +56,12 @@ const summary = computed(() => {
   const parts = []
   const photos = media.value.filter(e => !isVideo(e)).length
   const videos = media.value.length - photos
-  if (folders.value.length) parts.push(folders.value.length === 1 ? '1 carpeta' : `${folders.value.length} carpetas`)
-  if (photos) parts.push(photos === 1 ? '1 foto' : `${photos} fotos`)
-  if (videos) parts.push(videos === 1 ? '1 vídeo' : `${videos} vídeos`)
-  if (others.value.length) parts.push(others.value.length === 1 ? '1 archivo' : `${others.value.length} archivos`)
+  if (folders.value.length) parts.push(folders.value.length === 1 ? '1 folder' : `${folders.value.length} folders`)
+  if (photos) parts.push(photos === 1 ? '1 photo' : `${photos} photos`)
+  if (videos) parts.push(videos === 1 ? '1 video' : `${videos} videos`)
+  if (others.value.length) parts.push(others.value.length === 1 ? '1 file' : `${others.value.length} files`)
   const bytes = files.value.reduce((n, e) => n + (e.size || 0), 0)
-  return [parts.join(', ') || 'Vacía', bytes ? formatSize(bytes) : ''].filter(Boolean).join(' · ')
+  return [parts.join(', ') || 'Empty', bytes ? formatSize(bytes) : ''].filter(Boolean).join(' · ')
 })
 
 function authHeaders() {
@@ -84,14 +84,14 @@ async function loadDir(path) {
   error.value = ''
   try {
     const res = await fetch(`/share/api/share/${props.token}/files/list?${new URLSearchParams({ path })}`, { headers: authHeaders() })
-    if (!res.ok) { error.value = 'No se ha podido abrir esta carpeta.'; return }
+    if (!res.ok) { error.value = "This folder couldn't be opened."; return }
     const data = await res.json()
     entries.value = data.entries
     currentPath.value = path
     if (!storedView && data.entries.length) view.value = data.entries.filter(isMedia).length * 2 >= data.entries.length ? 'grid' : 'list'
     document.querySelector('.share-scroll')?.scrollTo({ top: 0 })
   } catch {
-    error.value = 'No hay conexión. Vuelve a intentarlo.'
+    error.value = 'No connection. Try again.'
   } finally {
     loading.value = false
   }
@@ -167,21 +167,21 @@ async function openInTab(entry) {
 
 function entryMenu(entry, at) {
   openMenu(at, [
-    entry.type === 'file' && { label: 'Abrir', icon: Eye, action: () => activate(entry) },
-    entry.type === 'file' && !isMedia(entry) && { label: 'Abrir en otra pestaña', icon: ExternalLink, action: () => openInTab(entry) },
-    canSaveToPhotos && isMedia(entry) && { label: 'Guardar en Fotos', icon: ImageDown, action: () => { saveItems.value = [entry] } },
-    { label: entry.type === 'directory' ? 'Descargar como ZIP' : 'Descargar', icon: Download, action: () => download(entry) },
+    entry.type === 'file' && { label: 'Open', icon: Eye, action: () => activate(entry) },
+    entry.type === 'file' && !isMedia(entry) && { label: 'Open in New Tab', icon: ExternalLink, action: () => openInTab(entry) },
+    canSaveToPhotos && isMedia(entry) && { label: 'Save to Photos', icon: ImageDown, action: () => { saveItems.value = [entry] } },
+    { label: entry.type === 'directory' ? 'Download as ZIP' : 'Download', icon: Download, action: () => download(entry) },
   ], at instanceof Element ? '' : entry.name)
 }
 
 function folderMenu(at) {
   openMenu(at, [
-    { label: 'Galería', icon: LayoutGrid, checked: view.value === 'grid', action: () => setView('grid') },
-    { label: 'Lista', icon: List, checked: view.value === 'list', action: () => setView('list') },
+    { label: 'Gallery', icon: LayoutGrid, checked: view.value === 'grid', action: () => setView('grid') },
+    { label: 'List', icon: List, checked: view.value === 'list', action: () => setView('list') },
     { separator: true },
-    canSaveToPhotos && media.value.length && { label: 'Guardar todo en Fotos', icon: ImageDown, action: () => { saveItems.value = media.value } },
-    files.value.length > 1 && { label: 'Descargar los archivos uno a uno', icon: Download, action: downloadAll },
-    { label: 'Descargar todo (ZIP)', icon: FolderDown, action: downloadZip },
+    canSaveToPhotos && media.value.length && { label: 'Save All to Photos', icon: ImageDown, action: () => { saveItems.value = media.value } },
+    files.value.length > 1 && { label: 'Download Files One by One', icon: Download, action: downloadAll },
+    { label: 'Download All (ZIP)', icon: FolderDown, action: downloadZip },
   ])
 }
 
@@ -212,17 +212,17 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 <template>
   <div class="share">
     <header class="bar" :class="{ scrolled }">
-      <button v-if="parentPath !== null" type="button" class="round glass-control" aria-label="Atrás" @click="back">
+      <button v-if="parentPath !== null" type="button" class="round glass-control" aria-label="Back" @click="back">
         <ChevronLeft :size="22" :stroke-width="2.3" />
       </button>
       <span v-else class="brand"><FileIcon :entry="{ type: 'share-link', name: '' }" :size="26" /> TPCloud</span>
       <span class="bar-title">{{ title }}</span>
       <div class="bar-actions">
-        <div class="segmented-pill glass-control desktop" role="group" aria-label="Vista">
-          <button type="button" :class="{ on: view === 'grid' }" aria-label="Galería" @click="setView('grid')"><LayoutGrid :size="17" /></button>
-          <button type="button" :class="{ on: view === 'list' }" aria-label="Lista" @click="setView('list')"><List :size="18" /></button>
+        <div class="segmented-pill glass-control desktop" role="group" aria-label="View">
+          <button type="button" :class="{ on: view === 'grid' }" aria-label="Gallery" @click="setView('grid')"><LayoutGrid :size="17" /></button>
+          <button type="button" :class="{ on: view === 'list' }" aria-label="List" @click="setView('list')"><List :size="18" /></button>
         </div>
-        <button type="button" class="round glass-control" aria-label="Más" @click="folderMenu($event.currentTarget)"><MoreHorizontal :size="21" /></button>
+        <button type="button" class="round glass-control" aria-label="More" @click="folderMenu($event.currentTarget)"><MoreHorizontal :size="21" /></button>
       </div>
     </header>
 
@@ -238,44 +238,48 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
               <button type="button" @click="navigateTo(crumbs.slice(0, i + 1).join('/'))">{{ c }}</button>
             </template>
           </nav>
-          <p class="subheadline secondary">{{ loading ? 'Cargando…' : summary }}</p>
+          <p class="subheadline secondary">{{ loading ? 'Loading…' : summary }}</p>
           <div v-if="!loading && entries.length" class="hero-actions">
-            <button type="button" class="btn btn-prominent" @click="downloadZip"><Download :size="19" :stroke-width="2.2" /> Descargar todo</button>
-            <button v-if="canSaveToPhotos && media.length" type="button" class="btn btn-glass" @click="saveItems = media"><ImageDown :size="19" /> Guardar en Fotos</button>
+            <button type="button" class="btn btn-prominent" @click="downloadZip"><Download :size="19" :stroke-width="2.2" /> Download All</button>
+            <button v-if="canSaveToPhotos && media.length" type="button" class="btn btn-glass" @click="saveItems = media"><ImageDown :size="19" /> Save to Photos</button>
           </div>
         </section>
 
         <div v-if="loading" class="state"><Spinner :size="26" /></div>
         <div v-else-if="error" class="state">
           <p class="headline">{{ error }}</p>
-          <button type="button" class="btn btn-bordered small" @click="loadDir(currentPath)">Reintentar</button>
+          <button type="button" class="btn btn-bordered small" @click="loadDir(currentPath)">Try Again</button>
         </div>
         <div v-else-if="!entries.length" class="state">
-          <p class="headline">Esta carpeta está vacía</p>
+          <p class="headline">This folder is empty</p>
         </div>
 
-        <!-- Grid: folders, then photos and videos like Photos, then other files -->
+        <!-- Grid: folders in a list, then photos and videos like Photos, then other files -->
         <template v-else-if="view === 'grid'">
           <section v-if="folders.length" class="block">
-            <h2 class="section-header">Carpetas</h2>
-            <div class="folder-grid">
+            <h2 class="section-header">Folders</h2>
+            <div class="card">
               <button
                 v-for="f in folders"
                 :key="f.name"
                 v-long-press="p => onPress(f, p)"
                 type="button"
-                class="folder-tile"
+                class="row file-row"
                 @click="openFolder(f)"
                 @contextmenu="onContext(f, $event)"
               >
-                <FileIcon :entry="f" :size="72" />
-                <span class="tile-name">{{ f.name }}</span>
+                <FileIcon :entry="f" :size="40" />
+                <span class="row-body">
+                  <span class="row-title">{{ f.name }}</span>
+                  <span class="row-subtitle small">Folder</span>
+                </span>
+                <ChevronRight :size="18" class="chev" />
               </button>
             </div>
           </section>
 
           <section v-if="media.length" class="block">
-            <h2 v-if="folders.length || others.length" class="section-header">Fotos y vídeos</h2>
+            <h2 v-if="folders.length || others.length" class="section-header">Photos & Videos</h2>
             <div class="photo-grid">
               <button
                 v-for="(m, i) in media"
@@ -294,7 +298,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
           </section>
 
           <section v-if="others.length" class="block">
-            <h2 v-if="folders.length || media.length" class="section-header">Archivos</h2>
+            <h2 v-if="folders.length || media.length" class="section-header">Files</h2>
             <div class="card">
               <button
                 v-for="f in others"
@@ -310,7 +314,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
                   <span class="row-title">{{ f.name }}</span>
                   <span class="row-subtitle small">{{ kindName(f) }} · {{ formatSize(f.size) }}</span>
                 </span>
-                <span class="dl" role="button" tabindex="0" aria-label="Descargar" @click.stop="download(f)" @keydown.enter.stop="download(f)"><Download :size="19" /></span>
+                <span class="dl" role="button" tabindex="0" aria-label="Download" @click.stop="download(f)" @keydown.enter.stop="download(f)"><Download :size="19" /></span>
               </button>
             </div>
           </section>
@@ -333,15 +337,15 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
               <FileIcon v-else :entry="e" :size="40" />
               <span class="row-body">
                 <span class="row-title">{{ e.name }}</span>
-                <span class="row-subtitle small">{{ e.type === 'directory' ? 'Carpeta' : `${formatDate(e.modified)} · ${formatSize(e.size)}` }}</span>
+                <span class="row-subtitle small">{{ e.type === 'directory' ? 'Folder' : `${formatDate(e.modified)} · ${formatSize(e.size)}` }}</span>
               </span>
               <ChevronRight v-if="e.type === 'directory'" :size="18" class="chev" />
-              <span v-else class="dl" role="button" tabindex="0" aria-label="Descargar" @click.stop="download(e)" @keydown.enter.stop="download(e)"><Download :size="19" /></span>
+              <span v-else class="dl" role="button" tabindex="0" aria-label="Download" @click.stop="download(e)" @keydown.enter.stop="download(e)"><Download :size="19" /></span>
             </button>
           </div>
         </section>
 
-        <footer class="foot footnote tertiary">Compartido con TPCloud</footer>
+        <footer class="foot footnote tertiary">Shared with TPCloud</footer>
       </div>
     </main>
 
@@ -433,20 +437,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 .block { margin-bottom: 30px; }
 .block .section-header { padding-left: 4px; }
 
-.folder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
-.folder-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 16px 8px 14px;
-  border-radius: var(--radius-card);
-  background: var(--cell);
-  transition: transform 0.25s var(--spring);
-}
-.folder-tile:active, .folder-tile.long-pressing { transform: scale(0.96); }
-@media (hover: hover) { .folder-tile:hover { transform: translateY(-2px); } }
-.tile-name { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px; }
 @media (max-width: 600px) { .photo-grid { grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 0 -20px; } .photo { border-radius: 0; } }
