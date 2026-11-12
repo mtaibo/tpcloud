@@ -4,6 +4,8 @@ const paths = {
   'chevron-right': '<path d="M9 5.5 15.5 12 9 18.5"/>',
   'chevron-left': '<path d="M15 5.5 8.5 12 15 18.5"/>',
   'chevron-down': '<path d="M5.5 9 12 15.5 18.5 9"/>',
+  'chevron-up': '<path d="M5.5 15 12 8.5 18.5 15"/>',
+  stop: '<rect x="7.5" y="7.5" width="9" height="9" rx="2" fill="currentColor"/>',
   xmark: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
   checkmark: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',

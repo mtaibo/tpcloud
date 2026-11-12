@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AlertHost from '@ui/AlertHost.vue'
 import Icon from '@ui/Icon.vue'
 import ListSection from '@ui/ListSection.vue'
@@ -8,6 +8,7 @@ import NavBar from '@ui/NavBar.vue'
 import Spinner from '@ui/Spinner.vue'
 import { api, signOut } from '@ui/api.js'
 import { ask } from '@ui/dialog.js'
+import QuickAccess from './QuickAccess.vue'
 
 const user = ref(null)
 const profile = ref(null)
@@ -32,12 +33,18 @@ const today = computed(() => {
   const text = new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())
   return text.charAt(0).toUpperCase() + text.slice(1)
 })
-const others = computed(() => (profile.value?.sessions.length ?? 1) - 1)
 // Failed sign-ins this week that the owner hasn't confirmed as their own (in Cuenta → Actividad).
 const failures = computed(() => {
   const reviewed = profile.value?.failures_reviewed_at ? new Date(profile.value.failures_reviewed_at) : 0
   return activity.value.filter(e => e.kind === 'failed' && Date.now() - new Date(e.at) < 7 * 86400000 && new Date(e.at) > reviewed).length
 })
+
+// The quick-access column only fits beside the services on a desktop-sized window.
+const wide = window.matchMedia('(min-width: 900px)')
+const desktop = ref(wide.matches)
+const onWide = e => { desktop.value = e.matches }
+wide.addEventListener('change', onWide)
+onBeforeUnmount(() => wide.removeEventListener('change', onWide))
 
 onMounted(async () => {
   window.history.replaceState(null, '', '/')
@@ -72,44 +79,34 @@ async function confirmSignOut() {
         <h1 class="large-title">{{ greeting }}</h1>
       </header>
 
-      <div class="grid">
-        <a v-for="s in services" :key="s.name" :href="s.url" class="tile">
-          <span class="tile-icon" :style="{ background: `var(--${s.tint})` }"><Icon :name="s.icon" :size="28" :weight="1.9" /></span>
-          <span class="tile-text">
-            <span class="headline">{{ s.name }}</span>
-            <span class="footnote secondary">{{ s.description }}</span>
-          </span>
-        </a>
+      <div class="layout">
+        <div class="services">
+          <div class="grid">
+            <a v-for="s in services" :key="s.name" :href="s.url" class="tile">
+              <span class="tile-icon" :style="{ background: `var(--${s.tint})` }"><Icon :name="s.icon" :size="28" :weight="1.9" /></span>
+              <span class="tile-text">
+                <span class="headline">{{ s.name }}</span>
+                <span class="footnote secondary">{{ s.description }}</span>
+              </span>
+              <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron tile-chevron" />
+            </a>
+          </div>
+
+          <a v-if="failures" href="/accounts/activity" class="banner">
+            <Icon name="warning" :size="22" />
+            <span class="subheadline">
+              {{ failures === 1 ? '1 intento fallido' : `${failures} intentos fallidos` }} de entrar en tu cuenta esta semana. Revísalo.
+            </span>
+            <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
+          </a>
+
+          <ListSection>
+            <ListRow title="Cerrar sesión" clickable destructive centered @click="confirmSignOut" />
+          </ListSection>
+        </div>
+
+        <QuickAccess v-if="desktop" :user="user" />
       </div>
-
-      <a v-if="failures" href="/accounts/activity" class="banner">
-        <Icon name="warning" :size="22" />
-        <span class="subheadline">
-          {{ failures === 1 ? '1 intento fallido' : `${failures} intentos fallidos` }} de entrar en tu cuenta esta semana. Revísalo.
-        </span>
-        <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
-      </a>
-
-      <ListSection v-if="profile" header="Tu cuenta">
-        <ListRow
-          href="/accounts/sessions"
-          icon="laptop"
-          tint="green"
-          title="Dispositivos"
-          :subtitle="others > 0 ? `Sesión iniciada aquí y en ${others} ${others === 1 ? 'sitio más' : 'sitios más'}` : 'Solo en este dispositivo'"
-        />
-        <ListRow
-          href="/accounts/security"
-          icon="shield"
-          tint="blue"
-          title="Seguridad"
-          :subtitle="profile.passkeys.length ? `${profile.passkeys.length} passkey${profile.passkeys.length === 1 ? '' : 's'}${profile.totp_enabled ? ' · 2FA activado' : ''}` : 'Añade una passkey para entrar sin contraseña'"
-        />
-      </ListSection>
-
-      <ListSection>
-        <ListRow title="Cerrar sesión" clickable destructive centered @click="confirmSignOut" />
-      </ListSection>
     </main>
 
     <AlertHost />
@@ -129,30 +126,43 @@ html::-webkit-scrollbar { display: none; }
 
 .grid {
   display: grid;
-  /* Every service in one row, however many this server runs; two by two on a phone. */
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-bottom: 28px;
 }
-@media (max-width: 600px) {
-  .grid { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
-  /* An odd one out takes the whole last row, laid out sideways, instead of leaving a hole. */
-  .tile:last-child:nth-child(odd) { grid-column: span 2; min-height: 0; flex-direction: row; align-items: center; justify-content: flex-start; }
-}
 .tile {
-  min-height: 150px;
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px;
+  gap: 14px;
   border-radius: var(--radius-card);
   background: var(--cell);
   transition: transform 0.3s var(--spring);
 }
 .tile:active { transform: scale(0.97); }
 @media (hover: hover) { .tile:hover { transform: translateY(-2px); } }
+.tile-chevron { display: none; }
+
+/* Phone: two by two, tall tiles; an odd one out takes the whole last row sideways. */
+@media (max-width: 600px) {
+  .tile { min-height: 150px; flex-direction: column; justify-content: space-between; gap: 16px; padding: 18px; }
+  .tile:last-child:nth-child(odd) { grid-column: span 2; min-height: 0; flex-direction: row; align-items: center; justify-content: flex-start; }
+}
+
+/* Wider: sideways tiles, the first one across the top, and an odd one out across the bottom. */
+@media (min-width: 601px) {
+  .tile { align-items: center; padding: 16px 20px 16px 16px; }
+  .tile:first-child { grid-column: span 2; padding: 22px 24px 22px 20px; }
+  .tile:first-child .tile-icon { width: 64px; height: 64px; border-radius: 18px; }
+  .tile:last-child:nth-child(even) { grid-column: span 2; }
+  .tile-text { flex: 1; min-width: 0; }
+  .tile-chevron { display: block; }
+}
+
+/* Desktop: the services on the left, quick access on the right. */
+@media (min-width: 900px) {
+  .page { max-width: calc(1040px + 2 * var(--gutter)); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 32px; align-items: start; }
+}
+
 .tile-icon { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 15px; color: #fff; }
 .tile-text { display: flex; flex-direction: column; gap: 2px; }
 
