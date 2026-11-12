@@ -14,6 +14,20 @@ enum PhotoGridDensity {
     static let columnLevels = [3, 5, 9, 15, 31]
     static let storageKey = "photos.columnLevel.v2"
 
+    /// Performance tests start the grid at a given level (`-photosStartLevel <n>`), written
+    /// once into the real defaults: pinning it through the argument domain would keep the grid
+    /// from saving levels it zooms to.
+    @MainActor static func applyTestStartLevel() {
+        guard !appliedTestStartLevel else { return }
+        appliedTestStartLevel = true
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-photosStartLevel"), index + 1 < arguments.count,
+              let level = Int(arguments[index + 1]) else { return }
+        UserDefaults.standard.set(level, forKey: storageKey)
+    }
+
+    @MainActor private static var appliedTestStartLevel = false
+
     static func columns(forLevel level: Int) -> Int {
         columnLevels[min(max(level, 0), columnLevels.count - 1)]
     }
@@ -48,7 +62,13 @@ struct PhotoGrid: View {
     let client: PhotosClient
     /// Bumped when the Photos tab is tapped again, to jump to the newest photos at the bottom.
     let scrollToBottomSignal: Int
+    /// "Library" or "Shared", drawn large over the grid on iPhone and iPad.
+    let title: String
+    /// Select mode (iPhone and iPad).
+    let selection: PhotoSelection?
+    /// Opens a photo on the Mac; on iPhone and iPad the grid opens its own viewer.
     let onSelect: (Photo) -> Void
+    let onDelete: (Photo) -> Void
 
     @AppStorage(PhotoGridDensity.storageKey) private var columnLevel = 0
     @State private var scrollPosition = ScrollPosition(idType: Int.self)
@@ -67,7 +87,9 @@ struct PhotoGrid: View {
             client: client,
             columnLevel: $columnLevel,
             scrollToBottomSignal: scrollToBottomSignal,
-            onSelect: onSelect
+            title: title,
+            selection: selection,
+            onDelete: onDelete
         )
         // Scrolls under the bars; the collection view insets itself by the safe area.
         .ignoresSafeArea()

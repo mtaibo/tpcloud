@@ -50,6 +50,8 @@ public final class PhotoGalleryStore: ObservableObject {
             if let cached {
                 photos = cached
                 fillThumbnailTable(cached)
+                // Missing thumbnails start coming in now, not after a full sync of every page.
+                downloadMissingThumbnails(cached)
             }
         }
         isLoading = photos.isEmpty
@@ -86,9 +88,14 @@ public final class PhotoGalleryStore: ObservableObject {
         Task.detached(priority: .utility) { PhotoIndexCache.save(all, filter: requestedFilter) }
 
         fillThumbnailTable(all)
+        downloadMissingThumbnails(all)
+    }
+
+    private func downloadMissingThumbnails(_ photos: [Photo]) {
+        thumbnailTask?.cancel()
         let client = self.client
         thumbnailTask = Task.detached(priority: .utility) {
-            await PhotoThumbnailCache.downloadMissing(all, client: client)
+            await PhotoThumbnailCache.downloadMissing(photos, client: client)
         }
     }
 
@@ -99,6 +106,31 @@ public final class PhotoGalleryStore: ObservableObject {
         tableTask = Task.detached(priority: .utility) {
             await PhotoThumbnailCache.fillTable(photos)
         }
+    }
+
+    /// Deletes several photos (a few requests at a time) and updates the list once.
+    public func delete(_ photos: [Photo]) async {
+        let client = self.client
+        let deleted: Set<Int> = await withTaskGroup(of: Int?.self) { group in
+            var done: Set<Int> = []
+            var iterator = photos.makeIterator()
+            func addNext() {
+                guard let photo = iterator.next() else { return }
+                group.addTask { (try? await client.delete(id: photo.id)) != nil ? photo.id : nil }
+            }
+            for _ in 0..<4 { addNext() }
+            for await id in group {
+                if let id { done.insert(id) }
+                addNext()
+            }
+            return done
+        }
+        if deleted.count < photos.count { errorMessage = "Some photos couldn't be deleted." }
+        guard !deleted.isEmpty else { return }
+        self.photos.removeAll { deleted.contains($0.id) }
+        let remaining = self.photos
+        let filter = self.filter
+        Task.detached(priority: .utility) { PhotoIndexCache.save(remaining, filter: filter) }
     }
 
     public func delete(_ photo: Photo) async {

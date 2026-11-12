@@ -74,7 +74,22 @@ final class PhotoThumbnailTable: @unchecked Sendable {
 
     /// The thumbnail, ready to draw, or `nil` if it isn't in the table yet. Cheap enough to call
     /// for every tile as it's configured.
+    /// Images already made over their slots. Making one is cheap but not free (a data provider
+    /// and an image object), and a zoom to 31 columns asks for two thousand at once.
+    private let images: NSCache<NSString, CGImage> = {
+        let cache = NSCache<NSString, CGImage>()
+        cache.countLimit = 6000
+        return cache
+    }()
+
     func image(forChecksum checksum: String) -> CGImage? {
+        if let image = images.object(forKey: checksum as NSString) { return image }
+        guard let image = makeImage(forChecksum: checksum) else { return nil }
+        images.setObject(image, forKey: checksum as NSString)
+        return image
+    }
+
+    private func makeImage(forChecksum checksum: String) -> CGImage? {
         lock.lock()
         let slot = index.slots[checksum]
         let segment = slot.flatMap { try? mappedSegment($0 / Self.slotsPerSegment) }
@@ -98,6 +113,33 @@ final class PhotoThumbnailTable: @unchecked Sendable {
             shouldInterpolate: true,
             intent: .defaultIntent
         )
+    }
+
+    private static let prefaultQueue = DispatchQueue(label: "PhotoThumbnailTable.prefault", qos: .userInitiated)
+
+    /// Reads the slots of these thumbnails once, off the main thread, so their pages are in
+    /// memory before the tiles show up. Otherwise the first draw of a slot reads it from flash on
+    /// the main thread, as Core Animation copies the image — which is what made a fast fling
+    /// through photos not seen for a while stutter.
+    func prefault(_ checksums: [String]) {
+        lock.lock()
+        let slots = checksums.compactMap { index.slots[$0] }
+        lock.unlock()
+        guard !slots.isEmpty else { return }
+        Self.prefaultQueue.async { [self] in
+            var sum: UInt8 = 0
+            for slot in slots {
+                lock.lock()
+                let segment = try? mappedSegment(slot / Self.slotsPerSegment)
+                lock.unlock()
+                guard let segment else { continue }
+                let bytes = segment.base + (slot % Self.slotsPerSegment) * Self.slotSize
+                for offset in stride(from: 0, to: Self.slotSize, by: 4096) {
+                    sum &+= bytes.load(fromByteOffset: offset, as: UInt8.self)
+                }
+            }
+            withExtendedLifetime(sum) {}
+        }
     }
 
     // MARK: Writing

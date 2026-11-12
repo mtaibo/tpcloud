@@ -16,6 +16,14 @@ enum PhotosSection: String, CaseIterable {
         case .shared: return "Shared"
         }
     }
+
+    var systemImage: String {
+        switch self {
+        case .library: return "photo.on.rectangle"
+        case .albums: return "rectangle.stack"
+        case .shared: return "person.2"
+        }
+    }
 }
 
 public struct PhotoGalleryView: View {
@@ -32,6 +40,13 @@ public struct PhotoGalleryView: View {
     /// to Library keeps it.
     @State private var albumFilter: PhotosClient.Filter = .all
     @State private var detailPhotoID: Int?
+    #if os(iOS)
+    @State private var selection = PhotoSelection()
+    @State private var isConfirmingDelete = false
+    @State private var isPreparingShare = false
+    @State private var shareURLs: [URL] = []
+    @State private var isSharing = false
+    #endif
     @State private var isStatusPresented = false
     /// The success message whose ✓ has already been shown for a few seconds and hidden.
     @State private var dismissedMessage: String?
@@ -47,6 +62,7 @@ public struct PhotoGalleryView: View {
         isAdmin: Bool = false,
         scrollToBottomSignal: Int = 0
     ) {
+        PhotoGridDensity.applyTestStartLevel()
         self.scrollToBottomSignal = scrollToBottomSignal
         self.store = store
         self.syncStore = syncStore
@@ -75,6 +91,37 @@ public struct PhotoGalleryView: View {
             .navigationTitle(section.title)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            // Select mode swaps the tab bar for its own actions, like Photos.
+            .toolbar(selection.isActive ? .hidden : .visible, for: .tabBar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if selection.isActive {
+                    PhotoSelectionBar(
+                        selection: selection,
+                        isWorking: isPreparingShare,
+                        onShare: shareSelected,
+                        onDelete: { isConfirmingDelete = true }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.snappy, value: selection.isActive)
+            .confirmationDialog(
+                selection.ids.count == 1 ? "Delete this photo?" : "Delete \(selection.ids.count) photos?",
+                isPresented: $isConfirmingDelete,
+                titleVisibility: .visible
+            ) {
+                Button(selection.ids.count == 1 ? "Delete Photo" : "Delete \(selection.ids.count) Photos", role: .destructive) {
+                    deleteSelected()
+                }
+            } message: {
+                Text("They'll be removed from your server. The copies on this device aren't affected.")
+            }
+            .sheet(isPresented: $isSharing) {
+                PhotoShareSheet(items: shareURLs)
+                    .presentationDetents([.medium, .large])
+                    .ignoresSafeArea()
+            }
+            .onChange(of: section) { selection.isActive = false }
             #endif
             .toolbar { toolbarContent }
         }
@@ -85,11 +132,7 @@ public struct PhotoGalleryView: View {
         .onChange(of: effectiveFilter) { _, newValue in
             store.filter = newValue
         }
-        #if os(iOS)
-        .fullScreenCover(item: detailBinding) { selection in
-            detail(startingAt: selection.id)
-        }
-        #else
+        #if os(macOS)
         .sheet(item: detailBinding) { selection in
             detail(startingAt: selection.id)
                 .frame(minWidth: 720, minHeight: 540)
@@ -97,6 +140,7 @@ public struct PhotoGalleryView: View {
         #endif
     }
 
+    #if os(macOS)
     private struct DetailSelection: Identifiable {
         let id: Int
     }
@@ -113,27 +157,66 @@ public struct PhotoGalleryView: View {
             Task { await store.delete(photo) }
         }
     }
+    #endif
 
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            Picker("Section", selection: $section.animation(.snappy)) {
-                ForEach(PhotosSection.allCases, id: \.self) { item in
-                    Text(item.title).tag(item)
-                }
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
+        #if os(iOS)
+        // Over the grid the title is drawn by the grid itself, large and with the dates under
+        // it, like Photos (`PhotoGridDateHeader`); the bar keeps only its buttons.
+        if section != .albums {
+            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
         }
+        #endif
         ToolbarItemGroup(placement: .primaryAction) {
+            #if os(iOS)
+            if selection.isActive {
+                menuButton
+                Button("Done Selecting", systemImage: "xmark") { selection.isActive = false }
+            } else {
+                if hasStatus {
+                    statusButton
+                }
+                if section != .albums && !store.photos.isEmpty {
+                    Button("Select") { selection.isActive = true }
+                }
+                menuButton
+            }
+            #else
             if hasStatus {
                 statusButton
             }
             menuButton
+            #endif
         }
     }
+
+    #if os(iOS)
+    private var selectedPhotos: [Photo] {
+        store.photos.reversed().filter { selection.ids.contains($0.id) }
+    }
+
+    private func shareSelected() {
+        let photos = selectedPhotos
+        guard !photos.isEmpty else { return }
+        isPreparingShare = true
+        Task {
+            let urls = await PhotoShareDownloads.originals(of: photos, client: client)
+            isPreparingShare = false
+            guard !urls.isEmpty else { return }
+            shareURLs = urls
+            isSharing = true
+        }
+    }
+
+    private func deleteSelected() {
+        let photos = selectedPhotos
+        selection.isActive = false
+        Task { await store.delete(photos) }
+    }
+    #endif
 
     private var isBusy: Bool {
         syncStore.isRunning || syncStore.isSanitizing || syncStore.isChecking
@@ -193,6 +276,26 @@ public struct PhotoGalleryView: View {
 
     private var menuButton: some View {
         Menu {
+            #if os(iOS)
+            if selection.isActive {
+                Section {
+                    Button("Select All", systemImage: "checkmark.circle") {
+                        selection.ids = Set(store.photos.map(\.id))
+                    }
+                    Button("Deselect All", systemImage: "circle") { selection.ids.removeAll() }
+                        .disabled(selection.ids.isEmpty)
+                }
+            }
+            #endif
+            // Library, Albums and Shared, in the menu rather than across the top.
+            Section {
+                Picker("View", selection: $section.animation(.snappy)) {
+                    ForEach(PhotosSection.allCases, id: \.self) { item in
+                        Label(item.title, systemImage: item.systemImage).tag(item)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
             Section {
                 Button("Back Up Now", systemImage: "icloud.and.arrow.up") {
                     Task {
@@ -242,6 +345,12 @@ public struct PhotoGalleryView: View {
         store.photos.reversed()
     }
 
+    #if os(iOS)
+    private var gridSelection: PhotoSelection? { selection }
+    #else
+    private var gridSelection: PhotoSelection? { nil }
+    #endif
+
     @ViewBuilder
     private var galleryContent: some View {
         if store.isLoading && store.photos.isEmpty {
@@ -268,7 +377,10 @@ public struct PhotoGalleryView: View {
                 photos: store.photos,
                 client: client,
                 scrollToBottomSignal: scrollToBottomSignal,
-                onSelect: { detailPhotoID = $0.id }
+                title: section.title,
+                selection: gridSelection,
+                onSelect: { detailPhotoID = $0.id },
+                onDelete: { photo in Task { await store.delete(photo) } }
             )
             .refreshable { await store.reload() }
         }

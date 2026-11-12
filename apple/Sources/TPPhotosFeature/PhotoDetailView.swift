@@ -7,9 +7,10 @@ import UIKit
 import AppKit
 #endif
 
-/// Full-screen viewer: swipe between photos, pinch or double-tap to zoom, and an info sheet with
-/// the photo's metadata. Shows the grid's thumbnail instantly and swaps in the original when it
-/// arrives.
+#if os(macOS)
+/// The Mac's viewer: swipe between photos, pinch or double-tap to zoom, and an info sheet with
+/// the photo's metadata. Shows the grid's thumbnail instantly and swaps in the server's 2048 px
+/// preview when it arrives. (iPhone and iPad use `PhotoViewerController`.)
 public struct PhotoDetailView: View {
     let photos: [Photo]
     let client: PhotosClient
@@ -198,7 +199,7 @@ private struct ZoomablePhoto: View {
             offset = .zero
         }
         .task(id: photo.id) {
-            original = await Self.loadOriginal(client.originalURL(for: photo))
+            original = await Self.loadOriginal(client.previewURL(for: photo))
         }
         .accessibilityElement()
         .accessibilityLabel(photo.isScreenshot ? "Screenshot" : "Photo")
@@ -256,8 +257,10 @@ private struct ZoomablePhoto: View {
     }
 }
 
+#endif
+
 /// The ⓘ sheet: when, what, with which camera and where.
-private struct PhotoInfoView: View {
+struct PhotoInfoView: View {
     let photo: Photo
     @Environment(\.dismiss) private var dismiss
 

@@ -18,8 +18,13 @@ import AppKit
 /// background after the photo list syncs, or on demand if a tile scrolls into view first. Stored
 /// in Application Support, not Caches, so iOS doesn't purge them and force a re-download.
 public enum PhotoThumbnailCache {
-    /// Pixel size of every stored thumbnail (and the size requested from the server).
+    /// The largest size a tile decodes a thumbnail to.
     static let pixelSize = 256
+    /// The size downloaded: the 320 px tiles the server keeps ready for every photo (for the web
+    /// gallery). Asking for 256 made the Pi build each one from the original, 0.3–0.8 s apiece.
+    static let serverPixelSize = 320
+    /// Thumbnails per bulk request in the background download.
+    private static let batchSize = 200
 
     private static let directory: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -196,22 +201,27 @@ public enum PhotoThumbnailCache {
     }
 
     /// Downloads the thumbnail of every photo that doesn't have one on this device yet, newest
-    /// first, a few at a time in the background. After this, the grid never touches the network.
+    /// first, in bulk (a couple of hundred per request, a few requests at a time) in the
+    /// background. After this, the grid never touches the network — like Photos, where every
+    /// thumbnail is already on the phone.
     @concurrent
     static func downloadMissing(_ photos: [Photo], client: PhotosClient) async {
         let missing = photos.filter { !exists(forChecksum: $0.checksum) }
         guard !missing.isEmpty else { return }
+        let batches = stride(from: 0, to: missing.count, by: batchSize).map {
+            Array(missing[$0..<min($0 + batchSize, missing.count)])
+        }
         await withTaskGroup(of: Void.self) { group in
-            var iterator = missing.makeIterator()
+            var iterator = batches.makeIterator()
             func addNext() {
-                guard let photo = iterator.next() else { return }
+                guard let batch = iterator.next() else { return }
                 // Utility rather than background: iOS throttles background-priority network and
                 // disk work hard, which left big libraries without thumbnails for a long time.
                 group.addTask(priority: .utility) {
-                    _ = await download(photo, client: client)
+                    _ = await downloadBatch(batch, client: client)
                 }
             }
-            for _ in 0..<6 { addNext() }
+            for _ in 0..<3 { addNext() }
             for await _ in group {
                 if Task.isCancelled {
                     group.cancelAll()
@@ -222,14 +232,52 @@ public enum PhotoThumbnailCache {
         }
     }
 
+    /// One bulk request: stores every thumbnail that came back (file and table) and returns
+    /// them by checksum.
+    @concurrent
+    static func downloadBatch(_ photos: [Photo], client: PhotosClient) async -> [String: Data] {
+        guard !photos.isEmpty else { return [:] }
+        guard let byID = try? await client.thumbnails(ids: photos.map(\.id)) else {
+            // A server without the bulk endpoint, or a failed request: one at a time instead.
+            var stored: [String: Data] = [:]
+            for photo in photos {
+                guard !Task.isCancelled else { break }
+                if let data = await download(photo, client: client) { stored[photo.checksum] = data }
+            }
+            return stored
+        }
+        var stored: [String: Data] = [:]
+        for photo in photos {
+            guard let data = byID[photo.id], !data.isEmpty else { continue }
+            store(data, checksum: photo.checksum)
+            stored[photo.checksum] = data
+        }
+        return stored
+    }
+
+    /// Keeps a downloaded thumbnail: the JPEG on disk and its bitmap in the table.
+    nonisolated static func store(_ data: Data, checksum: String) {
+        try? data.write(to: fileURL(forChecksum: checksum), options: .atomic)
+        PhotoThumbnailTable.shared.insert(checksum: checksum, data: data)
+    }
+
+    /// Decodes downloaded bytes for a tile and keeps the bitmap in memory.
+    nonisolated static func decodedCGImage(from data: Data, for photo: Photo, pixels: Int) -> CGImage? {
+        if pixels <= PhotoThumbnailTable.side, let image = PhotoThumbnailTable.shared.image(forChecksum: photo.checksum) {
+            return image
+        }
+        guard let image = decode(CGImageSourceCreateWithData(data as CFData, nil), pixels: pixels) else { return nil }
+        remember(image, for: photo, pixels: pixels)
+        return image
+    }
+
     @concurrent
     private static func download(_ photo: Photo, client: PhotosClient) async -> Data? {
-        let url = client.thumbnailURL(for: photo, size: pixelSize)
+        let url = client.thumbnailURL(for: photo, size: serverPixelSize)
         guard let (data, response) = try? await URLSession.shared.data(from: url),
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               !data.isEmpty else { return nil }
-        try? data.write(to: fileURL(forChecksum: photo.checksum), options: .atomic)
-        PhotoThumbnailTable.shared.insert(checksum: photo.checksum, data: data)
+        store(data, checksum: photo.checksum)
         return data
     }
 

@@ -3,44 +3,72 @@ import UIKit
 
 /// Drives the grid's zoom the way the Photos app does. The grid never loses its shape: the grid
 /// being left is frozen into a snapshot that scales with the fingers about the middle of the grid
-/// (tiles slide off both sides evenly when zooming in), the new grid scales underneath it at exactly the same tile size and lattice,
-/// and the two cross-fade, so each photo fades into its new cell instead of travelling there.
-/// One pinch can sweep through several column counts; letting go settles on whichever the pinch
-/// was heading for; past the densest and the largest levels the grid stretches and springs back.
+/// (tiles slide off both sides evenly when zooming in), the new grid scales underneath it at
+/// exactly the same tile size and lattice, and the two cross-fade, so each photo fades into its
+/// new cell instead of travelling there. One pinch can sweep through several column counts;
+/// letting go springs on to whichever the pinch was heading for, carrying the fingers' speed;
+/// past the densest and the largest levels the grid stretches and springs back.
+///
+/// Every frame of a zoom is only layer transforms and one opacity: the new grid is laid out once,
+/// at rest, when the zoom starts, and scaled as a whole (`sublayerTransform`). It used to be
+/// re-laid out on every frame through a scaled layout, which at 15 or 31 columns meant moving
+/// 1,000–2,000 cells 120 times a second: zooming out stuttered.
 @MainActor
 final class PhotoGridZoomController: NSObject {
-    weak var collectionView: PhotoGridCollectionView?
+    weak var collectionView: PhotoGridView?
     private(set) var level: Int
     /// After the grid settles on a new level: refresh cells and remember the level.
     var onLevelCommitted: (Int) -> Void = { _ in }
+    /// Just before the grid for a level is installed (a zoom starting, settling or going back):
+    /// cells made from here on should be configured for it.
+    var levelWillInstall: (Int) -> Void = { _ in }
+    /// Right after: cells kept on screen across the swap should be refreshed for it.
+    var levelDidInstall: () -> Void = {}
     /// After a zoom ends, either way: apply anything held back while it ran.
     var onZoomEnded: () -> Void = {}
 
     var isZooming: Bool {
-        session != nil || isPinching
+        session != nil || isPinching || isStartingSession
     }
 
+    /// Set while a zoom lays out its new level, so tiles placed then get the quick thumbnails.
+    private var isStartingSession = false
+
     private struct Session {
-        let layout: PhotoGridZoomLayout
         let targetLevel: Int
         /// New tile size ÷ old tile size: above 1 zooming in.
         let ratio: CGFloat
         /// The on-screen point both grids scale about.
         let pivot: CGPoint
-        /// The frozen grid being left.
-        let snapshot: UIView
-        /// Fades the snapshot only over the new grid's footprint (see `startSession`).
-        let fadeMask: CAGradientLayer
+        /// The grid being left: its tiles, moved into a layer over the collection view.
+        let snapshot: CALayer
+        let leavingTiles: [PhotoTile]
+        /// The part of the snapshot's mask over the new grid's footprint, which fades out (see
+        /// `startSession`); the rest of the mask stays solid.
+        let fade: CALayer
         let offsetFrom: CGPoint
         let offsetTo: CGPoint
         var progress: CGFloat = 0
     }
 
+    /// A critically damped spring from `from` to `to` (no overshoot), starting at `velocity`
+    /// (progress per second): a quick flick lands sooner, a slow release eases in.
     private struct Settle {
         let start: CFTimeInterval
-        let duration: CFTimeInterval
-        let fromProgress: CGFloat
-        let toProgress: CGFloat
+        let from: CGFloat
+        let to: CGFloat
+        let velocity: CGFloat
+        let omega: CGFloat
+
+        func value(at time: CFTimeInterval) -> (value: CGFloat, done: Bool) {
+            let t = CGFloat(max(time - start, 0))
+            let d = from - to
+            let decay = exp(-omega * t)
+            let value = to + (d + (velocity + omega * d) * t) * decay
+            let speed = (velocity - (velocity + omega * d) * omega * t) * decay
+            let done = (abs(value - to) < 0.002 && abs(speed) < 0.05) || t > 1.5
+            return (done ? to : value, done)
+        }
     }
 
     private var session: Session?
@@ -51,12 +79,9 @@ final class PhotoGridZoomController: NSObject {
     private var focalUnitY: CGFloat = 0.5
     /// The fingers' position on screen.
     private var finger: CGPoint = .zero
-    /// The screen hasn't drawn the latest layout swap yet, so a snapshot must wait for it.
-    private var needsFreshSnapshot = false
     private var settle: Settle?
     private var displayLink: CADisplayLink?
     private var isStretched = false
-    private let haptics = UIImpactFeedbackGenerator(style: .light)
 
     init(level: Int) {
         self.level = level
@@ -66,7 +91,7 @@ final class PhotoGridZoomController: NSObject {
 
     private func geometry(level: Int) -> PhotoGridGeometry? {
         guard let collectionView else { return nil }
-        return PhotoGridLayout.geometry(columns: Self.levels[level], in: collectionView)
+        return collectionView.geometry(columns: Self.levels[level])
     }
 
     // MARK: Pinch
@@ -85,13 +110,12 @@ final class PhotoGridZoomController: NSObject {
             let location = pinch.location(in: collectionView)
             finger = CGPoint(x: location.x - collectionView.contentOffset.x, y: location.y - collectionView.contentOffset.y)
             setFocus(at: location)
-            haptics.prepare()
         case .changed:
             pinchChanged(scale: pinch.scale / baselineScale, rawScale: pinch.scale)
         case .ended, .cancelled, .failed:
             isPinching = false
             collectionView.panGestureRecognizer.isEnabled = true
-            pinchEnded(velocity: pinch.velocity, cancelled: pinch.state != .ended)
+            pinchEnded(velocity: pinch.velocity, scale: pinch.scale / baselineScale, cancelled: pinch.state != .ended)
         default:
             break
         }
@@ -99,7 +123,7 @@ final class PhotoGridZoomController: NSObject {
 
     private func setFocus(at location: CGPoint) {
         guard let collectionView, let geometry = geometry(level: level), geometry.itemCount > 0 else { return }
-        let item = collectionView.indexPathForItem(at: location)?.item ?? nearestItem(to: location, in: geometry)
+        let item = collectionView.item(at: location) ?? nearestItem(to: location, in: geometry)
         focalItem = item
         let frame = geometry.frame(forItem: item)
         focalUnitY = frame.height > 0 ? min(max((location.y - frame.minY) / frame.height, 0), 1) : 0.5
@@ -139,7 +163,7 @@ final class PhotoGridZoomController: NSObject {
         }
     }
 
-    private func pinchEnded(velocity: CGFloat, cancelled: Bool) {
+    private func pinchEnded(velocity: CGFloat, scale: CGFloat, cancelled: Bool) {
         if isStretched { springBackStretch() }
         guard let session else {
             onZoomEnded()
@@ -156,7 +180,10 @@ final class PhotoGridZoomController: NSObject {
         } else {
             finish = session.progress > 0.5
         }
-        settle(to: finish ? 1 : 0)
+        // The pinch's speed (scale per second) in progress per second, so the spring carries on
+        // at the speed the fingers left off.
+        let progressVelocity = scale > 0 ? velocity / scale / log(session.ratio) : 0
+        settle(to: finish ? 1 : 0, velocity: cancelled ? 0 : progressVelocity, response: 0.3)
     }
 
     // MARK: Zoom In / Zoom Out (menu)
@@ -174,7 +201,7 @@ final class PhotoGridZoomController: NSObject {
 
     /// Animates to `newLevel` — any number of levels away, in one smooth step — around a point in
     /// content coordinates (a tapped photo), keeping that photo's row where it is on screen.
-    func zoom(toLevel newLevel: Int, around point: CGPoint, duration: CFTimeInterval? = nil) {
+    func zoom(toLevel newLevel: Int, around point: CGPoint, response: CGFloat = 0.42) {
         guard let collectionView, newLevel != level, Self.levels.indices.contains(newLevel), !isPinching else { return }
         completeSettleNow()
         collectionView.isPinnedToBottom = false
@@ -185,7 +212,7 @@ final class PhotoGridZoomController: NSObject {
             return
         }
         startSession(to: newLevel)
-        settle(to: 1, duration: duration)
+        settle(to: 1, velocity: 0, response: response)
     }
 
     // MARK: Sessions
@@ -194,7 +221,8 @@ final class PhotoGridZoomController: NSObject {
     /// match the current ones in size and sit on the same lattice, with the focal photo's row
     /// in the same place in both.
     private func startSession(to target: Int) {
-        guard let collectionView, let from = geometry(level: level), let to = geometry(level: target),
+        guard let collectionView, let container = collectionView.superview,
+              let from = geometry(level: level), let to = geometry(level: target),
               from.itemCount > 0, from.pitch > 0, to.pitch != from.pitch else { return }
         let offsetFrom = collectionView.contentOffset
         // Where the new grid comes to rest: the focal photo as close under the fingers as the
@@ -212,89 +240,144 @@ final class PhotoGridZoomController: NSObject {
         let b = focalTo.offsetBy(dx: -offsetTo.x, dy: -offsetTo.y)
         let pivot = CGPoint(x: to.width / 2 - offsetTo.x, y: (ratio * a.minY - b.minY) / (ratio - 1))
 
-        let snapshot = collectionView.snapshotView(afterScreenUpdates: needsFreshSnapshot) ?? UIView()
-        needsFreshSnapshot = false
-        snapshot.isUserInteractionEnabled = false
-        snapshot.layer.zPosition = 1000
+        // The grid being left sits over the collection view (not in it), so scaling the
+        // collection view's contents leaves it alone.
+        PhotoGridHitchMonitor.current?.zoomStart = CACurrentMediaTime()
+        var mark = CACurrentMediaTime()
+        func step(_ name: String) {
+            let now = CACurrentMediaTime()
+            PhotoGridHitchMonitor.current?.zoomStep(name, now - mark)
+            mark = now
+        }
+        isStartingSession = true
+        defer { isStartingSession = false }
+        let (snapshot, leavingTiles) = collectionView.detachPlacedTiles()
+        step("detach")
+        container.layer.insertSublayer(snapshot, above: collectionView.layer)
 
-        let layout = PhotoGridZoomLayout(geometry: to, pivot: CGPoint(x: pivot.x + offsetTo.x, y: pivot.y + offsetTo.y))
-        layout.scale = 1 / ratio
-        install(layout, offset: offsetTo)
-        snapshot.frame = CGRect(origin: offsetTo, size: collectionView.bounds.size)
-        collectionView.addSubview(snapshot)
+        // The new grid, laid out once at rest; from here on it only moves as a whole.
+        collectionView.layer.removeAnimation(forKey: "stretch")
+        collectionView.showsVerticalScrollIndicator = false
+        levelWillInstall(target)
+        install(columns: Self.levels[target], offset: offsetTo)
+        step("install")
+        collectionView.layoutIfNeeded()
+        levelDidInstall()
+        step("layout")
 
-        // Zooming in, the new grid starts out narrower than the screen (its tiles are shrunk to
-        // the old size), so there's nothing under the snapshot's outer columns: fading those too
-        // just showed the background, darkening the sides. Only the part over the new grid fades;
-        // the rest stays solid and slides off the edges as it grows. In the snapshot's own
-        // (untransformed) coordinates that part is a fixed band: the new grid's width ÷ ratio,
-        // centred on the pivot. Zooming out the band is wider than the screen, so all of it fades.
-        let width = collectionView.bounds.width
-        let halfBand = to.width / (2 * ratio)
-        let left = width > 0 ? min(max((pivot.x - halfBand) / width, 0), 1) : 0
-        let right = width > 0 ? min(max((pivot.x + halfBand) / width, 0), 1) : 1
-        let fadeMask = CAGradientLayer()
-        fadeMask.startPoint = CGPoint(x: 0, y: 0.5)
-        fadeMask.endPoint = CGPoint(x: 1, y: 0.5)
-        // Repeated stops make hard steps rather than gradients.
-        fadeMask.locations = [0, left, left, right, right, 1].map { NSNumber(value: Double($0)) }
-        fadeMask.frame = snapshot.bounds
-        snapshot.layer.mask = fadeMask
+        // Only the part of the snapshot over the new grid fades. Zooming in, the new grid starts
+        // out smaller than the screen (its tiles are shrunk to the old size), so there's nothing
+        // under the snapshot's outer rows and columns: fading those too would show the background.
+        // They stay solid and slide off the edges as the grid grows. In the snapshot's own
+        // (untransformed) coordinates that part is fixed: the screen scaled by 1/ratio about the
+        // pivot. Zooming out it covers the whole screen, so all of it fades.
+        let bounds = snapshot.bounds
+        let footprint = CGRect(
+            x: pivot.x - pivot.x / ratio,
+            y: pivot.y - pivot.y / ratio,
+            width: bounds.width / ratio,
+            height: bounds.height / ratio
+        ).intersection(bounds)
+        // Zooming out the footprint is the whole screen: fade the whole layer, no mask (a mask
+        // means an offscreen pass on every frame).
+        let fade: CALayer
+        let coversScreen = !footprint.isNull && footprint.minX <= 0.5 && footprint.minY <= 0.5
+            && footprint.maxX >= bounds.maxX - 0.5 && footprint.maxY >= bounds.maxY - 0.5
+        if coversScreen {
+            fade = snapshot
+        } else {
+            let mask = CALayer()
+            mask.frame = bounds
+            let inner = footprint.isNull ? .zero : footprint
+            for band in [
+                CGRect(x: 0, y: 0, width: bounds.width, height: inner.minY),
+                CGRect(x: 0, y: inner.maxY, width: bounds.width, height: bounds.height - inner.maxY),
+                CGRect(x: 0, y: inner.minY, width: inner.minX, height: inner.height),
+                CGRect(x: inner.maxX, y: inner.minY, width: bounds.width - inner.maxX, height: inner.height),
+            ] where band.width > 0 && band.height > 0 {
+                let layer = CALayer()
+                layer.frame = band
+                layer.backgroundColor = UIColor.black.cgColor
+                mask.addSublayer(layer)
+            }
+            let fadeLayer = CALayer()
+            // Its opacity follows the fingers frame by frame; no implicit fades.
+            fadeLayer.actions = ["opacity": NSNull()]
+            fadeLayer.frame = inner
+            fadeLayer.backgroundColor = UIColor.black.cgColor
+            mask.addSublayer(fadeLayer)
+            snapshot.mask = mask
+            fade = fadeLayer
+        }
 
         session = Session(
-            layout: layout,
             targetLevel: target,
             ratio: ratio,
             pivot: pivot,
             snapshot: snapshot,
-            fadeMask: fadeMask,
+            leavingTiles: leavingTiles,
+            fade: fade,
             offsetFrom: offsetFrom,
             offsetTo: offsetTo
+        )
+        setProgress(0)
+    }
+
+    /// A scale about `pivot` (in the view's coordinates) for a layer that transforms about its
+    /// centre.
+    private func scale(_ scale: CGFloat, about pivot: CGPoint, in size: CGSize) -> CGAffineTransform {
+        CGAffineTransform(
+            a: scale, b: 0, c: 0, d: scale,
+            tx: (pivot.x - size.width / 2) * (1 - scale),
+            ty: (pivot.y - size.height / 2) * (1 - scale)
         )
     }
 
     private func setProgress(_ progress: CGFloat) {
         guard let collectionView, var session else { return }
+        let progress = min(max(progress, 0), 1)
         session.progress = progress
         self.session = session
+        // The old grid grows (or shrinks) by `scale` about the pivot, and the new one with it,
+        // from the old tile size (1/ratio) to its own (1).
         let scale = pow(session.ratio, progress)
-        session.layout.scale = scale / session.ratio
-        session.layout.invalidateLayout()
-
-        // The old grid grows (or shrinks) by `scale` about the pivot; a view transforms about its
-        // own centre, so shift by however far the pivot is from it.
-        let center = CGPoint(x: collectionView.bounds.width / 2, y: collectionView.bounds.height / 2)
-        session.snapshot.transform = CGAffineTransform(
-            a: scale, b: 0, c: 0, d: scale,
-            tx: (session.pivot.x - center.x) * (1 - scale),
-            ty: (session.pivot.y - center.y) * (1 - scale)
+        let size = collectionView.bounds.size
+        // No CATransaction of its own: from the display link that was a second full commit of
+        // every layer on each frame. A view's own layer and the fade layer don't animate
+        // implicitly anyway.
+        session.snapshot.setAffineTransform(self.scale(scale, about: session.pivot, in: size))
+        collectionView.layer.sublayerTransform = CATransform3DMakeAffineTransform(
+            self.scale(scale / session.ratio, about: session.pivot, in: size)
         )
-        let solid = UIColor.black.cgColor
-        let faded = UIColor(white: 0, alpha: 1 - progress).cgColor
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        session.fadeMask.colors = [solid, solid, faded, faded, solid, solid]
-        CATransaction.commit()
+        session.fade.opacity = Float(1 - progress)
+    }
+
+    private func endSession(_ session: Session) {
+        session.snapshot.removeFromSuperlayer()
+        collectionView?.recycleDetached(session.leavingTiles)
+        self.session = nil
+        collectionView?.layer.sublayerTransform = CATransform3DIdentity
+        collectionView?.showsVerticalScrollIndicator = true
     }
 
     /// Lands on the session's target: the new grid is already at rest underneath.
     private func commit() {
         guard let session else { return }
-        session.snapshot.removeFromSuperview()
-        self.session = nil
+        let start = CACurrentMediaTime()
+        endSession(session)
         level = session.targetLevel
-        install(PhotoGridLayout(columns: Self.levels[level]), offset: session.offsetTo)
         finishLevelChange()
+        PhotoGridHitchMonitor.current?.zoomStep("commit", CACurrentMediaTime() - start)
     }
 
     /// Back to the grid the session started from, exactly as it was.
     private func revertSession() {
         guard let session else { return }
-        session.snapshot.removeFromSuperview()
-        self.session = nil
-        install(PhotoGridLayout(columns: Self.levels[level]), offset: session.offsetFrom)
+        endSession(session)
+        levelWillInstall(level)
+        install(columns: Self.levels[level], offset: session.offsetFrom)
         collectionView?.layoutIfNeeded()
-        needsFreshSnapshot = true
+        levelDidInstall()
     }
 
     /// Straight to a level with no animation (Reduce Motion, or a jump of several levels).
@@ -303,22 +386,20 @@ final class PhotoGridZoomController: NSObject {
         let frame = to.frame(forItem: min(focalItem, to.itemCount - 1))
         let y = clampedOffset(frame.minY + frame.height * focalUnitY - finger.y, contentHeight: to.contentHeight)
         level = newLevel
-        install(PhotoGridLayout(columns: Self.levels[newLevel]), offset: CGPoint(x: collectionView.contentOffset.x, y: y))
+        levelWillInstall(newLevel)
+        install(columns: Self.levels[newLevel], offset: CGPoint(x: collectionView.contentOffset.x, y: y))
+        collectionView.layoutIfNeeded()
+        levelDidInstall()
         finishLevelChange()
         onZoomEnded()
     }
 
     private func finishLevelChange() {
-        needsFreshSnapshot = true
         onLevelCommitted(level)
-        haptics.impactOccurred()
-        haptics.prepare()
     }
 
-    private func install(_ layout: UICollectionViewLayout, offset: CGPoint) {
-        guard let collectionView else { return }
-        collectionView.setCollectionViewLayout(layout, animated: false)
-        collectionView.contentOffset = offset
+    private func install(columns: Int, offset: CGPoint) {
+        collectionView?.setColumns(columns, offset: offset)
     }
 
     private func clampedOffset(_ y: CGFloat, contentHeight: CGFloat) -> CGFloat {
@@ -331,13 +412,15 @@ final class PhotoGridZoomController: NSObject {
 
     // MARK: Settling after the fingers lift
 
-    private func settle(to toProgress: CGFloat, duration: CFTimeInterval? = nil) {
+    private func settle(to toProgress: CGFloat, velocity: CGFloat, response: CGFloat) {
         guard let session else { return }
         settle = Settle(
             start: CACurrentMediaTime(),
-            duration: duration ?? 0.2 + 0.15 * Double(abs(toProgress - session.progress)),
-            fromProgress: session.progress,
-            toProgress: toProgress
+            from: session.progress,
+            to: toProgress,
+            // Heading the wrong way, the speed is dropped rather than carried into a reversal.
+            velocity: (toProgress - session.progress) * velocity >= 0 ? min(max(velocity, -12), 12) : 0,
+            omega: 2 * .pi / response
         )
         if displayLink == nil {
             let link = CADisplayLink(target: self, selector: #selector(step(_:)))
@@ -348,22 +431,20 @@ final class PhotoGridZoomController: NSObject {
     }
 
     @objc private func step(_ link: CADisplayLink) {
-        advanceSettle(to: CACurrentMediaTime())
+        advanceSettle(to: link.targetTimestamp)
     }
 
-    private func advanceSettle(to time: CFTimeInterval) {
+    private func advanceSettle(to time: CFTimeInterval, finish: Bool = false) {
         guard let settle, session != nil else {
             stopDisplayLink()
             return
         }
-        let t = min(max((time - settle.start) / settle.duration, 0), 1)
-        // Ease out: quick to respond, soft to land.
-        let eased = CGFloat(1 - pow(1 - t, 3))
-        setProgress(settle.fromProgress + (settle.toProgress - settle.fromProgress) * eased)
-        guard t >= 1 else { return }
+        let (value, done) = finish ? (settle.to, true) : settle.value(at: time)
+        setProgress(value)
+        guard done else { return }
         self.settle = nil
         stopDisplayLink()
-        if settle.toProgress == 1 {
+        if settle.to == 1 {
             commit()
         } else {
             revertSession()
@@ -372,8 +453,8 @@ final class PhotoGridZoomController: NSObject {
     }
 
     private func completeSettleNow() {
-        guard let settle else { return }
-        advanceSettle(to: settle.start + settle.duration)
+        guard settle != nil else { return }
+        advanceSettle(to: CACurrentMediaTime(), finish: true)
     }
 
     private func stopDisplayLink() {

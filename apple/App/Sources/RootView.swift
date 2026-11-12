@@ -100,11 +100,8 @@ struct RootView: View {
         // A sidebar on iPad and Mac, the bottom tab bar on iPhone.
         .tabViewStyle(.sidebarAdaptable)
         #if os(iOS)
-        // The system's own shrinking tab bar (what the Photos app does while scrolling). It
-        // replaces a hand-made one that hid the real bar and floated a copy over the content.
-        // Photos keeps its newest photos at the bottom, so there scrolling up (into older photos)
-        // tucks the bar away and scrolling back down brings it back.
-        .tabBarMinimizeBehavior(selectedTab == .photos ? .onScrollUp : .onScrollDown)
+        // The tab bar stays as it is while scrolling: Miguel found the shrinking one odd.
+        .tabBarMinimizeBehavior(.never)
         #endif
     }
 
