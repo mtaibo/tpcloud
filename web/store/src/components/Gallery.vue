@@ -1,9 +1,10 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Download, Images } from 'lucide-vue-next'
+import { Download, Images, Trash2 } from 'lucide-vue-next'
 import Spinner from '../ui/Spinner.vue'
 import Segmented from '../ui/Segmented.vue'
 import { openMenu } from '../menu.js'
+import { confirmDestructive, toast } from '../ui/dialog.js'
 import { vLongPress } from '../longPress.js'
 import { downloadLink, photoMediaUrls } from '../mediaUrls.js'
 import { kindOf } from '../fileTypes.js'
@@ -40,7 +41,8 @@ function toItem(p) {
   return {
     ...p,
     type: 'file',
-    name: p.original_filename || p.path.split('/').at(-1),
+    // Its readable name on the server (ID123_20240229_1755.heic), which downloads keep too.
+    name: p.path.split('/').at(-1),
     date,
     month: date ? monthFormat.format(date).replace(/^./, c => c.toUpperCase()) : 'Sin fecha',
   }
@@ -111,9 +113,24 @@ function download(p) {
   downloadLink(photoMediaUrls.download(p), p.name)
 }
 
+// Deletes it from the server. The iPhone app backs up whatever is in the phone's library, so a
+// photo still on the phone comes back with the next backup.
+async function remove(p) {
+  const ok = await confirmDestructive('¿Eliminar esta foto?', 'Se borrará del servidor. Si sigue en el iPhone, la próxima copia de seguridad la volverá a subir.', 'Eliminar')
+  if (!ok) return
+  const res = await fetch(`/store/api/photos/${p.id}`, { method: 'DELETE' })
+  if (!res.ok) { toast('No se ha podido eliminar', 'x-circle'); return }
+  const i = photos.value.indexOf(p)
+  if (look.value === p) look.value = photos.value[i + 1] || photos.value[i - 1] || null
+  photos.value = photos.value.filter(x => x !== p)
+  toast('Foto eliminada')
+}
+
 function menu(p, at) {
   openMenu(at, [
     { label: 'Descargar el original', icon: Download, action: () => download(p) },
+    { separator: true },
+    { label: 'Eliminar', icon: Trash2, danger: true, action: () => remove(p) },
   ], p.name)
 }
 
@@ -184,6 +201,8 @@ onUnmounted(() => observer?.disconnect())
       :entry="look"
       :urls="photoMediaUrls"
       :subtitle="subtitle"
+      deletable
+      @delete="remove"
       @change="p => { look = p; if (photos.indexOf(p) > photos.length - 10) loadMore() }"
       @download="download"
       @close="look = null"

@@ -24,6 +24,7 @@ import os
 import shutil
 from pathlib import Path
 
+from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from app.database import DATA_DIR
@@ -320,6 +321,13 @@ async def keep_photo_thumbnails(interval: float = 600) -> None:
     the time it's opened; the gallery is the whole library (thousands of photos, 0.3-0.8 s each
     on the Pi), so it's prepared once in the background instead of while someone scrolls."""
     await asyncio.sleep(30)  # let the API finish starting up first
+    try:
+        from app.routes.photos import rename_photos_to_readable_names
+        renamed = await run_in_threadpool(rename_photos_to_readable_names)
+        if renamed:
+            log.warning("Gave %d photos their readable names", renamed)
+    except Exception:
+        log.exception("Couldn't rename the photos")
     while True:
         try:
             await _make_missing_photo_thumbnails()
@@ -333,15 +341,16 @@ def _missing_photo_thumbnails(sizes: list[int]) -> list[Path]:
     from app.database import engine
     from app.models import Photo
     from app.routes.files import _thumb_cache_path
-    from app.utils import get_base
+    from app.utils import get_base, resolve_path
 
     with Session(engine) as db:
         paths = db.exec(select(Photo.path).order_by(Photo.taken_at.desc(), Photo.id.desc())).all()
     base = get_base("external")
     missing = []
     for rel in paths:
-        file_path = base / rel.lstrip("/")
         try:
+            # Resolved like the thumbnail endpoint does, since the cache is keyed by the path.
+            file_path = resolve_path(base, rel)
             if is_image(file_path):
                 if any(not _thumb_cache_path(file_path, s).exists() for s in sizes):
                     missing.append(file_path)
@@ -349,7 +358,7 @@ def _missing_photo_thumbnails(sizes: list[int]) -> list[Path]:
                 poster = _cache_path(file_path, f"poster{POSTER_SIZE}", "jpg")
                 if not poster.exists() or any(not _thumb_cache_path(poster, s).exists() for s in sizes):
                     missing.append(file_path)
-        except OSError:
+        except (OSError, HTTPException):
             continue  # gone from disk
     return missing
 
@@ -371,6 +380,38 @@ async def _make_missing_photo_thumbnails() -> None:
                     await _ensure_thumbnail(source, _thumb_cache_path(source, size), size)
         except Exception:
             log.warning("Couldn't make a thumbnail of %s", file_path)
+
+
+def move_caches(old: Path, new: Path, mtime: int) -> None:
+    """Moves the thumbnails, posters and previews made for `old` to the names they'd have for
+    `new` (the same file, renamed with its mtime kept), so a rename doesn't mean making them all
+    again. Thumbnails of a video hang off its poster, so they follow the poster."""
+    from app.routes.files import _THUMB_DIR
+
+    def thumb(path: Path, path_mtime: int, size: int) -> Path:
+        return _THUMB_DIR / f"{hashlib.sha256(f'{path}|{path_mtime}|{size}'.encode()).hexdigest()[:24]}.jpg"
+
+    def media_file(path: Path, kind: str, ext: str) -> Path:
+        return MEDIA_DIR / f"{hashlib.sha256(f'{path}|{mtime}|{kind}'.encode()).hexdigest()[:24]}.{ext}"
+
+    def move(a: Path, b: Path) -> bool:
+        try:
+            a.rename(b)
+            return True
+        except OSError:
+            return False
+
+    for size in range(40, 401):
+        move(thumb(old, mtime, size), thumb(new, mtime, size))
+    for kind, ext in (("info", "json"), (f"preview{PREVIEW_IMAGE_SIZE}", "jpg"), ("preview720", "mp4")):
+        move(media_file(old, kind, ext), media_file(new, kind, ext))
+    old_poster = media_file(old, f"poster{POSTER_SIZE}", "jpg")
+    new_poster = media_file(new, f"poster{POSTER_SIZE}", "jpg")
+    if old_poster.exists():
+        poster_mtime = int(old_poster.stat().st_mtime)
+        if move(old_poster, new_poster):
+            for size in range(40, 401):
+                move(thumb(old_poster, poster_mtime, size), thumb(new_poster, poster_mtime, size))
 
 
 def cache_headers(private: bool) -> dict:

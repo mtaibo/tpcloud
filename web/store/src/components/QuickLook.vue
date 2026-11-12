@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ChevronLeft, ChevronRight, Download, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Download, Trash2, X } from 'lucide-vue-next'
 import { kindOf } from '../fileTypes.js'
 
 // Quick Look for photos and videos: the file over a dark blur, its name on top, arrows (and the
@@ -12,8 +12,9 @@ const props = defineProps({
   entry: { type: Object, required: true },
   urls: { type: Object, required: true }, // { preview(entry), poster(entry) }
   subtitle: { type: Function, default: null }, // a line under the name instead of "3 de 40"
+  deletable: { type: Boolean, default: false },
 })
-const emit = defineEmits(['change', 'close', 'download'])
+const emit = defineEmits(['change', 'close', 'download', 'delete'])
 
 const index = computed(() => {
   const i = props.items.indexOf(props.entry)
@@ -76,7 +77,10 @@ onBeforeUnmount(() => {
           <span v-if="subtitle" class="look-count">{{ subtitle(entry) }}</span>
           <span v-else-if="items.length > 1" class="look-count">{{ index + 1 }} de {{ items.length }}</span>
         </div>
-        <button type="button" class="look-btn" aria-label="Descargar" @click="emit('download', entry)"><Download :size="19" :stroke-width="2" /></button>
+        <div class="look-actions">
+          <button v-if="deletable" type="button" class="look-btn" aria-label="Eliminar" @click="emit('delete', entry)"><Trash2 :size="19" :stroke-width="2" /></button>
+          <button type="button" class="look-btn" aria-label="Descargar" @click="emit('download', entry)"><Download :size="19" :stroke-width="2" /></button>
+        </div>
       </header>
 
       <div class="stage" @click.self="emit('close')">
@@ -120,11 +124,12 @@ onBeforeUnmount(() => {
 .look-bar {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: 44px 1fr 44px;
+  grid-template-columns: 96px 1fr 96px;
   align-items: center;
   gap: 12px;
   padding: calc(12px + env(safe-area-inset-top)) 14px 10px;
 }
+.look-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .look-title { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
 .look-name { max-width: 100%; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .look-count { font-size: 12px; color: rgba(255, 255, 255, 0.6); }

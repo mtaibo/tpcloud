@@ -19,7 +19,7 @@ watch(() => alertState.open, async open => {
 <template>
   <Teleport to="body">
     <Transition name="alert">
-      <div v-if="alertState.open" class="overlay" style="align-items: center" @click.self="answer(alertState.field ? null : false)">
+      <div v-if="alertState.open" class="overlay" style="align-items: center; z-index: 300" @click.self="answer(alertState.field ? null : false)">
         <div class="alert" role="alertdialog" aria-modal="true">
           <h2>{{ alertState.title }}</h2>
           <p v-if="alertState.message" class="secondary">{{ alertState.message }}</p>

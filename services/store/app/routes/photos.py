@@ -1,9 +1,12 @@
 import asyncio
 import hashlib
+import logging
+import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
@@ -18,6 +21,7 @@ from app.models import Photo
 from app.utils import get_base, resolve_path, guess_media_type
 
 router = APIRouter(prefix="/api/photos", tags=["photos"])
+log = logging.getLogger(__name__)
 
 
 def _check_photo_access(location: str, path: str, email: str) -> None:
@@ -161,6 +165,14 @@ async def register_photo(
     db.add(photo)
     db.commit()
     db.refresh(photo)
+    # The app uploads it named by checksum; now that it has an id it gets its readable name.
+    try:
+        if await run_in_threadpool(_give_readable_name, photo, base):
+            db.add(photo)
+            db.commit()
+            db.refresh(photo)
+    except Exception:
+        log.exception("Couldn't rename photo %s", photo.id)
     return _serialize(photo)
 
 
@@ -321,9 +333,65 @@ async def get_photo(
     return _serialize(photo)
 
 
-def _canonical_relative_path(owner_email: str, taken_at: Optional[datetime], checksum: str, ext: str) -> str:
+# Names and month folders follow the time the photo was taken where it was taken (dates are
+# stored in UTC); a server elsewhere can change it with PHOTO_TIMEZONE.
+PHOTO_TZ = ZoneInfo(os.getenv("PHOTO_TIMEZONE", "Europe/Madrid"))
+
+
+def _local(taken_at: Optional[datetime]) -> datetime:
     date = taken_at or datetime.now(timezone.utc)
-    return f"photos/{owner_email}/{date.year}/{date.month:02d}/{checksum}{ext}"
+    if date.tzinfo is None:
+        date = date.replace(tzinfo=timezone.utc)
+    return date.astimezone(PHOTO_TZ)
+
+
+def _canonical_relative_path(owner_email: str, taken_at: Optional[datetime], photo_id: int, ext: str) -> str:
+    """photos/<email>/2024/02/ID123_20240229_1755.heic: its id, then the date and time it was
+    taken, so the files read in order and say what they are (they used to be named by checksum)."""
+    date = _local(taken_at)
+    return f"photos/{owner_email}/{date.year}/{date.month:02d}/ID{photo_id}_{date:%Y%m%d_%H%M}{ext.lower()}"
+
+
+def _give_readable_name(photo: Photo, base: Path) -> bool:
+    """Moves a photo's file to its canonical name, carrying its thumbnails and previews along so
+    they don't have to be made again. False if the file isn't there to move."""
+    src = resolve_path(base, photo.path)
+    canonical = _canonical_relative_path(photo.owner_email, photo.taken_at, photo.id, Path(photo.path).suffix or ".jpg")
+    if photo.path == canonical:
+        return True
+    if not src.exists():
+        return False
+    dest = resolve_path(base, canonical)
+    if dest.exists() and dest.resolve() != src.resolve():
+        raise RuntimeError(f"{canonical} is already taken")
+    mtime = int(src.stat().st_mtime)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    src.rename(dest)
+    media.move_caches(src, dest, mtime)
+    photo.path = canonical
+    return True
+
+
+def rename_photos_to_readable_names() -> int:
+    """Gives every backed-up photo still named by checksum its readable name. Runs at startup;
+    a photo whose file is missing is left alone (the admin's sanitize deals with those)."""
+    base = get_base("external")
+    renamed = 0
+    with Session(engine) as db:
+        for photo in db.exec(select(Photo)).all():
+            ext = Path(photo.path).suffix or ".jpg"
+            if photo.path == _canonical_relative_path(photo.owner_email, photo.taken_at, photo.id, ext):
+                continue
+            try:
+                if _give_readable_name(photo, base):
+                    db.add(photo)
+                    renamed += 1
+                    if renamed % 200 == 0:
+                        db.commit()
+            except Exception:
+                log.exception("Couldn't rename photo %s", photo.id)
+        db.commit()
+    return renamed
 
 
 def _exif_taken_at(file_path: Path) -> Optional[datetime]:
@@ -366,7 +434,7 @@ def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
     for photo in photos:
         try:
             ext = Path(photo.path).suffix or ".jpg"
-            canonical = _canonical_relative_path(photo.owner_email, photo.taken_at, photo.checksum, ext)
+            canonical = _canonical_relative_path(photo.owner_email, photo.taken_at, photo.id, ext)
             key = (photo.owner_email, photo.checksum)
             src = resolve_path(base, photo.path)
             # Checked unconditionally, even when photo.path already equals canonical — files
@@ -432,10 +500,6 @@ def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
                 taken_at = _exif_taken_at(file_path) or datetime.fromtimestamp(
                     file_path.stat().st_mtime, tz=timezone.utc
                 )
-                ext = file_path.suffix or ".jpg"
-                canonical_rel = _canonical_relative_path(owner_email, taken_at, checksum, ext)
-                dest = resolve_path(base, canonical_rel)
-
                 if not dry_run:
                     mime_type = guess_media_type(file_path)
                     width = height = None
@@ -445,13 +509,13 @@ def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
                             width, height = img.size
                     except Exception:
                         pass
-                    _move_file(file_path, dest, dry_run=False)
-                    db.add(Photo(
+                    # The row comes first: its id is part of the file's canonical name.
+                    photo = Photo(
                         owner_email=owner_email,
                         checksum=checksum,
-                        path=canonical_rel,
+                        path=file_path.resolve().relative_to(base.resolve()).as_posix(),
                         original_filename=file_path.name,
-                        file_size=file_path.stat().st_size if file_path.exists() else dest.stat().st_size,
+                        file_size=file_path.stat().st_size,
                         mime_type=mime_type,
                         width=width,
                         height=height,
@@ -459,8 +523,14 @@ def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
                         source_type="recovered_orphan",
                         status="verified",
                         verified_at=datetime.now(timezone.utc),
-                    ))
+                    )
+                    db.add(photo)
                     db.commit()
+                    db.refresh(photo)
+                    _give_readable_name(photo, base)
+                    db.add(photo)
+                    db.commit()
+                    dest = resolve_path(base, photo.path)
                     known_checksums.add(key)
                     # Without this, a root scanned later in this same run (e.g. `photos/<email>`
                     # overlapping the directory this file was just moved into) would see the file
