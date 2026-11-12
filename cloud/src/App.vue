@@ -16,6 +16,8 @@ const activity = ref([])
 // Only the modules this server runs (auth reports them in /me).
 const allServices = [
   { module: 'store', name: 'Archivos', description: 'Tus archivos y fotos', icon: 'folder', tint: 'blue', url: '/store/' },
+  { module: 'store', name: 'Galería', description: 'Las fotos de tu iPhone', icon: 'photo', tint: 'pink', url: '/store/gallery' },
+  { module: 'store', name: 'Compartido', description: 'Carpetas abiertas con enlace', icon: 'link', tint: 'teal', url: '/share/' },
   { module: 'home', name: 'Casa', description: 'Luces, persianas y enchufes', icon: 'house', tint: 'orange', url: '/home/' },
   { module: null, name: 'Cuenta', description: 'Seguridad y dispositivos', icon: 'person', tint: 'gray', url: '/accounts' },
 ]
@@ -127,11 +129,17 @@ html::-webkit-scrollbar { display: none; }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  /* Every service in one row, however many this server runs; two by two on a phone. */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 14px;
   margin-bottom: 28px;
 }
-@media (max-width: 480px) { .grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) {
+  .grid { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
+  /* An odd one out takes the whole last row, laid out sideways, instead of leaving a hole. */
+  .tile:last-child:nth-child(odd) { grid-column: span 2; min-height: 0; flex-direction: row; align-items: center; justify-content: flex-start; }
+}
 .tile {
   min-height: 150px;
   display: flex;
