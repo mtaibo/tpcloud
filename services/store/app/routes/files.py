@@ -20,10 +20,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app import media
 from app.auth import get_current_user
 from app.database import get_session, DATA_DIR
 from app.models import FileViewToken, FolderIcon, PendingUpload
 from app.utils import (
+    file_headers,
     get_base as _base,
     resolve_path as _resolve,
     check_access as _check_access,
@@ -101,6 +103,14 @@ async def _build_thumbnail_once(file_path: Path, cache_path: Path, size: int) ->
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
+# The tile size the store and the gallery ask for, warmed up ahead of the requests for it.
+STORE_THUMB_SIZES = [320]
+
+
+def _media_headers(v: str | None) -> dict:
+    """URLs that carry the file's version (`v=`) never go stale, so they're cached for good."""
+    return media.cache_headers(private=True) if v else {"Cache-Control": "private, max-age=604800"}
+
 
 
 
@@ -171,6 +181,22 @@ async def list_directory(
                 "upload_id": p.upload_id,
                 "bytes_received": p.bytes_received,
             })
+
+    # Thumbnails, posters and the viewer's light versions start being made now, like a share
+    # page's, so photos and videos open at once instead of loading their originals.
+    media_files = []
+    for e in entries:
+        if e["type"] != "file":
+            continue
+        file_path = dir_path / e["name"]
+        if media.is_video(file_path):
+            media_files.append(file_path)
+            info = media.cached_video_info(file_path)
+            if info:
+                e["duration"] = info["duration"]
+        elif media.is_image(file_path):
+            media_files.append(file_path)
+    media.warm_up(media_files, STORE_THUMB_SIZES)
 
     return {"path": path, "entries": entries}
 
@@ -478,40 +504,96 @@ async def open_file_by_token(
     return inline_response(file_path, media_type)
 
 
+async def _media_file(request: Request, path: str, location: str) -> Path:
+    user = await get_current_user(request)
+    _check_access(location, path, user["email"], allow_photos=True)
+    file_path = _resolve(_base(location), path)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+    return file_path
+
+
 @router.get("/thumbnail")
 async def thumbnail_file(
     request: Request,
     path: str = Query(...),
     location: str = Query(default="external"),
     size: int = Query(default=160),
+    v: str | None = Query(default=None),
 ):
-    user = await get_current_user(request)
-    _check_access(location, path, user["email"], allow_photos=True)
-    base = _base(location)
-    file_path = _resolve(base, path)
-
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(404, "File not found")
+    file_path = await _media_file(request, path, location)
 
     media_type = _guess_media_type(file_path)
-    if not media_type.startswith("image/"):
+    is_video = media.is_video(file_path)
+    if not media_type.startswith("image/") and not is_video:
         return inline_response(file_path, media_type)
 
     size = max(40, min(size, 400))
     _THUMB_DIR.mkdir(parents=True, exist_ok=True)
-    cache_path = _thumb_cache_path(file_path, size)
     try:
         # Always wait for (and serve) the actual resized thumbnail - never fall back to the full
         # original, since that's precisely the multi-MB download per photo this endpoint exists
-        # to avoid for a device populating a gallery grid.
-        await _ensure_thumbnail(file_path, cache_path, size)
+        # to avoid for a device populating a gallery grid. A video's is cut from its poster frame
+        # instead of the page loading the video itself into every tile.
+        source = await media.ensure_video_poster(file_path) if is_video else file_path
+        cache_path = _thumb_cache_path(source, size)
+        await _ensure_thumbnail(source, cache_path, size)
         return FileResponse(
             path=str(cache_path),
             media_type="image/jpeg",
-            headers={"Cache-Control": "max-age=604800", "Content-Disposition": "inline"},
+            headers={**_media_headers(v), "Content-Disposition": "inline"},
         )
     except Exception:
         raise HTTPException(500, "Failed to build thumbnail")
+
+
+@router.get("/poster")
+async def poster_file(
+    request: Request,
+    path: str = Query(...),
+    location: str = Query(default="external"),
+    v: str | None = Query(default=None),
+):
+    """A video's poster frame, shown while it starts playing."""
+    file_path = await _media_file(request, path, location)
+    if not media.is_video(file_path):
+        raise HTTPException(404, "Video not found")
+    try:
+        poster = await media.ensure_video_poster(file_path)
+    except Exception:
+        raise HTTPException(500, "Failed to build poster")
+    return FileResponse(path=str(poster), media_type="image/jpeg", headers=_media_headers(v))
+
+
+@router.get("/preview")
+async def preview_file(
+    request: Request,
+    path: str = Query(...),
+    location: str = Query(default="external"),
+    v: str | None = Query(default=None),
+):
+    """What Quick Look and the gallery show: a 2048 px JPEG of a photo (HEIC included, which
+    most browsers can't open), or a 720p MP4 of a video. A video whose light version isn't ready
+    yet gets the original, jumps the queue, and isn't cached so the next look picks it up."""
+    file_path = await _media_file(request, path, location)
+    if media.is_video(file_path):
+        preview = media.ready_video_preview(file_path)
+        if preview:
+            return FileResponse(path=str(preview), media_type="video/mp4", headers=_media_headers(v))
+        media.queue_video_preview(file_path, first=True)
+        media_type = _guess_media_type(file_path)
+        return FileResponse(
+            path=str(file_path),
+            media_type=media_type,
+            headers={**file_headers(media_type), "Cache-Control": "no-store"},
+        )
+    if media.is_image(file_path):
+        try:
+            preview = await media.ensure_image_preview(file_path)
+        except Exception:
+            raise HTTPException(500, "Failed to build preview")
+        return FileResponse(path=str(preview), media_type="image/jpeg", headers=_media_headers(v))
+    return inline_response(file_path, _guess_media_type(file_path))
 
 
 @router.get("/view")
@@ -603,7 +685,8 @@ async def download_file(
     location: str = Query(default="external"),
 ):
     user = await get_current_user(request)
-    _check_access(location, path, user["email"])
+    # Your own backed-up photos too, so the gallery can download originals.
+    _check_access(location, path, user["email"], allow_photos=True)
     base = _base(location)
     file_path = _resolve(base, path)
 

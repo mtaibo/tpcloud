@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { ChevronRight, Cloud, DatabaseBackup, Folder, House, Link, LogOut, Plus, User, Users, X } from 'lucide-vue-next'
+import { ChevronRight, Cloud, DatabaseBackup, Folder, House, Images, Link, LogOut, Plus, User, Users, X } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
 import { useTransfers } from '../useTransfers.js'
 import { useCompression } from '../useCompression.js'
@@ -96,6 +96,10 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocDown))
       <button type="button" class="item" :class="{ active: isActive('external', 'shared') }" @click="navigate('external', 'shared')">
         <Users :size="18" :stroke-width="1.9" class="item-icon" />
         <span class="item-label">Compartido</span>
+      </button>
+      <button type="button" class="item" :class="{ active: store.panel === 'gallery' }" @click="store.panel = 'gallery'">
+        <Images :size="18" :stroke-width="1.9" class="item-icon" />
+        <span class="item-label">Galería</span>
       </button>
 
       <div class="group-head static"><span>Enlaces</span></div>

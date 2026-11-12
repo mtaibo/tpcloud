@@ -1,28 +1,45 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChevronLeft, ChevronRight, Download, X } from 'lucide-vue-next'
 import { kindOf } from '../fileTypes.js'
 
 // Quick Look for photos and videos: the file over a dark blur, its name on top, arrows (and the
-// keyboard, and swipes) to move through the folder's media.
+// keyboard, and swipes) to move through the folder's media. It shows the light versions (a
+// 2048 px JPEG, a 720p MP4) so they open at once and play anywhere, like the share page; the
+// download button gets the original.
 const props = defineProps({
   items: { type: Array, required: true },
   entry: { type: Object, required: true },
-  srcFor: { type: Function, required: true },
+  urls: { type: Object, required: true }, // { preview(entry), poster(entry) }
+  subtitle: { type: Function, default: null }, // a line under the name instead of "3 de 40"
 })
 const emit = defineEmits(['change', 'close', 'download'])
 
-const index = computed(() => props.items.findIndex(e => e.name === props.entry.name))
+const index = computed(() => {
+  const i = props.items.indexOf(props.entry)
+  return i >= 0 ? i : props.items.findIndex(e => e.name === props.entry.name)
+})
 const isVideo = computed(() => kindOf(props.entry) === 'video')
 const loaded = ref(false)
 
 function go(step) {
   const next = props.items[index.value + step]
-  if (next) {
-    loaded.value = false
-    emit('change', next)
+  if (next) emit('change', next)
+}
+
+// The neighbours' photos are fetched in the background, so stepping through feels instant.
+function preloadAround(i) {
+  for (const j of [i + 1, i - 1, i + 2]) {
+    const item = props.items[j]
+    if (!item) continue
+    const img = new Image()
+    img.src = kindOf(item) === 'video' ? props.urls.poster(item) : props.urls.preview(item)
   }
 }
+watch(() => props.entry, () => {
+  loaded.value = false
+  preloadAround(index.value)
+}, { immediate: true })
 
 function onKey(e) {
   if (['ArrowLeft', 'ArrowUp'].includes(e.key)) { e.preventDefault(); go(-1) }
@@ -56,14 +73,28 @@ onBeforeUnmount(() => {
         <button type="button" class="look-btn" aria-label="Cerrar" @click="emit('close')"><X :size="20" :stroke-width="2.2" /></button>
         <div class="look-title">
           <span class="look-name">{{ entry.name }}</span>
-          <span v-if="items.length > 1" class="look-count">{{ index + 1 }} de {{ items.length }}</span>
+          <span v-if="subtitle" class="look-count">{{ subtitle(entry) }}</span>
+          <span v-else-if="items.length > 1" class="look-count">{{ index + 1 }} de {{ items.length }}</span>
         </div>
         <button type="button" class="look-btn" aria-label="Descargar" @click="emit('download', entry)"><Download :size="19" :stroke-width="2" /></button>
       </header>
 
       <div class="stage" @click.self="emit('close')">
-        <video v-if="isVideo" :key="entry.name" class="media" :src="srcFor(entry)" controls autoplay playsinline />
-        <img v-else :key="entry.name" class="media" :class="{ loaded }" :src="srcFor(entry)" :alt="entry.name" @load="loaded = true" />
+        <video
+          v-if="isVideo"
+          :key="urls.preview(entry)"
+          class="media"
+          :src="urls.preview(entry)"
+          :poster="urls.poster(entry)"
+          controls
+          autoplay
+          playsinline
+          preload="auto"
+        />
+        <template v-else>
+          <span v-if="!loaded" class="spinner-wrap"><span class="ring" /></span>
+          <img :key="urls.preview(entry)" class="media" :class="{ loaded }" :src="urls.preview(entry)" :alt="entry.name" @load="loaded = true" />
+        </template>
       </div>
 
       <button v-if="index > 0" type="button" class="arrow left" aria-label="Anterior" @click="go(-1)"><ChevronLeft :size="26" :stroke-width="2.2" /></button>
@@ -112,7 +143,12 @@ onBeforeUnmount(() => {
 }
 .look-btn:hover, .arrow:hover { background: rgba(255, 255, 255, 0.24); }
 .look-btn:active, .arrow:active { transform: scale(0.92); }
-.stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 8px 72px calc(28px + env(safe-area-inset-bottom)); }
+/* Fixed tracks so the media's max-width/max-height resolve against the stage and a tall video
+   fits on screen instead of growing the row past it. */
+.stage { position: relative; flex: 1; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; padding: 8px 72px calc(28px + env(safe-area-inset-bottom)); }
+.spinner-wrap { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.ring { width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, 0.2); border-top-color: #fff; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .media {
   max-width: 100%;
   max-height: 100%;

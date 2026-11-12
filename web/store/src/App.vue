@@ -1,11 +1,12 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import AlertHost from './ui/AlertHost.vue'
 import Sheet from './ui/Sheet.vue'
 import Spinner from './ui/Spinner.vue'
 import Sidebar from './components/Sidebar.vue'
 import FileBrowser from './components/FileBrowser.vue'
 import SharesPanel from './components/SharesPanel.vue'
+import Gallery from './components/Gallery.vue'
 import MobileBottomNav from './components/MobileBottomNav.vue'
 import MobileBrowse from './components/MobileBrowse.vue'
 import FileViewer from './components/FileViewer.vue'
@@ -30,7 +31,8 @@ onMounted(async () => {
   }
 
   const parts = window.location.pathname.replace(/^\/store\/?/, '').split('/')
-  const token = parts.length === 1 && parts[0] ? parts[0] : null
+  const gallery = parts[0] === 'gallery'
+  const token = parts.length === 1 && parts[0] && !gallery ? parts[0] : null
   if (token) {
     const info = await fetch(`/store/api/files/open/${token}/info`)
     if (info.ok) {
@@ -41,8 +43,16 @@ onMounted(async () => {
   }
 
   navigate('external', `users/${store.user.email}`)
+  if (gallery) store.panel = 'gallery'
   loadDisk()
   ready.value = true
+})
+
+// The gallery has its own address (/store/gallery), so it can be linked to from the dashboard
+// and survives a reload.
+watch(() => store.panel, panel => {
+  const path = panel === 'gallery' ? '/store/gallery' : '/store/'
+  if (ready.value && !viewer.value && window.location.pathname !== path) window.history.replaceState(null, '', path)
 })
 </script>
 
@@ -59,6 +69,7 @@ onMounted(async () => {
     <main class="main">
       <MobileBrowse v-if="store.panel === 'browse'" class="phone-only" @backup="backupOpen = true" />
       <SharesPanel v-else-if="store.panel === 'shares'" />
+      <Gallery v-else-if="store.panel === 'gallery'" />
       <FileBrowser v-else />
     </main>
     <MobileBottomNav @transfers="transfersOpen = true" />

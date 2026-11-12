@@ -10,12 +10,13 @@ defineProps({
   thumb: { type: String, default: '' },
   video: { type: Boolean, default: false },
   fill: { type: Boolean, default: false },
+  duration: { type: Number, default: null },
 })
 </script>
 
 <template>
   <span v-if="thumb" class="thumb" :class="{ fill }" :style="fill ? null : { width: `${size}px`, height: `${size}px` }">
-    <GalleryThumb :src="thumb" :alt="entry.name" :type="video ? 'video' : 'image'" :small="size < 48 && !fill" />
+    <GalleryThumb :src="thumb" :alt="entry.name" :type="video ? 'video' : 'image'" :duration="duration" :small="size < 48 && !fill" />
   </span>
   <FileIcon v-else :entry="entry" :size="size" />
 </template>

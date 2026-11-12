@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 
+from app import media
 from app.auth import get_current_user
 from app.database import engine, get_session
 from app.models import Photo
@@ -289,6 +290,20 @@ async def list_photos(
     if has_more and rows:
         last = rows[-1]
         next_cursor = f"{last.taken_at.isoformat() if last.taken_at else ''}|{last.id}"
+
+    # The page's thumbnails and viewer versions start being made now, one at a time in the
+    # background, so the web gallery's tiles and photos come up at once like a share page's.
+    from app.routes.files import STORE_THUMB_SIZES
+    base = get_base("external")
+    files = []
+    for p in rows:
+        try:
+            file_path = resolve_path(base, p.path)
+        except HTTPException:
+            continue
+        if media.is_image(file_path) or media.is_video(file_path):
+            files.append(file_path)
+    media.warm_up(files, STORE_THUMB_SIZES, key=("photos", user["email"], cursor or ""))
 
     return {"items": [_serialize(p) for p in rows], "next_cursor": next_cursor}
 

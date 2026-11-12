@@ -20,6 +20,7 @@ import {
 import ItemIcon from './ItemIcon.vue'
 import FileIcon from './FileIcon.vue'
 import QuickLook from './QuickLook.vue'
+import { shareMediaUrls, storeMediaUrls } from '../mediaUrls.js'
 import MoveSheet from './MoveSheet.vue'
 import ShareSheet from './ShareSheet.vue'
 import IconSheet from './IconSheet.vue'
@@ -157,7 +158,7 @@ function resultWhere(r) {
 
 function resultThumb(r) {
   if (r.type !== 'file' || !isMedia(r)) return ''
-  return `/store/api/files/thumbnail?${new URLSearchParams({ path: joinPath(r.dir, r.name), location: store.location })}`
+  return storeMediaUrls(() => store.location, e => joinPath(e.dir, e.name)).thumbnail(r)
 }
 
 // A folder opens; a file opens its folder with it selected (and in Quick Look if it's a photo or video).
@@ -311,12 +312,16 @@ const status = computed(() => {
 
 // ---- Thumbnails and viewing ----
 
+// Thumbnails and Quick Look use the light versions the server makes (and caches) for each
+// photo and video, as the share page does, never the originals.
+const storeUrls = storeMediaUrls(() => store.location, entry => joinPath(store.path, entry.name))
+const mediaUrls = computed(() => (shareMode.value
+  ? shareMediaUrls(shareMode.value.token, entry => joinPath(shareMode.value.path, entry.name))
+  : storeUrls))
+
 function thumbSrc(entry) {
   if (entry.type !== 'file' || !isMedia(entry)) return ''
-  if (shareMode.value) {
-    return `/store/api/share/${shareMode.value.token}/files/thumbnail?path=${encodeURIComponent(joinPath(shareMode.value.path, entry.name))}`
-  }
-  return `/store/api/files/thumbnail?${new URLSearchParams({ path: joinPath(store.path, entry.name), location: store.location })}`
+  return mediaUrls.value.thumbnail(entry)
 }
 
 function viewSrc(entry) {
@@ -1004,7 +1009,7 @@ onUnmounted(() => {
           @touchcancel="cancelPress"
         >
           <span class="icon-pic" :class="{ media: !!thumbSrc(entry) }">
-            <ItemIcon :entry="entry" :size="phone ? 76 : 84" :thumb="thumbSrc(entry)" :video="kindOf(entry) === 'video'" />
+            <ItemIcon :entry="entry" :size="phone ? 76 : 84" :thumb="thumbSrc(entry)" :video="kindOf(entry) === 'video'" :duration="entry.duration" />
             <span v-if="entry.type === 'upload-pending'" class="progress"><i :style="{ width: `${uploadPercent(entry)}%` }" /></span>
           </span>
           <span class="icon-name">{{ entry.name }}</span>
@@ -1037,7 +1042,7 @@ onUnmounted(() => {
           @touchcancel="cancelPress"
         >
           <span class="cell col-name">
-            <ItemIcon :entry="entry" :size="phone ? 44 : 26" :thumb="thumbSrc(entry)" :video="kindOf(entry) === 'video'" />
+            <ItemIcon :entry="entry" :size="phone ? 44 : 26" :thumb="thumbSrc(entry)" :video="kindOf(entry) === 'video'" :duration="entry.duration" />
             <span class="name-stack">
               <span class="name">{{ entry.name }}</span>
               <span v-if="phone" class="row-sub">{{ subtitle(entry) }}</span>
@@ -1074,7 +1079,7 @@ onUnmounted(() => {
       v-if="lookEntry"
       :items="media"
       :entry="lookEntry"
-      :src-for="viewSrc"
+      :urls="mediaUrls"
       @change="e => { lookEntry = e; selected = new Set([e.name]); anchor = e.name }"
       @download="downloadItem"
       @close="lookEntry = null"

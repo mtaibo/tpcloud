@@ -1,20 +1,23 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { Play } from 'lucide-vue-next'
+import { formatDuration } from '../mediaUrls.js'
 
-const props = defineProps({ src: String, alt: String, type: { type: String, default: 'image' }, small: Boolean })
+// A photo or video's square thumbnail, loaded when it comes near the screen. Videos get a JPEG
+// cut from their poster frame too, so a tile never loads the video itself.
+const props = defineProps({
+  src: String,
+  alt: String,
+  type: { type: String, default: 'image' },
+  duration: { type: Number, default: null },
+  small: Boolean,
+})
 
 const wrapRef = ref(null)
-const imgRef = ref(null)
 const activeSrc = ref('')
 const loaded = ref(false)
 let retryTimer = null
-
-function onVideoMeta() {
-  const el = imgRef.value
-  if (el) el.currentTime = Math.min(0.5, (el.duration || 0) / 2)
-}
-
+let retries = 0
 let observer = null
 
 onMounted(() => {
@@ -26,7 +29,7 @@ onMounted(() => {
         observer = null
       }
     },
-    { rootMargin: '400px 0px' }
+    { rootMargin: '600px 0px' }
   )
   if (wrapRef.value) observer.observe(wrapRef.value)
 })
@@ -35,50 +38,39 @@ onUnmounted(() => {
   observer?.disconnect()
   observer = null
   clearTimeout(retryTimer)
-  if (imgRef.value) {
-    imgRef.value.src = ''
-  }
   activeSrc.value = ''
 })
 
+// A folder opened for the first time may still be having its thumbnails made.
 function onError() {
+  if (retries >= 3) return
+  retries++
   retryTimer = setTimeout(() => {
-    if (activeSrc.value) {
-      const url = new URL(activeSrc.value, location.href)
-      url.searchParams.set('_r', Date.now())
-      activeSrc.value = url.pathname + url.search
-    }
-  }, 3000)
+    if (!activeSrc.value) return
+    const url = new URL(activeSrc.value, location.href)
+    url.searchParams.set('_r', String(retries))
+    activeSrc.value = url.pathname + url.search
+  }, 2000 * retries)
 }
 </script>
 
 <template>
   <div ref="wrapRef" class="thumb-wrap">
-    <video
-      v-if="activeSrc && type === 'video'"
-      ref="imgRef"
-      :src="activeSrc"
-      class="thumb-img"
-      :class="{ loaded }"
-      muted
-      preload="metadata"
-      playsinline
-      @loadedmetadata="onVideoMeta"
-      @seeked="loaded = true"
-      @error="onError"
-    />
     <img
-      v-else-if="activeSrc"
-      ref="imgRef"
+      v-if="activeSrc"
       :src="activeSrc"
       :alt="alt"
       class="thumb-img"
       :class="{ loaded }"
       draggable="false"
+      decoding="async"
       @load="loaded = true"
       @error="onError"
     />
-    <span v-if="activeSrc && type === 'video' && !small" class="thumb-play"><Play class="thumb-play-icon" fill="currentColor" /></span>
+    <template v-if="type === 'video' && !small">
+      <span v-if="duration" class="thumb-duration">{{ formatDuration(duration) }}</span>
+      <span v-else class="thumb-play"><Play class="thumb-play-icon" fill="currentColor" /></span>
+    </template>
   </div>
 </template>
 
@@ -115,4 +107,15 @@ function onError() {
   pointer-events: none;
 }
 .thumb-play-icon { width: 10px; height: 10px; margin-left: 1px; }
+.thumb-duration {
+  position: absolute;
+  bottom: 5px;
+  right: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
 </style>

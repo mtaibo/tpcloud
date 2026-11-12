@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { Compass, House, Users } from 'lucide-vue-next'
+import { Compass, House, Images, Users } from 'lucide-vue-next'
 import { homePath, navigate, store } from '../store.js'
 import { transferSummary } from '../transferSummary.js'
 
@@ -11,10 +11,12 @@ const summary = transferSummary()
 const tabs = [
   { id: 'home', label: 'Inicio', icon: House },
   { id: 'shared', label: 'Compartido', icon: Users },
+  { id: 'gallery', label: 'Galería', icon: Images },
   { id: 'browse', label: 'Explorar', icon: Compass },
 ]
 
 const active = computed(() => {
+  if (store.panel === 'gallery') return 'gallery'
   if (store.panel === 'browse' || store.panel === 'shares') return 'browse'
   if (store.path === 'shared' || store.path.startsWith('shared/')) return 'shared'
   return 'home'
@@ -22,6 +24,7 @@ const active = computed(() => {
 
 function pick(id) {
   if (id === 'browse') store.panel = 'browse'
+  else if (id === 'gallery') store.panel = 'gallery'
   else if (id === 'shared') navigate('external', 'shared')
   else navigate('external', homePath.value)
 }
@@ -64,7 +67,7 @@ function pick(id) {
 .tabbar, .pill { pointer-events: auto; }
 .tabbar { display: flex; padding: 4px; border-radius: 999px; }
 .tab {
-  width: 92px;
+  width: 82px;
   height: 56px;
   display: flex;
   flex-direction: column;

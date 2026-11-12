@@ -1,4 +1,5 @@
-"""Light versions of photos and videos for share pages, built once and kept in DATA_DIR/media.
+"""Light versions of photos and videos for share pages, the store and the gallery, built once
+and kept in DATA_DIR/media.
 
 Phone media is far too heavy to show as-is to someone opening a share link: an iPhone video is
 4K 60 fps HEVC 10-bit HDR at 80-100 Mbit/s, which no connection streams smoothly from a home
@@ -267,16 +268,19 @@ async def _transcode(file_path: Path) -> None:
 
 # ── Warming up a folder ───────────────────────────────────────────────────────
 
-def warm_up(files: list[Path], thumbnail_sizes: list[int]) -> None:
-    """Starts making everything a share page will ask for, so it's ready by the time it does.
-    A folder already warming up isn't started again when someone else opens it."""
-    if not files or files[0].parent in _warming:
+def warm_up(files: list[Path], thumbnail_sizes: list[int], key=None) -> None:
+    """Starts making everything a page will ask for (a share or store folder, a page of the
+    gallery), so it's ready by the time it does. The same folder or page already warming up
+    isn't started again when it's opened twice."""
+    if not files:
         return
-    folder = files[0].parent
-    _warming.add(folder)
+    key = key or files[0].parent
+    if key in _warming:
+        return
+    _warming.add(key)
     task = asyncio.get_running_loop().create_task(_warm_up(files, thumbnail_sizes))
     _background.add(task)
-    task.add_done_callback(lambda t: (_background.discard(t), _warming.discard(folder)))
+    task.add_done_callback(lambda t: (_background.discard(t), _warming.discard(key)))
 
 
 async def _warm_up(files: list[Path], thumbnail_sizes: list[int]) -> None:
