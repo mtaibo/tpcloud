@@ -91,6 +91,24 @@ def _share_is_file(share: ShareLink) -> bool:
         return False
 
 
+def _file_facts(share: ShareLink) -> dict:
+    """Whether the share is a single file and, if so, its type, size and modification time."""
+    facts = {"is_file": False, "content_type": None, "size": None, "modified": None}
+    try:
+        target = _share_resolve(share, "")
+        if target.is_file():
+            stat = target.stat()
+            facts.update(
+                is_file=True,
+                content_type=_guess_media_type(target),
+                size=stat.st_size,
+                modified=int(stat.st_mtime),
+            )
+    except (HTTPException, OSError):
+        pass
+    return facts
+
+
 # ── Metadata & auth ──────────────────────────────────────────────────────────
 
 @router.get("")
@@ -102,7 +120,7 @@ def list_public_shares(db: Session = Depends(get_session)):
             "label": s.path.split("/")[-1] or s.token,
             "has_password": s.password_hash is not None,
             "url": f"{PUBLIC_URL}/share/{s.token}",
-            "is_file": _share_is_file(s),
+            **_file_facts(s),
         }
         for s in shares
     ]
@@ -111,17 +129,12 @@ def list_public_shares(db: Session = Depends(get_session)):
 @router.get("/{token}")
 def get_share_info(token: str, db: Session = Depends(get_session)):
     share = _get_share(token, db)
-    is_file = _share_is_file(share)
-    content_type = None
-    if is_file:
-        content_type = _guess_media_type(Path(share.path))
     return {
         "token": share.token,
         "label": share.path.split("/")[-1] or share.token,
         "has_password": share.password_hash is not None,
         "editable": share.editable,
-        "is_file": is_file,
-        "content_type": content_type,
+        **_file_facts(share),
     }
 
 

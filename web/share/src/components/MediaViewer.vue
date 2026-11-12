@@ -12,6 +12,8 @@ const props = defineProps({
   items: Array,
   startIndex: { type: Number, default: 0 },
   urls: Object,
+  // A share of one photo or video opens straight in here, with nothing behind it to close to.
+  closable: { type: Boolean, default: true },
 })
 const emit = defineEmits(['close', 'download', 'save'])
 
@@ -41,8 +43,12 @@ watch(index, (i) => {
   preloadAround(i)
 }, { immediate: true })
 
+function close() {
+  if (props.closable) emit('close')
+}
+
 function onKeydown(e) {
-  if (e.key === 'Escape') emit('close')
+  if (e.key === 'Escape') close()
   else if (e.key === 'ArrowLeft') prev()
   else if (e.key === 'ArrowRight') next()
 }
@@ -70,9 +76,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <div class="look" @click.self="emit('close')" @touchstart.passive="onTouchStart" @touchend="onTouchEnd">
+    <div class="look" @click.self="close" @touchstart.passive="onTouchStart" @touchend="onTouchEnd">
       <header class="look-bar">
-        <button type="button" class="look-btn" aria-label="Close" @click="emit('close')"><X :size="20" :stroke-width="2.2" /></button>
+        <button v-if="closable" type="button" class="look-btn" aria-label="Close" @click="close"><X :size="20" :stroke-width="2.2" /></button>
+        <span v-else />
         <div class="look-title">
           <span class="look-name">{{ current?.name }}</span>
           <span v-if="items.length > 1" class="look-count">{{ index + 1 }} of {{ items.length }}</span>
@@ -83,7 +90,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         </div>
       </header>
 
-      <div class="stage" @click.self="emit('close')">
+      <div class="stage" @click.self="close">
         <video
           v-if="currentIsVideo"
           :key="current.name"

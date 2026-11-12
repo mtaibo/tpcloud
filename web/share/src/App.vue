@@ -1,9 +1,12 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import PasswordWall from './components/PasswordWall.vue'
 import ShareBrowser from './components/ShareBrowser.vue'
 import ShareLanding from './components/ShareLanding.vue'
 import FileViewer from './components/FileViewer.vue'
+import MediaViewer from './components/MediaViewer.vue'
+import SaveToPhotos from './components/SaveToPhotos.vue'
+import { downloadLink } from './media.js'
 import ContextMenu from './components/ContextMenu.vue'
 import Spinner from './ui/Spinner.vue'
 import FileIcon from './components/FileIcon.vue'
@@ -55,12 +58,33 @@ onMounted(async () => {
 
 const needsPassword = computed(() => shareInfo.value?.has_password && !sessionToken.value)
 
-const shareFileUrl = computed(() => {
-  const params = new URLSearchParams()
+function shareUrl(endpoint, extra = {}) {
+  const params = new URLSearchParams(extra)
   if (sessionToken.value) params.set('session', sessionToken.value)
   const qs = params.toString()
-  return `/share/api/share/${token}/files/view${qs ? `?${qs}` : ''}`
+  return `/share/api/share/${token}/files/${endpoint}${qs ? `?${qs}` : ''}`
+}
+
+const shareFileUrl = computed(() => shareUrl('view'))
+
+// A shared photo or video opens in the same viewer as the ones inside a shared folder, with
+// the light versions (a 2048 px JPEG, a 720p H.264 MP4 any phone plays) and Download/Save to
+// Photos for the original. The share itself is the file, so every URL points at its root.
+const isMediaShare = computed(() => /^(image|video)\//.test(shareInfo.value?.content_type || ''))
+const sharedItem = computed(() => shareInfo.value && {
+  type: 'file',
+  name: shareInfo.value.label,
+  size: shareInfo.value.size,
+  modified: shareInfo.value.modified,
 })
+const sharedUrls = {
+  preview: () => shareUrl('preview', { v: String(shareInfo.value.modified ?? 0) }),
+  poster: () => shareUrl('poster', { v: String(shareInfo.value.modified ?? 0) }),
+  download: () => shareUrl('download'),
+}
+const saveItems = ref(null)
+
+watch(shareInfo, (info) => { if (info?.is_file) document.title = info.label })
 
 function onAuthenticated(st) {
   sessionToken.value = st
@@ -83,6 +107,16 @@ function onAuthenticated(st) {
   </div>
   <template v-else-if="shareInfo">
     <PasswordWall v-if="needsPassword" :token="token" :label="shareInfo.label" @authenticated="onAuthenticated" />
+    <template v-else-if="shareInfo.is_file && isMediaShare">
+      <MediaViewer
+        :items="[sharedItem]"
+        :urls="sharedUrls"
+        :closable="false"
+        @download="downloadLink(sharedUrls.download(), shareInfo.label)"
+        @save="saveItems = [sharedItem]"
+      />
+      <SaveToPhotos v-if="saveItems" :items="saveItems" :download-url="sharedUrls.download" @close="saveItems = null" />
+    </template>
     <FileViewer
       v-else-if="shareInfo.is_file"
       :filename="shareInfo.label"
