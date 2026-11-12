@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '@ui/Icon.vue'
 import { api } from '@ui/api.js'
-import { toast } from '@ui/dialog.js'
+import { ask, toast } from '@ui/dialog.js'
 import { lang, t } from '@ui/i18n.js'
 
 // The desktop dashboard's quick access, under the services: the blinds used every day and how
@@ -59,6 +59,34 @@ async function command(b, action) {
   clearTimeout(followUp)
   loadBlinds()
   followUp = setTimeout(loadBlinds, 1500)
+}
+
+// Admins only (tphome checks it too): a locked switch turns its lights off and ignores its
+// buttons and every command until it's unlocked.
+async function toggleLock(b) {
+  const locking = !b.locked
+  if (locking) {
+    const ok = await ask({
+      title: t(`Lock ${b.name}?`, `¿Bloquear ${b.name}?`),
+      message: t(
+        'Its lights will go off and it won’t move, from its buttons or from here, until an administrator unlocks it.',
+        'Se apagarán sus luces y no se podrá mover ni con los botones ni desde aquí hasta que un administrador la desbloquee.',
+      ),
+      actions: [
+        { label: t('Cancel', 'Cancelar'), role: 'cancel', value: false },
+        { label: t('Lock', 'Bloquear'), role: 'destructive', value: true },
+      ],
+    })
+    if (!ok) return
+  }
+  try {
+    await api(`/home/api/admin/${b.id}/${locking ? 'lock' : 'unlock'}`, { method: 'POST' })
+    b.locked = locking
+    toast(locking ? t(`${b.name} locked`, `${b.name} bloqueada`) : t(`${b.name} unlocked`, `${b.name} desbloqueada`))
+  } catch (e) {
+    toast(e.message, 'warning')
+  }
+  loadBlinds()
 }
 
 // ---------- {{ t('Server', 'Servidor') }} ----------
@@ -128,6 +156,14 @@ onBeforeUnmount(() => {
           <button class="control" :disabled="!usable(b)" :title="t('Raise', 'Subir')" @click="command(b, 'up')"><Icon name="chevron-up" :size="18" :weight="2.4" /></button>
           <button class="control" :disabled="!usable(b)" :title="t('Stop', 'Parar')" @click="command(b, 'stop')"><Icon name="stop" :size="15" :weight="2.2" /></button>
           <button class="control" :disabled="!usable(b)" :title="t('Lower', 'Bajar')" @click="command(b, 'down')"><Icon name="chevron-down" :size="18" :weight="2.4" /></button>
+          <button
+            v-if="user.is_admin"
+            class="control lock"
+            :class="{ on: b.locked }"
+            :title="b.locked ? t('Unlock', 'Desbloquear') : t('Lock', 'Bloquear')"
+            :aria-pressed="b.locked"
+            @click="toggleLock(b)"
+          ><Icon :name="b.locked ? 'lock' : 'lock-open'" :size="15" :weight="2.2" /></button>
         </span>
       </div>
     </div>
@@ -195,6 +231,9 @@ onBeforeUnmount(() => {
 .control:hover:not(:disabled) { background: var(--fill-2); }
 .control:active:not(:disabled) { transform: scale(0.92); }
 .control:disabled { opacity: 0.35; cursor: default; }
+/* The admin's lock: round, beside the three, orange while the blind is locked. */
+.control.lock { flex: 0 0 32px; color: var(--label-2); }
+.control.lock.on { background: var(--orange); color: #fff; }
 
 .cells.server { grid-template-columns: 1fr 1fr 1.6fr 1.6fr; }
 .stat { gap: 4px; }

@@ -16,6 +16,7 @@ const paths = {
   key: '<circle cx="8" cy="15" r="4.5"/><path d="M11.3 11.7 19.5 3.5M16 7l2.5 2.5M18.2 4.8l2 2"/>',
   passkey: '<circle cx="9.5" cy="7.5" r="3.7"/><path d="M3 19.5c.5-3.6 3.1-5.8 6.5-5.8 1.1 0 2.1.2 3 .7"/><circle cx="17.5" cy="13.5" r="2.4"/><path d="M17.5 15.9v4.6M17.5 18.2h1.8"/>',
   lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+  'lock-open': '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 7.7-1.5"/>',
   shield: '<path d="M12 3.2 19 6v5.6c0 4.4-2.9 8-7 9.4-4.1-1.4-7-5-7-9.4V6z"/><path d="M8.8 12.2l2.2 2.2 4.2-4.4"/>',
   qrcode: '<rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><path d="M14 14h2.5v2.5H14zM17.5 17.5H20V20h-2.5zM14 19.5V20M19.5 14h.5"/>',
   envelope: '<rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="m3.8 7 8.2 6 8.2-6"/>',
