@@ -10,6 +10,7 @@ import Spinner     from '@/ui/Spinner.vue'
 import { api } from '@/config/api'
 import { ask, toast } from '@/ui/dialog.js'
 import { openMenu } from '@/menu.js'
+import { locale, t as tr } from '@/ui/i18n.js'
 
 // The binaries the switches update from: upload a new one, mark which is active, delete old ones.
 const firmwares = ref([])
@@ -18,12 +19,12 @@ const fileInput = ref(null)
 const selectedFile = ref(null)
 const form = ref({ name: '', chip: '', target: 'blinds', version: '', notes: '' })
 
-const targets = [
-    { value: 'blinds', label: 'Persianas' },
-    { value: 'lights', label: 'Luces' },
-    { value: 'switches', label: 'Interruptores' },
-]
-const targetName = t => targets.find(x => x.value === t)?.label ?? t
+const targets = computed(() => [
+    { value: 'blinds', label: tr('Blinds', 'Persianas') },
+    { value: 'lights', label: tr('Lights', 'Luces') },
+    { value: 'switches', label: tr('Switches', 'Interruptores') },
+])
+const targetName = t => targets.value.find(x => x.value === t)?.label ?? t
 const canUpload = computed(() => selectedFile.value && form.value.name && form.value.chip && form.value.version && !uploading.value)
 
 onMounted(load)
@@ -36,7 +37,7 @@ async function load() {
 function onFile(e) {
     const file = e.target.files[0]
     selectedFile.value = file && file.name.endsWith('.bin') ? file : null
-    if (file && !selectedFile.value) toast('Tiene que ser un archivo .bin', 'warning')
+    if (file && !selectedFile.value) toast(tr('It has to be a .bin file', 'Tiene que ser un archivo .bin'), 'warning')
     e.target.value = ''
 }
 
@@ -47,43 +48,43 @@ async function upload() {
         await api.uploadFirmware(selectedFile.value, { ...form.value })
         form.value = { name: '', chip: '', target: 'blinds', version: '', notes: '' }
         selectedFile.value = null
-        toast('Firmware subido')
+        toast(tr('Firmware uploaded', 'Firmware subido'))
         await load()
     } catch (e) {
         console.error('TPHome - Upload error:', e)
-        toast('No se pudo subir', 'warning')
+        toast(tr('Couldn’t upload', 'No se pudo subir'), 'warning')
     } finally {
         uploading.value = false
     }
 }
 
 async function activate(fw) {
-    try { await api.activateFirmware(fw.id); toast(`v${fw.version} es ahora la activa`); await load() }
-    catch (e) { console.error('TPHome - Activate error:', e); toast('No se pudo activar', 'warning') }
+    try { await api.activateFirmware(fw.id); toast(tr(`v${fw.version} is now the active one`, `v${fw.version} es ahora la activa`)); await load() }
+    catch (e) { console.error('TPHome - Activate error:', e); toast(tr('Couldn’t activate', 'No se pudo activar'), 'warning') }
 }
 
 async function remove(fw) {
     const ok = await ask({
-        title: `¿Eliminar ${fw.name} v${fw.version}?`,
-        message: 'Los interruptores ya no podrán instalar esta versión.',
+        title: tr(`Delete ${fw.name} v${fw.version}?`, `¿Eliminar ${fw.name} v${fw.version}?`),
+        message: tr('The switches won’t be able to install this version any more.', 'Los interruptores ya no podrán instalar esta versión.'),
         actions: [
-            { label: 'Cancelar', role: 'cancel', value: false },
-            { label: 'Eliminar', role: 'destructive', value: true },
+            { label: tr('Cancel', 'Cancelar'), role: 'cancel', value: false },
+            { label: tr('Delete', 'Eliminar'), role: 'destructive', value: true },
         ],
     })
     if (!ok) return
     try { await api.deleteFirmware(fw.id); await load() }
-    catch (e) { console.error('TPHome - Delete error:', e); toast('No se pudo eliminar', 'warning') }
+    catch (e) { console.error('TPHome - Delete error:', e); toast(tr('Couldn’t delete', 'No se pudo eliminar'), 'warning') }
 }
 
 function menu(e, fw) {
     openMenu(e.currentTarget, [
-        !fw.active && { label: 'Marcar como activa', icon: Check, action: () => activate(fw) },
-        { label: 'Eliminar', icon: Trash2, danger: true, action: () => remove(fw) },
+        !fw.active && { label: tr('Mark as active', 'Marcar como activa'), icon: Check, action: () => activate(fw) },
+        { label: tr('Delete', 'Eliminar'), icon: Trash2, danger: true, action: () => remove(fw) },
     ])
 }
 
-const when = d => new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+const when = d => new Date(d).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' })
 </script>
 
 <template>
@@ -95,16 +96,16 @@ const when = d => new Date(d).toLocaleDateString('es-ES', { day: 'numeric', mont
 
             <div class="columns">
                 <section>
-                    <ListSection header="Subir firmware">
-                        <ListRow title="Archivo" clickable @click="fileInput.click()">
+                    <ListSection :header="tr('Upload firmware', 'Subir firmware')">
+                        <ListRow :title="tr('File', 'Archivo')" clickable @click="fileInput.click()">
                             <template #trailing>
-                                <span class="row-value file">{{ selectedFile ? selectedFile.name : 'Elegir .bin…' }}</span>
+                                <span class="row-value file">{{ selectedFile ? selectedFile.name : tr('Choose .bin…', 'Elegir .bin…') }}</span>
                             </template>
                         </ListRow>
-                        <ListRow title="Nombre">
-                            <template #trailing><input v-model="form.name" class="row-input trailing" placeholder="Persiana" /></template>
+                        <ListRow :title="tr('Name', 'Nombre')">
+                            <template #trailing><input v-model="form.name" class="row-input trailing" :placeholder="tr('Blind', 'Persiana')" /></template>
                         </ListRow>
-                        <ListRow title="Versión">
+                        <ListRow :title="tr('Version', 'Versión')">
                             <template #trailing><input v-model="form.version" class="row-input trailing" placeholder="2.2.0" /></template>
                         </ListRow>
                         <ListRow title="Chip">
@@ -114,18 +115,18 @@ const when = d => new Date(d).toLocaleDateString('es-ES', { day: 'numeric', mont
                             <Segmented v-model="form.target" :options="targets" />
                         </div>
                         <div class="row notes">
-                            <textarea v-model="form.notes" class="row-input" rows="2" placeholder="Notas o cambios" />
+                            <textarea v-model="form.notes" class="row-input" rows="2" :placeholder="tr('Notes or changes', 'Notas o cambios')" />
                         </div>
                     </ListSection>
                     <input ref="fileInput" type="file" accept=".bin" hidden @change="onFile" />
                     <button class="btn btn-prominent block upload" type="button" :disabled="!canUpload" @click="upload">
                         <Spinner v-if="uploading" :size="18" style="color: #fff" />
-                        <span v-else>Subir</span>
+                        <span v-else>{{ tr('Upload', 'Subir') }}</span>
                     </button>
                 </section>
 
                 <section>
-                    <ListSection v-if="firmwares.length" header="Versiones" footer="La activa es la que se ofrece al instalar desde un dispositivo.">
+                    <ListSection v-if="firmwares.length" :header="tr('Versions', 'Versiones')" :footer="tr('The active one is offered when installing from a device.', 'La activa es la que se ofrece al instalar desde un dispositivo.')">
                         <ListRow
                             v-for="fw in firmwares"
                             :key="fw.id"
@@ -137,15 +138,15 @@ const when = d => new Date(d).toLocaleDateString('es-ES', { day: 'numeric', mont
                                 <span class="row-icon" :style="{ background: fw.active ? 'var(--green)' : 'var(--gray)' }"><HardDriveDownload :size="17" :stroke-width="2" /></span>
                             </template>
                             <template #trailing>
-                                <span v-if="fw.active" class="badge green">Activa</span>
-                                <button class="more" type="button" aria-label="Más" @click="menu($event, fw)"><MoreHorizontal :size="18" :stroke-width="2.2" /></button>
+                                <span v-if="fw.active" class="badge green">{{ tr('Active', 'Activa') }}</span>
+                                <button class="more" type="button" :aria-label="tr('More', 'Más')" @click="menu($event, fw)"><MoreHorizontal :size="18" :stroke-width="2.2" /></button>
                             </template>
                         </ListRow>
                     </ListSection>
                     <div v-else class="empty">
                         <HardDriveDownload :size="44" :stroke-width="1.5" class="empty-icon" />
-                        <h3>Sin firmwares</h3>
-                        <p class="subheadline">Sube un .bin para poder actualizar los interruptores.</p>
+                        <h3>{{ tr('No firmware', 'Sin firmwares') }}</h3>
+                        <p class="subheadline">{{ tr('Upload a .bin to be able to update the switches.', 'Sube un .bin para poder actualizar los interruptores.') }}</p>
                     </div>
                 </section>
             </div>

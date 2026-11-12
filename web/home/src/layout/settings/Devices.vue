@@ -14,6 +14,7 @@ import { api } from '@/config/api'
 import { pendingDeviceId } from '@/config/sections'
 import { useDeviceDetail } from '@/config/useDeviceDetail'
 import { session } from '@/config/user'
+import { t } from '@/ui/i18n.js'
 
 // Every switch: the new ones waiting to be placed, the configured ones by kind, and a device's
 // own screen (actions, preferences, where it is on the plan, firmware and its MQTT log).
@@ -34,8 +35,8 @@ function onConfigDone() { selectedPending.value = null; fetchPending(); store.se
 onMounted(fetchPending)
 
 const groups = computed(() => [
-    { label: 'Persianas', icon: Blinds,    devices: Object.entries(store.storage.blinds ?? {}).map(([id, d]) => ({ id, ...d, category: 'blinds' })) },
-    { label: 'Luces',     icon: Lightbulb, devices: Object.entries(store.storage.lights ?? {}).map(([id, d]) => ({ id, ...d, category: 'lights' })) },
+    { label: t('Blinds', 'Persianas'), icon: Blinds,    devices: Object.entries(store.storage.blinds ?? {}).map(([id, d]) => ({ id, ...d, category: 'blinds' })) },
+    { label: t('Lights', 'Luces'), icon: Lightbulb, devices: Object.entries(store.storage.lights ?? {}).map(([id, d]) => ({ id, ...d, category: 'lights' })) },
 ].filter(g => g.devices.length))
 
 // ---- Detail ----
@@ -82,7 +83,7 @@ function setPref(key, raw) {
             <div v-if="selectedDevice" :key="selectedDevice.id" class="page">
                 <div class="bar">
                     <button class="back" type="button" @click="closeDevice">
-                        <ChevronLeft :size="22" :stroke-width="2.4" />Dispositivos
+                        <ChevronLeft :size="22" :stroke-width="2.4" />{{ t('Devices', 'Dispositivos') }}
                     </button>
                 </div>
 
@@ -93,29 +94,29 @@ function setPref(key, raw) {
                     <h1 class="title-1">{{ live.name }}</h1>
                     <div class="badges">
                         <span class="mono secondary">{{ selectedDevice.id }}</span>
-                        <span class="badge" :class="live.connection?.online ? 'green' : 'red'">{{ live.connection?.online ? 'Conectado' : 'Sin conexión' }}</span>
-                        <span v-if="locked" class="badge orange">Bloqueado</span>
+                        <span class="badge" :class="live.connection?.online ? 'green' : 'red'">{{ live.connection?.online ? t('Online', 'Conectado') : t('Offline', 'Sin conexión') }}</span>
+                        <span v-if="locked" class="badge orange">{{ t('Locked', 'Bloqueado') }}</span>
                     </div>
                 </header>
 
                 <div class="columns">
                     <div>
-                        <ListSection header="Acciones">
+                        <ListSection :header="t('Actions', 'Acciones')">
                             <ListRow icon="network" tint="green" title="Ping" clickable @click="ping()" />
-                            <ListRow icon="refresh" tint="blue" title="Actualizar información" clickable @click="getInfo()" />
+                            <ListRow icon="refresh" tint="blue" :title="t('Refresh information', 'Actualizar información')" clickable @click="getInfo()" />
                             <ListRow
                                 v-if="isAdmin && selectedDevice.category === 'blinds'"
                                 icon="lock"
                                 tint="orange"
-                                :title="locked ? 'Desbloquear' : 'Bloquear'"
+                                :title="locked ? t('Unlock', 'Desbloquear') : t('Lock', 'Bloquear')"
                                 clickable
                                 @click="toggleLock()"
                             />
-                            <ListRow v-if="selectedDevice.category === 'blinds'" icon="location" tint="indigo" title="Reiniciar posición" clickable @click="resetPosition()" />
-                            <ListRow v-if="!locked" title="Eliminar dispositivo" clickable destructive @click="deleteDevice()" />
+                            <ListRow v-if="selectedDevice.category === 'blinds'" icon="location" tint="indigo" :title="t('Reset position', 'Reiniciar posición')" clickable @click="resetPosition()" />
+                            <ListRow v-if="!locked" :title="t('Delete device', 'Eliminar dispositivo')" clickable destructive @click="deleteDevice()" />
                         </ListSection>
 
-                        <ListSection v-if="Object.keys(devicePrefs).length" header="Preferencias">
+                        <ListSection v-if="Object.keys(devicePrefs).length" :header="t('Preferences', 'Preferencias')">
                             <ListRow v-for="(value, key) in devicePrefs" :key="key" :title="prefLabels[key] ?? key">
                                 <template #trailing>
                                     <Toggle v-if="typeof value === 'boolean'" v-model="devicePrefs[key]" :label="prefLabels[key] ?? key" />
@@ -134,12 +135,12 @@ function setPref(key, raw) {
                         </ListSection>
                         <button v-if="prefsChanged || savingPrefs" class="btn btn-prominent block save" type="button" :disabled="savingPrefs" @click="savePrefs()">
                             <Spinner v-if="savingPrefs" :size="18" style="color: #fff" />
-                            <span v-else>Guardar y enviar</span>
+                            <span v-else>{{ t('Save and send', 'Guardar y enviar') }}</span>
                         </button>
                     </div>
 
                     <div>
-                        <ListSection v-if="Object.keys(deviceMap).length" header="Posición en el plano">
+                        <ListSection v-if="Object.keys(deviceMap).length" :header="t('Position on the map', 'Posición en el plano')">
                             <ListRow v-for="(value, key) in deviceMap" :key="key" :title="mapLabels[key] ?? key">
                                 <template #trailing>
                                     <input v-model="deviceMap[key]" class="row-input trailing" inputmode="numeric" />
@@ -148,10 +149,10 @@ function setPref(key, raw) {
                         </ListSection>
                         <button v-if="mapChanged || savingMap" class="btn btn-prominent block save" type="button" :disabled="savingMap" @click="saveMap()">
                             <Spinner v-if="savingMap" :size="18" style="color: #fff" />
-                            <span v-else>Guardar posición</span>
+                            <span v-else>{{ t('Save position', 'Guardar posición') }}</span>
                         </button>
 
-                        <ListSection header="Firmware" :footer="firmwareList.length ? 'Elige una versión e instálala por OTA.' : 'No hay firmwares subidos.'">
+                        <ListSection header="Firmware" :footer="firmwareList.length ? t('Pick a version and install it over the air.', 'Elige una versión e instálala por OTA.') : t('No firmware uploaded.', 'No hay firmwares subidos.')">
                             <ListRow
                                 v-for="fw in firmwareList"
                                 :key="fw.version"
@@ -162,20 +163,20 @@ function setPref(key, raw) {
                                 @click="selectedFirmware = selectedFirmware === fw.version ? null : fw.version"
                             >
                                 <template #trailing>
-                                    <span v-if="fw.active" class="badge green">Activo</span>
+                                    <span v-if="fw.active" class="badge green">{{ t('Active', 'Activo') }}</span>
                                     <span class="check" :class="{ on: selectedFirmware === fw.version }" />
                                 </template>
                             </ListRow>
                         </ListSection>
                         <button v-if="selectedFirmware || flashingFirmware" class="btn btn-prominent block save" type="button" :disabled="flashingFirmware" @click="flashFirmware()">
                             <Spinner v-if="flashingFirmware" :size="18" style="color: #fff" />
-                            <span v-else>Instalar v{{ selectedFirmware }}</span>
+                            <span v-else>{{ t('Install', 'Instalar') }} v{{ selectedFirmware }}</span>
                         </button>
                     </div>
                 </div>
 
                 <section class="section">
-                    <div class="section-header"><span>Actividad MQTT</span></div>
+                    <div class="section-header"><span>{{ t('MQTT activity', 'Actividad MQTT') }}</span></div>
                     <DeviceLogs :device-id="selectedDevice.id" />
                 </section>
             </div>
@@ -183,15 +184,15 @@ function setPref(key, raw) {
             <!-- The list -->
             <div v-else key="list" class="page">
                 <header class="page-header">
-                    <h1 class="large-title">Dispositivos</h1>
+                    <h1 class="large-title">{{ t('Devices', 'Dispositivos') }}</h1>
                 </header>
 
-                <ListSection v-if="pendingDevices.length" header="Sin configurar" footer="Interruptores nuevos que ya se han conectado. Elige cuál es en el plano.">
+                <ListSection v-if="pendingDevices.length" :header="t('Not set up', 'Sin configurar')" :footer="t('New switches that have already connected. Pick which one it is on the map.', 'Interruptores nuevos que ya se han conectado. Elige cuál es en el plano.')">
                     <ListRow
                         v-for="d in pendingDevices"
                         :key="d.mac"
                         :title="d.mac"
-                        subtitle="Toca para colocarlo"
+                        :subtitle="t('Tap to place it', 'Toca para colocarlo')"
                         small-subtitle
                         clickable
                         chevron
@@ -203,8 +204,8 @@ function setPref(key, raw) {
 
                 <div v-if="!groups.length && !pendingDevices.length" class="empty">
                     <Cpu :size="44" :stroke-width="1.5" class="empty-icon" />
-                    <h3>Sin dispositivos</h3>
-                    <p class="subheadline">Enciende un interruptor nuevo y aparecerá aquí para configurarlo.</p>
+                    <h3>{{ t('No devices', 'Sin dispositivos') }}</h3>
+                    <p class="subheadline">{{ t('Power on a new switch and it will show up here to set it up.', 'Enciende un interruptor nuevo y aparecerá aquí para configurarlo.') }}</p>
                 </div>
 
                 <ListSection v-for="g in groups" :key="g.label" :header="g.label">
@@ -212,9 +213,9 @@ function setPref(key, raw) {
                         v-for="d in g.devices"
                         :key="d.id"
                         :title="d.name"
-                        :subtitle="d.locked ? `${d.id} · Bloqueado` : d.id"
+                        :subtitle="d.locked ? t(`${d.id} · Locked`, `${d.id} · Bloqueado`) : d.id"
                         small-subtitle
-                        :value="d.connection?.online ? '' : 'Sin conexión'"
+                        :value="d.connection?.online ? '' : t('Offline', 'Sin conexión')"
                         clickable
                         chevron
                         @click="openDevice(d)"

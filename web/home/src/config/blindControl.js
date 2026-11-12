@@ -3,6 +3,7 @@ import { watch } from 'vue'
 import { api } from './api'
 import { useDevices } from './devices'
 import { positions, handlePositions, getAnim, setPending, isPending } from './useBlindAnimations'
+import { t } from '@/ui/i18n.js'
 
 // Moving a blind from any screen (its tile, its sheet): starts the predicted animation right
 // away and sends the command; the WebSocket's state updates then correct it.
@@ -101,10 +102,10 @@ export function setBlind(id, pos) {
 
 // "Abierta 60 %", "Cerrada", "Sin conexión"…: what a tile or the sheet says under the name.
 export function blindStatus(device, pos) {
-    if (!device.connection?.online) return 'Sin conexión'
-    if (device.state?.motor_state) return 'Moviéndose…'
+    if (!device.connection?.online) return t('Offline', 'Sin conexión')
+    if (device.state?.motor_state) return t('Moving…', 'Moviéndose…')
     const p = Math.round(pos ?? device.state?.position ?? 0)
-    if (p <= 0) return 'Cerrada'
-    if (p >= 100) return 'Abierta'
-    return `Abierta ${p} %`
+    if (p <= 0) return t('Closed', 'Cerrada')
+    if (p >= 100) return t('Open', 'Abierta')
+    return t(`${p}% open`, `Abierta ${p} %`)
 }

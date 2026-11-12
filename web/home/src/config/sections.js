@@ -5,16 +5,17 @@ import Blueprint       from '@/layout/dashboard/Blueprint.vue'
 import BlindsSection   from '@/layout/dashboard/BlindsSection.vue'
 import Devices         from '@/layout/settings/Devices.vue'
 import FirmwareManager from '@/layout/settings/FirmwareManager.vue'
+import { t } from '@/ui/i18n.js'
 
 // What the sidebar (and the phone's tab bar) can open. Lights and scenes come back once their
 // firmware works; until then they'd only be empty screens.
 export const homeSections = [
-    { id: 'blueprint', name: 'Plano',     icon: markRaw(Map),    component: markRaw(Blueprint) },
-    { id: 'blinds',    name: 'Persianas', icon: markRaw(Blinds), component: markRaw(BlindsSection) },
+    { id: 'blueprint', get name() { return t('Map', 'Plano') }, icon: markRaw(Map),    component: markRaw(Blueprint) },
+    { id: 'blinds', get name() { return t('Blinds', 'Persianas') }, icon: markRaw(Blinds), component: markRaw(BlindsSection) },
 ]
 
 export const settingsSections = [
-    { id: 'devices',  name: 'Dispositivos', icon: markRaw(Cpu),               component: markRaw(Devices) },
+    { id: 'devices', get name() { return t('Devices', 'Dispositivos') }, icon: markRaw(Cpu),               component: markRaw(Devices) },
     { id: 'firmware', name: 'Firmware',     icon: markRaw(HardDriveDownload), component: markRaw(FirmwareManager) },
 ]
 

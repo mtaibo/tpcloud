@@ -7,6 +7,7 @@ import BlindSlider from '@/components/BlindSlider.vue'
 import { useDevices } from '@/config/devices'
 import { positions, handlePositions } from '@/config/useBlindAnimations'
 import { dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
+import { t } from '@/ui/i18n.js'
 
 // Every blind as a tile, like Home's accessories: its bar and up / stop / down right there.
 // The tile itself does nothing when tapped; only its controls do.
@@ -20,13 +21,13 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
     <div class="view">
         <div class="page blinds-page">
             <header class="page-header">
-                <h1 class="large-title">Persianas</h1>
+                <h1 class="large-title">{{ t('Blinds', 'Persianas') }}</h1>
             </header>
 
             <div v-if="!blinds.length" class="empty">
                 <Blinds :size="44" :stroke-width="1.5" class="empty-icon" />
-                <h3>No hay persianas</h3>
-                <p class="subheadline">Cuando configures una en Dispositivos aparecerá aquí.</p>
+                <h3>{{ t('No blinds', 'No hay persianas') }}</h3>
+                <p class="subheadline">{{ t('When you set one up in Devices it will show up here.', 'Cuando configures una en Dispositivos aparecerá aquí.') }}</p>
             </div>
 
             <div v-else class="grid">
@@ -57,9 +58,9 @@ const pos = id => Math.round(positions[id] ?? store.blinds[id]?.state?.position 
                             @drag-end="setBlind(b.id, $event)"
                         />
                         <div class="buttons">
-                            <button type="button" aria-label="Subir" :disabled="b.locked" @click="moveBlind(b.id, 'up')"><ChevronUp :size="20" :stroke-width="2.4" /></button>
-                            <button type="button" aria-label="Parar" :disabled="b.locked" @click="stopBlind(b.id)"><Pause :size="15" :stroke-width="2.4" fill="currentColor" /></button>
-                            <button type="button" aria-label="Bajar" :disabled="b.locked" @click="moveBlind(b.id, 'down')"><ChevronDown :size="20" :stroke-width="2.4" /></button>
+                            <button type="button" :aria-label="t('Raise', 'Subir')" :disabled="b.locked" @click="moveBlind(b.id, 'up')"><ChevronUp :size="20" :stroke-width="2.4" /></button>
+                            <button type="button" :aria-label="t('Stop', 'Parar')" :disabled="b.locked" @click="stopBlind(b.id)"><Pause :size="15" :stroke-width="2.4" fill="currentColor" /></button>
+                            <button type="button" :aria-label="t('Lower', 'Bajar')" :disabled="b.locked" @click="moveBlind(b.id, 'down')"><ChevronDown :size="20" :stroke-width="2.4" /></button>
                         </div>
                     </div>
                 </div>

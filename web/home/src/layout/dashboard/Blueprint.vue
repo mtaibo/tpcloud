@@ -9,6 +9,7 @@ import BlindsControl from './BlindsControl.vue'
 import { useDevices } from '@/config/devices'
 import { useBlueprint } from '@/config/blueprint'
 import { navigateToDevice } from '@/config/sections'
+import { t } from '@/ui/i18n.js'
 
 // The house from above: every blind where it really is, drawn as closed as it is. Tap one to move it.
 const store = useDevices()
@@ -31,7 +32,7 @@ const open = computed({
     <div class="view">
         <div class="page plan-page">
             <header class="page-header">
-                <h1 class="large-title">Plano</h1>
+                <h1 class="large-title">{{ t('Map', 'Plano') }}</h1>
             </header>
 
             <div v-if="map.storage.viewBox" class="plan-card">
@@ -39,14 +40,14 @@ const open = computed({
             </div>
             <div v-else class="empty">
                 <Map :size="44" :stroke-width="1.5" class="empty-icon" />
-                <h3>Sin plano</h3>
-                <p class="subheadline">La API todavía no tiene el plano de la casa.</p>
+                <h3>{{ t('No map', 'Sin plano') }}</h3>
+                <p class="subheadline">{{ t('The API doesn’t have the house’s map yet.', 'La API todavía no tiene el plano de la casa.') }}</p>
             </div>
         </div>
 
         <Sheet v-model:open="open" :title="selectedId ? store.blinds[selectedId]?.name : ''">
             <template #trailing>
-                <button class="icon-btn" type="button" aria-label="Ajustes del dispositivo" @click="settings">
+                <button class="icon-btn" type="button" :aria-label="t('Device settings', 'Ajustes del dispositivo')" @click="settings">
                     <Settings :size="20" :stroke-width="2" />
                 </button>
             </template>

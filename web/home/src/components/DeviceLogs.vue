@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import Spinner from '@/ui/Spinner.vue'
 import { api } from '@/config/api'
 import { onEvent } from '@/config/socket'
+import { locale, t } from '@/ui/i18n.js'
 
 // A device's MQTT traffic, newest first, live from the WebSocket.
 const props = defineProps({ deviceId: { type: String, required: true } })
@@ -25,7 +26,7 @@ onMounted(() => {
 onUnmounted(() => unsub?.())
 watch(() => props.deviceId, fetchLogs)
 
-const time = ts => new Date(ts).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+const time = ts => new Date(ts).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
 const colours = {
     green:  ['BOOT', 'MQTT_CONNECTED', 'PING'],
@@ -39,7 +40,7 @@ const colour = label => Object.keys(colours).find(c => colours[c].includes(label
 <template>
     <div class="card logs">
         <div v-if="loading && !logs.length" class="state"><Spinner :size="20" /></div>
-        <p v-else-if="!logs.length" class="state subheadline secondary">Sin actividad registrada.</p>
+        <p v-else-if="!logs.length" class="state subheadline secondary">{{ t('No activity logged.', 'Sin actividad registrada.') }}</p>
         <div v-else class="list">
             <div v-for="log in logs" :key="log.id ?? `${log.timestamp}${log.event_label}`" class="log mono">
                 <span class="time">{{ time(log.timestamp) }}</span>

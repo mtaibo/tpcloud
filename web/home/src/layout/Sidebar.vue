@@ -6,6 +6,7 @@ import { useSections } from '@/config/sections'
 import { apiOnline } from '@/config/socket'
 import { session, signOut } from '@/config/user'
 import { openMenu } from '@/menu.js'
+import { t } from '@/ui/i18n.js'
 
 // The Mac-style sidebar, the same as Archivos': the home's screens, its settings, and who's signed in.
 const { activeSection, homeSections, settingsSections } = useSections()
@@ -14,23 +15,23 @@ const initials = computed(() => (session.user?.display_name || '?').split(/\s+/)
 
 function userMenu(e) {
     openMenu(e.currentTarget, [
-        { label: 'Tu cuenta', icon: User, action: () => { window.location.href = '/accounts' } },
-        { label: 'Volver a TPCloud', icon: Cloud, action: () => { window.location.href = '/' } },
+        { label: t('Your account', 'Tu cuenta'), icon: User, action: () => { window.location.href = '/accounts' } },
+        { label: t('Back to TPCloud', 'Volver a TPCloud'), icon: Cloud, action: () => { window.location.href = '/' } },
         { separator: true },
-        { label: 'Cerrar sesión', icon: LogOut, danger: true, action: signOut },
+        { label: t('Log out', 'Cerrar sesión'), icon: LogOut, danger: true, action: signOut },
     ])
 }
 </script>
 
 <template>
     <aside class="sidebar">
-        <a href="/" class="brand" title="Volver a TPCloud">
+        <a href="/" class="brand" :title="t('Back to TPCloud', 'Volver a TPCloud')">
             <span class="brand-icon"><House :size="15" :stroke-width="2.4" /></span>
-            <span>Casa</span>
+            <span>{{ t('Home', 'Casa') }}</span>
         </a>
 
         <nav class="nav">
-            <div class="group-head"><span>Casa</span></div>
+            <div class="group-head"><span>{{ t('Home', 'Casa') }}</span></div>
             <button
                 v-for="s in homeSections"
                 :key="s.id"
@@ -43,7 +44,7 @@ function userMenu(e) {
                 <span class="item-label">{{ s.name }}</span>
             </button>
 
-            <div class="group-head"><span>Configuración</span></div>
+            <div class="group-head"><span>{{ t('Settings', 'Configuración') }}</span></div>
             <button
                 v-for="s in settingsSections"
                 :key="s.id"
@@ -58,7 +59,7 @@ function userMenu(e) {
         </nav>
 
         <p class="status" :class="{ off: !apiOnline }">
-            <i />{{ apiOnline ? 'Conectado a la casa' : 'Sin conexión con la casa' }}
+            <i />{{ apiOnline ? t('Connected to the house', 'Conectado a la casa') : t('No connection to the house', 'Sin conexión con la casa') }}
         </p>
 
         <button type="button" class="user" @click="userMenu">

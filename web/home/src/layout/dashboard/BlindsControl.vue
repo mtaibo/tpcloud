@@ -7,6 +7,7 @@ import BlindSlider from '@/components/BlindSlider.vue'
 import { useDevices } from '@/config/devices'
 import { positions, handlePositions, getAnim } from '@/config/useBlindAnimations'
 import { dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
+import { t } from '@/ui/i18n.js'
 
 // What's inside a blind's sheet: the blind as a bar as tall as up / stop / down, beside them.
 // Its settings are the gear in the sheet's bar.
@@ -23,7 +24,7 @@ const disabled = computed(() => !!device.value?.locked)
 
 <template>
     <div v-if="device" class="control blind-control">
-        <span v-if="device.locked" class="badge orange"><Lock :size="12" :stroke-width="2.4" />Bloqueada por un administrador</span>
+        <span v-if="device.locked" class="badge orange"><Lock :size="12" :stroke-width="2.4" />{{ t('Locked by an administrator', 'Bloqueada por un administrador') }}</span>
 
         <div class="stage">
             <BlindSlider
@@ -36,13 +37,13 @@ const disabled = computed(() => !!device.value?.locked)
                 @drag-end="setBlind(id, $event)"
             />
             <div class="buttons">
-                <button class="round" type="button" aria-label="Subir" :disabled="disabled" @click="moveBlind(id, 'up')">
+                <button class="round" type="button" :aria-label="t('Raise', 'Subir')" :disabled="disabled" @click="moveBlind(id, 'up')">
                     <ChevronUp :size="24" :stroke-width="2.4" />
                 </button>
-                <button class="round" type="button" aria-label="Parar" :disabled="disabled" @click="stopBlind(id)">
+                <button class="round" type="button" :aria-label="t('Stop', 'Parar')" :disabled="disabled" @click="stopBlind(id)">
                     <Pause :size="20" :stroke-width="2.4" fill="currentColor" />
                 </button>
-                <button class="round" type="button" aria-label="Bajar" :disabled="disabled" @click="moveBlind(id, 'down')">
+                <button class="round" type="button" :aria-label="t('Lower', 'Bajar')" :disabled="disabled" @click="moveBlind(id, 'down')">
                     <ChevronDown :size="24" :stroke-width="2.4" />
                 </button>
             </div>

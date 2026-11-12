@@ -1,4 +1,5 @@
 <script setup>
+import { t } from '@/ui/i18n.js'
 // A blind as a big control, like Home's: the slats come down from the top as far as the blind
 // is closed, and dragging anywhere sets where it should go (the white bar), 100 = open.
 defineProps({
@@ -32,7 +33,7 @@ function onPointerUp(e) {
         class="blind-slider"
         :class="{ disabled }"
         role="slider"
-        aria-label="Posición de la persiana"
+        :aria-label="t('Blind position', 'Posición de la persiana')"
         :aria-valuenow="Math.round(handlePos)"
         aria-valuemin="0"
         aria-valuemax="100"
