@@ -42,9 +42,11 @@ function blindState(b) {
   if (b.locked) return t('Locked', 'Bloqueada')
   if (!b.connection?.online) return t('Offline', 'Sin conexión')
   if (b.state?.motor_state) return t('Moving…', 'Moviéndose…')
-  const pos = Math.round(b.state?.position ?? 0)
-  return pos >= 100 ? t('Open', 'Abierta') : pos <= 0 ? t('Closed', 'Cerrada') : t(`${pos}% open`, `Abierta al ${pos} %`)
+  const pos = openness(b)
+  return pos >= 100 ? t('Open', 'Abierta') : pos <= 0 ? t('Closed', 'Cerrada') : t(`${pos}%`, `${pos} %`)
 }
+// How open it is, 0 (down) to 100 (up), as tphome reports it.
+const openness = b => Math.min(100, Math.max(0, Math.round(b.state?.position ?? 0)))
 
 let followUp = null
 async function command(b, action) {
@@ -106,7 +108,7 @@ onBeforeUnmount(() => {
 <template>
   <section v-if="pinned.length" class="quick-card">
     <a href="/home/" class="quick-head">
-      <span class="quick-icon" style="background: var(--orange)"><Icon name="house" :size="20" :weight="2" /></span>
+      <span class="quick-icon" style="background: var(--green)"><Icon name="blinds" :size="20" :weight="2" /></span>
       <span class="headline">{{ t('Blinds', 'Persianas') }}</span>
       <span class="footnote secondary">{{ t('Open Home', 'Abrir Casa') }}</span>
       <Icon name="chevron-right" :size="17" :weight="2.4" class="row-chevron" />
@@ -118,6 +120,9 @@ onBeforeUnmount(() => {
             <span class="subheadline name">{{ b.name }}</span>
             <span class="footnote secondary">{{ blindState(b) }}</span>
           </span>
+        </span>
+        <span class="meter open" :class="{ off: !usable(b) }" role="meter" :aria-valuenow="openness(b)" aria-valuemin="0" aria-valuemax="100">
+          <i :style="{ width: `${openness(b)}%` }" />
         </span>
         <span class="controls">
           <button class="control" :disabled="!usable(b)" :title="t('Raise', 'Subir')" @click="command(b, 'up')"><Icon name="chevron-up" :size="18" :weight="2.4" /></button>
@@ -200,4 +205,8 @@ onBeforeUnmount(() => {
 .meter { height: 8px; border-radius: 999px; background: var(--fill-3); overflow: hidden; }
 .meter i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
 .meter i.full { background: var(--orange); }
+/* A blind's bar: how far up it is, green while it can be moved. */
+.meter.open { height: 6px; }
+.meter.open i { background: var(--green); transition: width 0.4s var(--ease); }
+.meter.open.off i { background: var(--gray); }
 </style>
