@@ -15,9 +15,11 @@ const bare = computed(() => route.meta.bare)
 const ready = computed(() => store.profile || (bare.value && store.me))
 
 // On a wide screen the menu is always on the left, so the root shows the profile next to it.
-watch([wide, () => route.path], ([isWide, path]) => {
+// Only once the router knows the address: before that every page looks like the root, and a
+// link straight to /accounts/activity would land on the profile.
+router.isReady().then(() => watch([wide, () => route.path], ([isWide, path]) => {
   if (isWide && path === '/') router.replace('/profile')
-}, { immediate: true })
+}, { immediate: true }))
 
 watch([() => route.meta.admin, () => store.me], ([admin, me]) => {
   if (admin && me && !me.is_admin) router.replace('/')
