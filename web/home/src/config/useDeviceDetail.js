@@ -106,12 +106,8 @@ export function useDeviceDetail() {
     }
 
     async function toggleLock() {
-        const { id, name, category } = selectedDevice.value
+        const { id, category } = selectedDevice.value
         const locked = !store.storage[category]?.[id]?.locked
-        const ok = locked
-            ? await confirmAction(t(`Lock ${name}?`, `¿Bloquear ${name}?`), t('Its lights will go off and it won’t move, from its buttons or from here, until an administrator unlocks it.', 'Se apagarán sus luces y no se podrá mover ni con los botones ni desde aquí hasta que un administrador la desbloquee.'), t('Lock', 'Bloquear'), true)
-            : await confirmAction(t(`Unlock ${name}?`, `¿Desbloquear ${name}?`), t('It can be moved again with its buttons and from here.', 'Se podrá volver a mover con sus botones y desde aquí.'), t('Unlock', 'Desbloquear'))
-        if (!ok) return
         try {
             await api.setLocked(id, locked)
             store.storage[category][id].locked = locked

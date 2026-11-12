@@ -8,7 +8,7 @@ import { useDevices } from '@/config/devices'
 import { positions, handlePositions, getAnim } from '@/config/useBlindAnimations'
 import { dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
 import { t } from '@/ui/i18n.js'
-import { ask, toast } from '@/ui/dialog.js'
+import { toast } from '@/ui/dialog.js'
 import { api } from '@/config/api'
 import { session } from '@/config/user'
 
@@ -24,26 +24,12 @@ const fill = computed(() => positions[props.id] ?? 0)
 const target = computed(() => handlePositions[props.id] ?? 0)
 const disabled = computed(() => !!device.value?.locked)
 
-// Admins can lock a blind from here too (the API checks it again): a locked switch turns its
-// lights off and ignores its buttons and every command until it's unlocked.
+// Admins can lock a blind from here too, straight away (the API checks it again): a locked switch
+// turns its lights off and ignores its buttons and every command until it's unlocked.
 const isAdmin = computed(() => session.user?.is_admin === true)
 const locking = ref(false)
 async function toggleLock() {
     const lock = !device.value.locked
-    if (lock) {
-        const ok = await ask({
-            title: t(`Lock ${device.value.name}?`, `¿Bloquear ${device.value.name}?`),
-            message: t(
-                'Its lights will go off and it won’t move, from its buttons or from here, until an administrator unlocks it.',
-                'Se apagarán sus luces y no se podrá mover ni con los botones ni desde aquí hasta que un administrador la desbloquee.',
-            ),
-            actions: [
-                { label: t('Cancel', 'Cancelar'), role: 'cancel', value: false },
-                { label: t('Lock', 'Bloquear'), role: 'destructive', value: true },
-            ],
-        })
-        if (!ok) return
-    }
     locking.value = true
     try {
         await api.setLocked(props.id, lock)
