@@ -167,7 +167,9 @@
 </template>
 
 <style scoped>
-.floor { fill: var(--fill-3); }
+/* The same tone as the sidebar, so the plan and the sidebar read as one app. */
+.floor { fill: color-mix(in srgb, var(--cell) 70%, transparent); }
+@media (prefers-color-scheme: dark) { .floor { fill: rgba(44, 44, 46, 0.55); } }
 .wall { stroke: var(--label-3); stroke-width: 1.25; }
 .outline { stroke: var(--label-2); stroke-width: 1.5; }
 </style>
