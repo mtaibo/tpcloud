@@ -334,6 +334,10 @@ async def keep_photo_thumbnails(interval: float = 600) -> None:
             await _make_missing_photo_thumbnails()
         except Exception:
             log.exception("Couldn't prepare the gallery's thumbnails")
+        try:
+            await _make_missing_photo_previews()
+        except Exception:
+            log.exception("Couldn't prepare the gallery's previews")
         await asyncio.sleep(interval)
 
 
@@ -404,6 +408,52 @@ async def _make_missing_photo_thumbnails() -> None:
                     await _ensure_thumbnail(source, _thumb_cache_path(source, size), size)
             except Exception:
                 log.warning("Couldn't make a thumbnail of %s", file_path)
+
+    await asyncio.gather(*(worker() for _ in range(BACKFILL_WORKERS)))
+
+
+def _missing_photo_previews() -> list[Path]:
+    from sqlmodel import Session, select
+    from app.database import engine
+    from app.models import Photo
+    from app.utils import get_base, resolve_path
+
+    with Session(engine) as db:
+        paths = db.exec(select(Photo.path).order_by(Photo.taken_at.desc(), Photo.id.desc())).all()
+    base = get_base("external")
+    missing = []
+    for rel in paths:
+        try:
+            file_path = resolve_path(base, rel)
+            if is_image(file_path) and not _cache_path(file_path, f"preview{PREVIEW_IMAGE_SIZE}", "jpg").exists():
+                missing.append(file_path)
+        except (OSError, HTTPException):
+            continue
+    return missing
+
+
+async def _make_missing_photo_previews() -> None:
+    """After the thumbnails: the 2048 px preview of every photo, newest first, so opening one in
+    the app or the web gallery is a cached file instead of a 0.5-1.5 s build from the original
+    (HEIC slowest). ~550 KB each. Same manners as the thumbnails: stands aside while anyone
+    is browsing."""
+    missing = await run_in_threadpool(_missing_photo_previews)
+    if not missing:
+        return
+    log.warning("Preparing %d gallery previews", len(missing))
+    queue = list(reversed(missing))
+
+    async def worker():
+        while queue:
+            await _wait_for_quiet()
+            if not queue:
+                break
+            file_path = queue.pop()
+            target = _cache_path(file_path, f"preview{PREVIEW_IMAGE_SIZE}", "jpg")
+            try:
+                await _once(target, lambda: run_in_threadpool(_build_image_preview, file_path, target))
+            except Exception:
+                log.warning("Couldn't make a preview of %s", file_path)
 
     await asyncio.gather(*(worker() for _ in range(BACKFILL_WORKERS)))
 

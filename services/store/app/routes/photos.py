@@ -234,6 +234,49 @@ async def metadata_by_asset(
     return {"items": items}
 
 
+class ThumbnailsRequest(BaseModel):
+    ids: List[int]
+
+
+# Thumbnails per bulk request, and the size handed out: the same 320 px tiles the web gallery uses,
+# which `media.keep_photo_thumbnails` keeps ready for every photo.
+THUMBNAILS_PER_REQUEST = 300
+BULK_THUMB_SIZE = 320
+
+
+@router.post("/thumbnails")
+async def bulk_thumbnails(body: ThumbnailsRequest, request: Request, db: Session = Depends(get_session)):
+    """Many photos' thumbnails in one response, for the iPhone app to keep every thumbnail on the
+    phone like Photos does. One request per tile meant ~12,000 round trips through the tunnel for
+    a library; this is a few dozen. Body: for each id asked for, in order, a 4-byte id and a
+    4-byte length (big-endian), then that many bytes of JPEG (length 0 if there's none)."""
+    from fastapi import Response
+    from app.routes.files import _THUMB_DIR, _ensure_thumbnail, _thumb_cache_path
+
+    user = await get_current_user(request)
+    ids = list(dict.fromkeys(body.ids))[:THUMBNAILS_PER_REQUEST]
+    rows = db.exec(select(Photo).where(Photo.id.in_(ids), Photo.owner_email == user["email"])).all()
+    by_id = {p.id: p for p in rows}
+    base = get_base("external")
+    _THUMB_DIR.mkdir(parents=True, exist_ok=True)
+
+    async def thumbnail(photo: Photo) -> bytes:
+        try:
+            file_path = resolve_path(base, photo.path)
+            source = await media.ensure_video_poster(file_path) if media.is_video(file_path) else file_path
+            cache_path = _thumb_cache_path(source, BULK_THUMB_SIZE)
+            await _ensure_thumbnail(source, cache_path, BULK_THUMB_SIZE)
+            return await run_in_threadpool(cache_path.read_bytes)
+        except Exception:
+            return b""
+
+    datas = await asyncio.gather(*(thumbnail(by_id[i]) if i in by_id else asyncio.sleep(0, b"") for i in ids))
+    out = bytearray()
+    for photo_id, data in zip(ids, datas):
+        out += photo_id.to_bytes(4, "big") + len(data).to_bytes(4, "big") + data
+    return Response(content=bytes(out), media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+
+
 @router.get("")
 async def list_photos(
     request: Request,
