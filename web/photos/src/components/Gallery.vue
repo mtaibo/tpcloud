@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ChevronLeft, Download, Images, Trash2 } from 'lucide-vue-next'
+import { ChevronLeft, Download, Heart, HeartOff, Images, Trash2 } from 'lucide-vue-next'
 import Spinner from '../ui/Spinner.vue'
 import Segmented from '../ui/Segmented.vue'
 import { openMenu } from '../menu.js'
@@ -15,14 +15,25 @@ import QuickLook from './QuickLook.vue'
 // same light thumbnails and previews as a share page so they come up at once.
 const PAGE = 200
 
-// Which photos: picked in the sidebar on a computer, with the segmented control on a phone.
-const filter = defineModel('filter', { type: String, default: 'all' })
-const filters = [
+// Which photos: "all", "camera", "screenshots" or "album:<id>", picked in the sidebar on a
+// computer and with the segmented control on a phone.
+const section = defineModel('section', { type: String, default: 'all' })
+const props = defineProps({ albums: { type: Array, default: () => [] } })
+const emit = defineEmits(['albums-changed'])
+
+const titles = { all: 'Galería', camera: 'Cámara', screenshots: 'Capturas' }
+const albumId = computed(() => (section.value.startsWith('album:') ? Number(section.value.slice(6)) : null))
+const album = computed(() => props.albums.find(a => a.id === albumId.value) || null)
+const favoritesId = ref(null)
+const inFavorites = computed(() => albumId.value !== null && albumId.value === favoritesId.value)
+const title = computed(() => album.value?.name || titles[section.value] || 'Galería')
+
+const filters = computed(() => [
   { value: 'all', label: 'Todas' },
   { value: 'camera', label: 'Cámara' },
   { value: 'screenshots', label: 'Capturas' },
-]
-const titles = { all: 'Galería', camera: 'Cámara', screenshots: 'Capturas' }
+  ...(favoritesId.value ? [{ value: `album:${favoritesId.value}`, label: 'Favoritos' }] : []),
+])
 
 const photos = ref([])
 const cursor = ref(null)
@@ -66,12 +77,15 @@ async function loadMore() {
   error.value = ''
   const mine = generation
   try {
-    const params = new URLSearchParams({ filter: filter.value, limit: String(PAGE) })
+    const params = new URLSearchParams({ limit: String(PAGE) })
+    if (albumId.value !== null) params.set('album', String(albumId.value))
+    else params.set('filter', section.value)
     if (cursor.value) params.set('cursor', cursor.value)
     const res = await fetch(`/store/api/photos?${params}`)
     if (mine !== generation) return
     if (!res.ok) { error.value = 'No se han podido cargar las fotos.'; return }
     const data = await res.json()
+    favoritesId.value = data.favorites_album ?? favoritesId.value
     photos.value = photos.value.concat(data.items.map(toItem))
     cursor.value = data.next_cursor
     done.value = !data.next_cursor
@@ -101,7 +115,7 @@ function reset() {
   scroller.value?.scrollTo({ top: 0 })
   loadMore()
 }
-watch(filter, reset)
+watch(section, reset)
 
 function isVideo(p) {
   return (p.mime_type || '').startsWith('video/') || kindOf(p) === 'video'
@@ -122,14 +136,38 @@ async function remove(p) {
   if (!ok) return
   const res = await fetch(`/store/api/photos/${p.id}`, { method: 'DELETE' })
   if (!res.ok) { toast('No se ha podido eliminar', 'x-circle'); return }
+  dropFromList(p)
+  toast('Foto eliminada')
+  if (p.favorite) emit('albums-changed')
+}
+
+function dropFromList(p) {
   const i = photos.value.indexOf(p)
   if (look.value === p) look.value = photos.value[i + 1] || photos.value[i - 1] || null
   photos.value = photos.value.filter(x => x !== p)
-  toast('Foto eliminada')
+}
+
+// The heart, as in Photos: adds it to Favoritos or takes it out (and out of view, when looking
+// at Favoritos). The tile changes straight away and goes back if the server says no.
+async function toggleFavorite(p) {
+  if (!favoritesId.value) return
+  const on = !p.favorite
+  p.favorite = on
+  const res = await fetch(`/store/api/albums/${favoritesId.value}/photos/${p.id}`, { method: on ? 'PUT' : 'DELETE' }).catch(() => null)
+  if (!res?.ok) {
+    p.favorite = !on
+    toast('No se ha podido cambiar', 'x-circle')
+    return
+  }
+  if (!on && inFavorites.value) dropFromList(p)
+  emit('albums-changed')
 }
 
 function menu(p, at) {
   openMenu(at, [
+    favoritesId.value && (p.favorite
+      ? { label: 'Quitar de Favoritos', icon: HeartOff, action: () => toggleFavorite(p) }
+      : { label: 'Añadir a Favoritos', icon: Heart, action: () => toggleFavorite(p) }),
     { label: 'Descargar el original', icon: Download, action: () => download(p) },
     { separator: true },
     { label: 'Eliminar', icon: Trash2, danger: true, action: () => remove(p) },
@@ -152,14 +190,14 @@ onUnmounted(() => observer?.disconnect())
 <template>
   <section class="gallery">
     <header class="bar">
-      <h1 class="bar-title">{{ titles[filter] }}</h1>
+      <h1 class="bar-title">{{ title }}</h1>
     </header>
 
     <div ref="scroller" class="content">
       <div class="page-head">
         <a href="/" class="back"><ChevronLeft :size="20" :stroke-width="2.4" /> TPCloud</a>
         <h1 class="large-title">Galería</h1>
-        <Segmented v-model="filter" :options="filters" class="filters" />
+        <Segmented v-model="section" :options="filters" class="filters" />
       </div>
 
       <div v-if="!photos.length && loading" class="state"><Spinner :size="26" /></div>
@@ -168,9 +206,16 @@ onUnmounted(() => observer?.disconnect())
         <button type="button" class="btn btn-bordered small" @click="loadMore">Reintentar</button>
       </div>
       <div v-else-if="!photos.length && done" class="state">
-        <span class="empty-icon"><Images :size="34" /></span>
-        <p class="headline">{{ filter === 'all' ? 'Aún no hay fotos' : 'No hay fotos aquí' }}</p>
-        <p v-if="filter === 'all'" class="subheadline secondary">Activa la copia de seguridad en la app del iPhone y aparecerán aquí.</p>
+        <template v-if="inFavorites">
+          <span class="empty-icon favorites"><Heart :size="34" fill="currentColor" /></span>
+          <p class="headline">Aún no hay favoritos</p>
+          <p class="subheadline secondary">Toca el corazón en una foto para tenerla aquí.</p>
+        </template>
+        <template v-else>
+          <span class="empty-icon"><Images :size="34" /></span>
+          <p class="headline">{{ section === 'all' ? 'Aún no hay fotos' : 'No hay fotos aquí' }}</p>
+          <p v-if="section === 'all'" class="subheadline secondary">Activa la copia de seguridad en la app del iPhone y aparecerán aquí.</p>
+        </template>
       </div>
 
       <section v-for="m in months" :key="m.label" class="month">
@@ -187,6 +232,7 @@ onUnmounted(() => observer?.disconnect())
             @contextmenu="onContext(p, $event)"
           >
             <GalleryThumb :src="photoMediaUrls.thumbnail(p)" :alt="p.name" :type="isVideo(p) ? 'video' : 'image'" />
+            <Heart v-if="p.favorite" class="fav-badge" :size="15" fill="currentColor" :stroke-width="0" />
           </button>
         </div>
       </section>
@@ -204,6 +250,8 @@ onUnmounted(() => observer?.disconnect())
       :urls="photoMediaUrls"
       :subtitle="subtitle"
       deletable
+      :favorite="favoritesId ? (p => p.favorite) : null"
+      @favorite="toggleFavorite"
       @delete="remove"
       @change="p => { look = p; if (photos.indexOf(p) > photos.length - 10) loadMore() }"
       @download="download"
@@ -236,9 +284,11 @@ onUnmounted(() => observer?.disconnect())
   -webkit-backdrop-filter: blur(16px);
 }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 3px; }
-.photo { aspect-ratio: 1; border-radius: 6px; background: var(--fill-3); overflow: hidden; transition: opacity 0.15s, transform 0.25s; -webkit-touch-callout: none; }
+.photo { position: relative; aspect-ratio: 1; border-radius: 6px; background: var(--fill-3); overflow: hidden; transition: opacity 0.15s, transform 0.25s; -webkit-touch-callout: none; }
 .photo:hover { opacity: 0.88; }
 .photo.long-pressing { transform: scale(0.95); }
+.fav-badge { position: absolute; left: 6px; bottom: 6px; color: #fff; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)); pointer-events: none; }
+.empty-icon.favorites { background: linear-gradient(180deg, #ff5f8f, #ff2d55); }
 .sentinel { min-height: 60px; display: grid; place-items: center; }
 
 @media (max-width: 767px) {

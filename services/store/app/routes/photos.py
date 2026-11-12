@@ -17,7 +17,7 @@ from sqlmodel import Session, select
 from app import media
 from app.auth import get_current_user
 from app.database import engine, get_session
-from app.models import Photo
+from app.models import AlbumPhoto, Photo
 from app.utils import get_base, resolve_path, guess_media_type
 
 router = APIRouter(prefix="/api/photos", tags=["photos"])
@@ -242,12 +242,18 @@ async def list_photos(
     to_date: Optional[str] = Query(default=None),
     cursor: Optional[str] = Query(default=None),
     limit: int = Query(default=100),
+    album: Optional[int] = Query(default=None),
     db: Session = Depends(get_session),
 ):
+    from app.routes.albums import favorites_album, own_album
+
     user = await get_current_user(request)
     limit = max(1, min(limit, 200))
 
     stmt = select(Photo).where(Photo.owner_email == user["email"])
+    if album is not None:
+        own_album(db, album, user["email"])
+        stmt = stmt.where(Photo.id.in_(select(AlbumPhoto.photo_id).where(AlbumPhoto.album_id == album)))
 
     if filter == "screenshots":
         stmt = stmt.where(Photo.is_screenshot == True)  # noqa: E712
@@ -319,7 +325,17 @@ async def list_photos(
     # opened (with its neighbours), not all at once ahead of time.
     media.warm_up(files, STORE_THUMB_SIZES, key=("photos", user["email"], cursor or ""), previews=False)
 
-    return {"items": [_serialize(p) for p in rows], "next_cursor": next_cursor}
+    # Which of them are favourites, so the gallery can show the heart without asking per photo.
+    favorites = favorites_album(db, user["email"])
+    favorite_ids = set(db.exec(
+        select(AlbumPhoto.photo_id).where(AlbumPhoto.album_id == favorites.id, AlbumPhoto.photo_id.in_([p.id for p in rows]))
+    ).all()) if rows else set()
+
+    return {
+        "items": [{**_serialize(p), "favorite": p.id in favorite_ids} for p in rows],
+        "next_cursor": next_cursor,
+        "favorites_album": favorites.id,
+    }
 
 
 @router.get("/{photo_id}")
@@ -446,6 +462,8 @@ def _run_sanitize(base: Path, dry_run: bool, db: Session) -> dict:
             # backup/check from ever re-uploading it.
             if not src.exists():
                 if not dry_run:
+                    for link in db.exec(select(AlbumPhoto).where(AlbumPhoto.photo_id == photo.id)).all():
+                        db.delete(link)
                     db.delete(photo)
                     known_checksums.discard(key)
                 report["removed_missing"] += 1
@@ -631,6 +649,8 @@ async def delete_photo(
     if file_path.exists():
         await run_in_threadpool(file_path.unlink)
 
+    for link in db.exec(select(AlbumPhoto).where(AlbumPhoto.photo_id == photo_id)).all():
+        db.delete(link)
     db.delete(photo)
     db.commit()
     return {"deleted": photo_id}

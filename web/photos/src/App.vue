@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { Camera, Cloud, Folder, Images, Smartphone } from 'lucide-vue-next'
+import { BookImage, Camera, Cloud, Folder, Heart, Images, Smartphone } from 'lucide-vue-next'
 import AlertHost from './ui/AlertHost.vue'
 import Spinner from './ui/Spinner.vue'
 import ContextMenu from './components/ContextMenu.vue'
@@ -9,7 +9,8 @@ import Gallery from './components/Gallery.vue'
 // The gallery as a section of its own, next to the store it keeps its photos in (and that
 // serves its API): the photos backed up from the iPhone, and in time albums too.
 const user = ref(null)
-const filter = ref('all')
+const section = ref('all') // all | camera | screenshots | album:<id>
+const albums = ref([])
 
 const sections = [
   { value: 'all', label: 'Biblioteca', icon: Images },
@@ -24,8 +25,18 @@ onMounted(async () => {
     user.value = await res.json()
   } catch {
     window.location.href = `/auth/signin?next=${encodeURIComponent(window.location.pathname)}`
+    return
   }
+  loadAlbums()
 })
+
+// Favoritos and, later, albums of your own, each with how many photos it holds.
+async function loadAlbums() {
+  try {
+    const res = await fetch('/store/api/albums')
+    if (res.ok) albums.value = await res.json()
+  } catch { /* the section just stays empty */ }
+}
 </script>
 
 <template>
@@ -42,19 +53,35 @@ onMounted(async () => {
           :key="s.value"
           type="button"
           class="item"
-          :class="{ active: filter === s.value }"
-          @click="filter = s.value"
+          :class="{ active: section === s.value }"
+          @click="section = s.value"
         >
           <component :is="s.icon" :size="18" :stroke-width="1.9" class="item-icon" />
           <span class="item-label">{{ s.label }}</span>
         </button>
+
+        <template v-if="albums.length">
+          <div class="group-head"><span>Álbumes</span></div>
+          <button
+            v-for="a in albums"
+            :key="a.id"
+            type="button"
+            class="item"
+            :class="{ active: section === `album:${a.id}` }"
+            @click="section = `album:${a.id}`"
+          >
+            <component :is="a.kind === 'favorites' ? Heart : BookImage" :size="18" :stroke-width="1.9" class="item-icon" />
+            <span class="item-label">{{ a.name }}</span>
+            <span class="item-count">{{ a.count }}</span>
+          </button>
+        </template>
       </nav>
       <div class="foot">
         <a href="/store/" class="item"><Folder :size="18" :stroke-width="1.9" class="item-icon" /><span class="item-label">Archivos</span></a>
         <a href="/" class="item"><Cloud :size="18" :stroke-width="1.9" class="item-icon" /><span class="item-label">TPCloud</span></a>
       </div>
     </aside>
-    <main class="main"><Gallery v-model:filter="filter" /></main>
+    <main class="main"><Gallery v-model:section="section" :albums="albums" @albums-changed="loadAlbums" /></main>
   </div>
   <div v-else class="splash"><Spinner :size="26" /></div>
 
@@ -112,6 +139,7 @@ body { overflow: hidden; }
 .item.active { background: var(--fill-2); font-weight: 600; }
 .item-icon { flex-shrink: 0; color: var(--accent); }
 .item-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-count { flex-shrink: 0; font-size: 12px; color: var(--label-3); font-variant-numeric: tabular-nums; }
 .foot { padding-top: 8px; border-top: 0.5px solid var(--separator); }
 
 @media (max-width: 767px) {

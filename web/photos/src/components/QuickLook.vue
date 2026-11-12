@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ChevronLeft, ChevronRight, Download, Trash2, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Download, Heart, Trash2, X } from 'lucide-vue-next'
 import { kindOf } from '../fileTypes.js'
 
 // Quick Look for photos and videos: the file over a dark blur, its name on top, arrows (and the
@@ -13,8 +13,9 @@ const props = defineProps({
   urls: { type: Object, required: true }, // { preview(entry), poster(entry) }
   subtitle: { type: Function, default: null }, // a line under the name instead of "3 de 40"
   deletable: { type: Boolean, default: false },
+  favorite: { type: Function, default: null }, // whether an entry is a favourite; shows the heart
 })
-const emit = defineEmits(['change', 'close', 'download', 'delete'])
+const emit = defineEmits(['change', 'close', 'download', 'delete', 'favorite'])
 
 const index = computed(() => {
   const i = props.items.indexOf(props.entry)
@@ -46,6 +47,7 @@ function onKey(e) {
   if (['ArrowLeft', 'ArrowUp'].includes(e.key)) { e.preventDefault(); go(-1) }
   else if (['ArrowRight', 'ArrowDown'].includes(e.key)) { e.preventDefault(); go(1) }
   else if (e.key === 'Escape' || e.key === ' ') { e.preventDefault(); emit('close') }
+  else if (e.key === '.' && props.favorite) { e.preventDefault(); emit('favorite', props.entry) } // as in Photos
 }
 
 let startX = null
@@ -78,6 +80,9 @@ onBeforeUnmount(() => {
           <span v-else-if="items.length > 1" class="look-count">{{ index + 1 }} de {{ items.length }}</span>
         </div>
         <div class="look-actions">
+          <button v-if="favorite" type="button" class="look-btn" :class="{ faved: favorite(entry) }" :aria-label="favorite(entry) ? 'Quitar de Favoritos' : 'Añadir a Favoritos'" @click="emit('favorite', entry)">
+            <Heart :size="19" :stroke-width="2" :fill="favorite(entry) ? 'currentColor' : 'none'" />
+          </button>
           <button v-if="deletable" type="button" class="look-btn" aria-label="Eliminar" @click="emit('delete', entry)"><Trash2 :size="19" :stroke-width="2" /></button>
           <button type="button" class="look-btn" aria-label="Descargar" @click="emit('download', entry)"><Download :size="19" :stroke-width="2" /></button>
         </div>
@@ -124,12 +129,14 @@ onBeforeUnmount(() => {
 .look-bar {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: 96px 1fr 96px;
+  grid-template-columns: 148px 1fr 148px;
   align-items: center;
   gap: 12px;
   padding: calc(12px + env(safe-area-inset-top)) 14px 10px;
 }
 .look-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.look-btn.faved { color: #ff375f; }
+@media (max-width: 767px) { .look-bar { grid-template-columns: 44px 1fr auto; } }
 .look-title { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
 .look-name { max-width: 100%; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .look-count { font-size: 12px; color: rgba(255, 255, 255, 0.6); }

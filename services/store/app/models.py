@@ -123,3 +123,23 @@ class Photo(SQLModel, table=True):
     status: str = Field(default="pending")  # pending, verified, checksum_mismatch, error
     uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     verified_at: Optional[datetime] = Field(default=None)
+
+
+class Album(SQLModel, table=True):
+    """A set of a user's photos. `kind` is "favorites" for the one everyone has (made the first
+    time albums are listed, and never deleted or renamed) or "user" for ones they make."""
+    __tablename__ = "albums"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_email: str = Field(index=True)
+    name: str
+    kind: str = Field(default="user")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AlbumPhoto(SQLModel, table=True):
+    __tablename__ = "album_photos"
+
+    album_id: int = Field(foreign_key="albums.id", primary_key=True)
+    photo_id: int = Field(foreign_key="photos.id", primary_key=True, index=True)
+    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
