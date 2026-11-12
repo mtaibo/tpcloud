@@ -13,6 +13,7 @@ import ContextMenu from './components/ContextMenu.vue'
 import TransferPanel from './components/TransferPanel.vue'
 import BackupSheet from './components/BackupSheet.vue'
 import { loadDisk, navigate, store } from './store.js'
+import { syncLang, t } from './ui/i18n.js'
 
 const ready = ref(false)
 const viewer = ref(null) // { token, info } for /store/<token>, a file opened in its own tab
@@ -24,6 +25,7 @@ onMounted(async () => {
     const res = await fetch('/auth/passkey/me')
     if (!res.ok) throw new Error()
     store.user = await res.json()
+    syncLang(store.user)
   } catch {
     window.location.href = `/auth/signin?next=${encodeURIComponent(window.location.pathname)}`
     return
@@ -67,7 +69,7 @@ onMounted(async () => {
       <FileBrowser v-else />
     </main>
     <MobileBottomNav @transfers="transfersOpen = true" />
-    <Sheet v-model:open="transfersOpen" title="Transferencias">
+    <Sheet v-model:open="transfersOpen" :title="t('Transfers', 'Transferencias')">
       <TransferPanel inline />
     </Sheet>
     <BackupSheet v-if="backupOpen" @close="backupOpen = false" />

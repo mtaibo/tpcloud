@@ -1,10 +1,11 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { BookImage, Camera, Cloud, Folder, Heart, Images, Smartphone } from 'lucide-vue-next'
 import AlertHost from './ui/AlertHost.vue'
 import Spinner from './ui/Spinner.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import Gallery from './components/Gallery.vue'
+import { syncLang, t } from './ui/i18n.js'
 
 // The gallery as a section of its own, next to the store it keeps its photos in (and that
 // serves its API): the photos backed up from the iPhone, and in time albums too.
@@ -12,17 +13,18 @@ const user = ref(null)
 const section = ref('all') // all | camera | screenshots | album:<id>
 const albums = ref([])
 
-const sections = [
-  { value: 'all', label: 'Biblioteca', icon: Images },
-  { value: 'camera', label: 'Cámara', icon: Camera },
-  { value: 'screenshots', label: 'Capturas', icon: Smartphone },
-]
+const sections = computed(() => [
+  { value: 'all', label: t('Library', 'Biblioteca'), icon: Images },
+  { value: 'camera', label: t('Camera', 'Cámara'), icon: Camera },
+  { value: 'screenshots', label: t('Screenshots', 'Capturas'), icon: Smartphone },
+])
 
 onMounted(async () => {
   try {
     const res = await fetch('/auth/passkey/me')
     if (!res.ok) throw new Error()
     user.value = await res.json()
+    syncLang(user.value)
   } catch {
     window.location.href = `/auth/signin?next=${encodeURIComponent(window.location.pathname)}`
     return
@@ -42,12 +44,12 @@ async function loadAlbums() {
 <template>
   <div v-if="user" class="app">
     <aside class="sidebar">
-      <a href="/" class="brand" title="Volver a TPCloud">
+      <a href="/" class="brand" :title="t('Back to TPCloud', 'Volver a TPCloud')">
         <span class="brand-icon"><Images :size="15" :stroke-width="2.4" /></span>
-        <span>Galería</span>
+        <span>{{ t('Photos', 'Galería') }}</span>
       </a>
       <nav class="nav">
-        <div class="group-head"><span>Fotos</span></div>
+        <div class="group-head"><span>{{ t('Photos', 'Fotos') }}</span></div>
         <button
           v-for="s in sections"
           :key="s.value"
@@ -61,7 +63,7 @@ async function loadAlbums() {
         </button>
 
         <template v-if="albums.length">
-          <div class="group-head"><span>Álbumes</span></div>
+          <div class="group-head"><span>{{ t('Albums', 'Álbumes') }}</span></div>
           <button
             v-for="a in albums"
             :key="a.id"
@@ -71,13 +73,13 @@ async function loadAlbums() {
             @click="section = `album:${a.id}`"
           >
             <component :is="a.kind === 'favorites' ? Heart : BookImage" :size="18" :stroke-width="1.9" class="item-icon" />
-            <span class="item-label">{{ a.name }}</span>
+            <span class="item-label">{{ a.kind === 'favorites' ? t('Favourites', 'Favoritos') : a.name }}</span>
             <span class="item-count">{{ a.count }}</span>
           </button>
         </template>
       </nav>
       <div class="foot">
-        <a href="/store/" class="item"><Folder :size="18" :stroke-width="1.9" class="item-icon" /><span class="item-label">Archivos</span></a>
+        <a href="/store/" class="item"><Folder :size="18" :stroke-width="1.9" class="item-icon" /><span class="item-label">{{ t('Files', 'Archivos') }}</span></a>
         <a href="/" class="item"><Cloud :size="18" :stroke-width="1.9" class="item-icon" /><span class="item-label">TPCloud</span></a>
       </div>
     </aside>

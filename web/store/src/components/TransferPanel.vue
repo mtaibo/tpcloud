@@ -3,6 +3,7 @@ import { watch } from 'vue'
 import { Archive, ArrowDown, ArrowUp, Check, Play, Square, X } from 'lucide-vue-next'
 import { useTransfers, formatBytes, formatEta } from '../useTransfers.js'
 import { useCompression } from '../useCompression.js'
+import { t as tr } from '../ui/i18n.js'
 
 // Every upload, download and extraction with its progress. A popover by the sidebar, or inside
 // a sheet on the phone (`inline`).
@@ -17,9 +18,9 @@ const pct = (a, b) => (b > 0 ? Math.min(100, (a / b) * 100) : null)
 
 function meta(loaded, total, speed, status) {
   if (status !== 'active') return ''
-  const parts = [total ? `${formatBytes(loaded)} de ${formatBytes(total)}` : formatBytes(loaded)]
+  const parts = [total ? tr(`${formatBytes(loaded)} of ${formatBytes(total)}`, `${formatBytes(loaded)} de ${formatBytes(total)}`) : formatBytes(loaded)]
   if (speed > 0) parts.push(`${formatBytes(speed)}/s`)
-  if (speed > 0 && total) parts.push(`quedan ${formatEta((total - loaded) / speed)}`)
+  if (speed > 0 && total) parts.push(tr(`${formatEta((total - loaded) / speed)} left`, `quedan ${formatEta((total - loaded) / speed)}`))
   return parts.join(' · ')
 }
 
@@ -40,7 +41,7 @@ const listFor = key => (key === 'up' ? uploads.value : downloads.value)
             <div v-for="t in listFor(g.key)" :key="t.id" class="item">
               <div class="top">
                 <span class="name" :title="t.name">{{ t.name }}</span>
-                <button v-if="t.status === 'active'" type="button" class="act stop" title="Cancelar" @click="cancelTransfer(t.id)"><Square :size="10" fill="currentColor" /></button>
+                <button v-if="t.status === 'active'" type="button" class="act stop" :title="tr('Cancel', 'Cancelar')" @click="cancelTransfer(t.id)"><Square :size="10" fill="currentColor" /></button>
               </div>
               <div class="bar"><i :class="[t.status, { indet: !t.totalSize && t.status === 'active' }]" :style="t.totalSize ? { width: `${pct(t.loaded, t.totalSize)}%` } : null" /></div>
               <p class="meta">
@@ -53,14 +54,14 @@ const listFor = key => (key === 'up' ? uploads.value : downloads.value)
         </template>
 
         <section v-if="visiblePendingUploads.length" class="sec">
-          <p class="sec-head"><ArrowUp :size="13" :stroke-width="2.6" /> En pausa</p>
+          <p class="sec-head"><ArrowUp :size="13" :stroke-width="2.6" /> {{ tr('Paused', 'En pausa') }}</p>
           <div v-for="p in visiblePendingUploads" :key="p.upload_id" class="item">
             <div class="top">
               <span class="name" :title="p.filename">{{ p.filename }}</span>
-              <button type="button" class="act play" title="Reanudar" @click="resumeUpload(p)"><Play :size="11" fill="currentColor" /></button>
+              <button type="button" class="act play" :title="tr('Resume', 'Reanudar')" @click="resumeUpload(p)"><Play :size="11" fill="currentColor" /></button>
             </div>
             <div class="bar"><i class="paused" :style="{ width: `${pct(p.bytes_received, p.file_size) || 0}%` }" /></div>
-            <p class="meta">{{ formatBytes(p.bytes_received) }} de {{ formatBytes(p.file_size) }} · reanúdala eligiendo el mismo archivo</p>
+            <p class="meta">{{ tr(`${formatBytes(p.bytes_received)} of ${formatBytes(p.file_size)} · resume it by choosing the same file`, `${formatBytes(p.bytes_received)} de ${formatBytes(p.file_size)} · reanúdala eligiendo el mismo archivo`) }}</p>
           </div>
         </section>
 
@@ -69,7 +70,7 @@ const listFor = key => (key === 'up' ? uploads.value : downloads.value)
           <div v-for="j in jobs" :key="j.job_id" class="item">
             <div class="top">
               <span class="name" :title="j.filename">{{ j.filename }}</span>
-              <button v-if="j.status === 'active'" type="button" class="act stop" title="Cancelar" @click="cancelJob(j.job_id)"><Square :size="10" fill="currentColor" /></button>
+              <button v-if="j.status === 'active'" type="button" class="act stop" :title="tr('Cancel', 'Cancelar')" @click="cancelJob(j.job_id)"><Square :size="10" fill="currentColor" /></button>
             </div>
             <div class="bar"><i class="extract" :class="[j.status, { indet: !j.total_bytes && j.status === 'active' }]" :style="j.total_bytes ? { width: `${pct(j.extracted_bytes, j.total_bytes)}%` } : null" /></div>
             <p class="meta">
@@ -80,7 +81,7 @@ const listFor = key => (key === 'up' ? uploads.value : downloads.value)
           </div>
         </section>
 
-        <p v-if="!uploads.length && !downloads.length && !visiblePendingUploads.length && !jobs.length" class="empty">Nada en curso.</p>
+        <p v-if="!uploads.length && !downloads.length && !visiblePendingUploads.length && !jobs.length" class="empty">{{ tr('Nothing in progress.', 'Nada en curso.') }}</p>
       </div>
     </Transition>
   </Teleport>

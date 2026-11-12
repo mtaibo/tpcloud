@@ -9,6 +9,8 @@ import ListSection from '../ui/ListSection.vue'
 import ListRow from '../ui/ListRow.vue'
 import { confirmDestructive, toast } from '../ui/dialog.js'
 import FileIcon from './FileIcon.vue'
+import { t } from '../ui/i18n.js'
+import { apiError } from '../apiErrors.js'
 
 // Sharing an item: a new link (name, password, editing, public page), or the options of the link
 // it already has. Opened with `entry` from a folder, or with `share` from the list of links.
@@ -90,11 +92,11 @@ async function confirm() {
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.detail || 'No se pudo crear el enlace')
+      if (!res.ok) throw new Error(apiError(data.detail) || t('Couldn’t create the link', 'No se pudo crear el enlace'))
       existing.value = data
       fill(data)
       navigator.clipboard?.writeText(data.url || `${window.location.origin}/share/${data.token}`)
-      toast('Enlace creado y copiado')
+      toast(t('Link created and copied', 'Enlace creado y copiado'))
       emit('changed')
       return
     }
@@ -109,10 +111,10 @@ async function confirm() {
       }),
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data.detail || 'No se pudo guardar')
+    if (!res.ok) throw new Error(apiError(data.detail) || t('Couldn’t save', 'No se pudo guardar'))
     existing.value = data
     fill(data)
-    toast('Enlace actualizado')
+    toast(t('Link updated', 'Enlace actualizado'))
     emit('changed')
     open.value = false
     emit('close')
@@ -124,11 +126,11 @@ async function confirm() {
 }
 
 async function remove() {
-  const ok = await confirmDestructive('¿Eliminar el enlace?', 'Quien lo tenga dejará de poder abrirlo. Los archivos no se borran.', 'Eliminar enlace')
+  const ok = await confirmDestructive(t('Delete the link?', '¿Eliminar el enlace?'), t('Anyone who has it won’t be able to open it any more. The files aren’t deleted.', 'Quien lo tenga dejará de poder abrirlo. Los archivos no se borran.'), t('Delete link', 'Eliminar enlace'))
   if (!ok) return
   const res = await fetch(`/store/api/shares/${existing.value.token}`, { method: 'DELETE' })
   if (res.ok) {
-    toast('Enlace eliminado')
+    toast(t('Link deleted', 'Enlace eliminado'))
     emit('changed')
     open.value = false
     emit('close')
@@ -137,7 +139,7 @@ async function remove() {
 
 function copy() {
   navigator.clipboard.writeText(url.value)
-  toast('Enlace copiado')
+  toast(t('Link copied', 'Enlace copiado'))
 }
 
 const canShare = typeof navigator.share === 'function'
@@ -148,7 +150,7 @@ async function shareNative() {
 </script>
 
 <template>
-  <Sheet v-model:open="open" :title="existing ? 'Enlace compartido' : 'Compartir'" confirmable :can-confirm="!!canConfirm" :busy="busy" @confirm="confirm" @close="emit('close')">
+  <Sheet v-model:open="open" :title="existing ? t('Shared link', 'Enlace compartido') : t('Share', 'Compartir')" confirmable :can-confirm="!!canConfirm" :busy="busy" @confirm="confirm" @close="emit('close')">
     <div class="hero">
       <FileIcon :entry="entry || { type: isFolder ? 'directory' : 'file', name }" :size="64" />
       <p class="headline name">{{ name }}</p>
@@ -161,52 +163,52 @@ async function shareNative() {
         <div class="link card">
           <span class="url mono">{{ url }}</span>
           <div class="link-actions">
-            <button type="button" class="btn btn-bordered small" @click="copy"><Copy :size="15" /> Copiar</button>
-            <button v-if="canShare" type="button" class="btn btn-bordered small" @click="shareNative"><Share :size="15" /> Compartir</button>
+            <button type="button" class="btn btn-bordered small" @click="copy"><Copy :size="15" /> {{ t('Copy', 'Copiar') }}</button>
+            <button v-if="canShare" type="button" class="btn btn-bordered small" @click="shareNative"><Share :size="15" /> {{ t('Share', 'Compartir') }}</button>
           </div>
         </div>
       </template>
 
       <template v-else>
-        <ListSection header="Dirección del enlace" :footer="slugMode === 'custom' ? 'Fácil de recordar y de dictar.' : 'Imposible de adivinar: solo entra quien reciba el enlace.'">
+        <ListSection :header="t('Link address', 'Dirección del enlace')" :footer="slugMode === 'custom' ? t('Easy to remember and to read out.', 'Fácil de recordar y de dictar.') : t('Impossible to guess: only whoever gets the link can open it.', 'Imposible de adivinar: solo entra quien reciba el enlace.')">
           <ListRow>
-            <Segmented v-model="slugMode" :options="[{ value: 'custom', label: 'Personalizada' }, { value: 'hidden', label: 'Aleatoria' }]" class="seg" />
+            <Segmented v-model="slugMode" :options="[{ value: 'custom', label: t('Custom', 'Personalizada') }, { value: 'hidden', label: t('Random', 'Aleatoria') }]" class="seg" />
           </ListRow>
           <ListRow v-if="slugMode === 'custom'">
             <span class="slug">
               <span class="prefix">/share/</span>
-              <input v-model="slug" class="row-input" placeholder="mallorca-2026" spellcheck="false" autocomplete="off" aria-label="Dirección" />
+              <input v-model="slug" class="row-input" placeholder="mallorca-2026" spellcheck="false" autocomplete="off" :aria-label="t('Address', 'Dirección')" />
             </span>
           </ListRow>
         </ListSection>
       </template>
 
-      <ListSection header="Acceso" :footer="isFolder ? 'Con edición, quien tenga el enlace puede subir, renombrar y borrar dentro de la carpeta.' : ''">
-        <ListRow title="Proteger con contraseña">
-          <template #trailing><Toggle v-model="usePassword" label="Proteger con contraseña" /></template>
+      <ListSection :header="t('Access', 'Acceso')" :footer="isFolder ? t('With editing on, anyone with the link can upload, rename and delete inside the folder.', 'Con edición, quien tenga el enlace puede subir, renombrar y borrar dentro de la carpeta.') : ''">
+        <ListRow :title="t('Protect with a password', 'Proteger con contraseña')">
+          <template #trailing><Toggle v-model="usePassword" :label="t('Protect with a password', 'Proteger con contraseña')" /></template>
         </ListRow>
         <ListRow v-if="usePassword">
           <input
             v-model="password"
             class="row-input"
             type="password"
-            :placeholder="existing?.has_password ? 'Nueva contraseña (opcional)' : 'Contraseña'"
+            :placeholder="existing?.has_password ? t('New password (optional)', 'Nueva contraseña (opcional)') : t('Password', 'Contraseña')"
             autocomplete="new-password"
-            aria-label="Contraseña"
+            :aria-label="t('Password', 'Contraseña')"
           />
         </ListRow>
-        <ListRow v-if="isFolder" title="Permitir editar">
-          <template #trailing><Toggle v-model="editable" label="Permitir editar" /></template>
+        <ListRow v-if="isFolder" :title="t('Allow editing', 'Permitir editar')">
+          <template #trailing><Toggle v-model="editable" :label="t('Allow editing', 'Permitir editar')" /></template>
         </ListRow>
-        <ListRow title="Mostrar en la página pública">
-          <template #trailing><Toggle v-model="isPublic" label="Mostrar en la página pública" /></template>
+        <ListRow :title="t('Show on the public page', 'Mostrar en la página pública')">
+          <template #trailing><Toggle v-model="isPublic" :label="t('Show on the public page', 'Mostrar en la página pública')" /></template>
         </ListRow>
       </ListSection>
 
       <p v-if="error" class="footnote danger err">{{ error }}</p>
 
       <ListSection v-if="existing">
-        <ListRow title="Eliminar enlace" clickable destructive centered @click="remove" />
+        <ListRow :title="t('Delete link', 'Eliminar enlace')" clickable destructive centered @click="remove" />
       </ListSection>
     </template>
   </Sheet>

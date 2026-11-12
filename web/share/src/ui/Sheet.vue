@@ -38,7 +38,7 @@ onBeforeUnmount(() => {
       <div v-if="open" class="overlay" @click.self="close">
         <div class="sheet" role="dialog" aria-modal="true" :aria-label="title">
           <div class="sheet-bar">
-            <button class="icon-btn" type="button" aria-label="Cerrar" @click="close">
+            <button class="icon-btn" type="button" aria-label="Close" @click="close">
               <Icon name="xmark" :size="20" :weight="2.2" />
             </button>
             <div class="navbar-title">{{ title }}</div>
@@ -46,7 +46,7 @@ onBeforeUnmount(() => {
               v-if="confirmable"
               class="icon-btn prominent"
               type="button"
-              aria-label="Aceptar"
+              aria-label="Done"
               :disabled="!canConfirm || busy"
               @click="emit('confirm')"
             >

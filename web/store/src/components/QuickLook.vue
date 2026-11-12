@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChevronLeft, ChevronRight, Download, Trash2, X } from 'lucide-vue-next'
 import { kindOf } from '../fileTypes.js'
+import { t } from '../ui/i18n.js'
 
 // Quick Look for photos and videos: the file over a dark blur, its name on top, arrows (and the
 // keyboard, and swipes) to move through the folder's media. It shows the light versions (a
@@ -71,15 +72,15 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div class="look" @click.self="emit('close')" @touchstart.passive="onTouchStart" @touchend="onTouchEnd">
       <header class="look-bar">
-        <button type="button" class="look-btn" aria-label="Cerrar" @click="emit('close')"><X :size="20" :stroke-width="2.2" /></button>
+        <button type="button" class="look-btn" :aria-label="t('Close', 'Cerrar')" @click="emit('close')"><X :size="20" :stroke-width="2.2" /></button>
         <div class="look-title">
           <span class="look-name">{{ entry.name }}</span>
           <span v-if="subtitle" class="look-count">{{ subtitle(entry) }}</span>
-          <span v-else-if="items.length > 1" class="look-count">{{ index + 1 }} de {{ items.length }}</span>
+          <span v-else-if="items.length > 1" class="look-count">{{ t(`${index + 1} of ${items.length}`, `${index + 1} de ${items.length}`) }}</span>
         </div>
         <div class="look-actions">
-          <button v-if="deletable" type="button" class="look-btn" aria-label="Eliminar" @click="emit('delete', entry)"><Trash2 :size="19" :stroke-width="2" /></button>
-          <button type="button" class="look-btn" aria-label="Descargar" @click="emit('download', entry)"><Download :size="19" :stroke-width="2" /></button>
+          <button v-if="deletable" type="button" class="look-btn" :aria-label="t('Delete', 'Eliminar')" @click="emit('delete', entry)"><Trash2 :size="19" :stroke-width="2" /></button>
+          <button type="button" class="look-btn" :aria-label="t('Download', 'Descargar')" @click="emit('download', entry)"><Download :size="19" :stroke-width="2" /></button>
         </div>
       </header>
 

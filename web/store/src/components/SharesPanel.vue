@@ -8,6 +8,7 @@ import { openMenu } from '../menu.js'
 import { navigate } from '../store.js'
 import FileIcon from './FileIcon.vue'
 import ShareSheet from './ShareSheet.vue'
+import { t } from '../ui/i18n.js'
 
 // Every link you've shared, with what it allows, and a way to copy, change or delete it.
 const shares = ref(null)
@@ -20,11 +21,11 @@ async function load() {
 onMounted(load)
 
 const nameOf = s => s.path.split('/').filter(Boolean).at(-1) || s.token
-const sorted = computed(() => [...(shares.value || [])].sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'es')))
+const sorted = computed(() => [...(shares.value || [])].sort((a, b) => nameOf(a).localeCompare(nameOf(b), ['es', 'en'])))
 
 function copy(s) {
   navigator.clipboard.writeText(s.url)
-  toast('Enlace copiado')
+  toast(t('Link copied', 'Enlace copiado'))
 }
 
 function folderOf(s) {
@@ -32,20 +33,20 @@ function folderOf(s) {
 }
 
 async function remove(s) {
-  const ok = await confirmDestructive(`¿Eliminar el enlace de «${nameOf(s)}»?`, 'Quien lo tenga dejará de poder abrirlo. Los archivos no se borran.', 'Eliminar enlace')
+  const ok = await confirmDestructive(t(`Delete the link to “${nameOf(s)}”?`, `¿Eliminar el enlace de «${nameOf(s)}»?`), t('Anyone who has it won’t be able to open it any more. The files aren’t deleted.', 'Quien lo tenga dejará de poder abrirlo. Los archivos no se borran.'), t('Delete link', 'Eliminar enlace'))
   if (!ok) return
   const res = await fetch(`/store/api/shares/${s.token}`, { method: 'DELETE' })
-  if (res.ok) { toast('Enlace eliminado'); load() }
+  if (res.ok) { toast(t('Link deleted', 'Enlace eliminado')); load() }
 }
 
 function menu(s, e) {
   e.preventDefault()
   openMenu(e.currentTarget instanceof Element && e.type === 'click' ? e.currentTarget : e, [
-    { label: 'Copiar enlace', icon: Copy, action: () => copy(s) },
-    { label: 'Mostrar en Archivos', icon: FolderOpen, action: () => navigate(s.location, folderOf(s)) },
-    { label: 'Opciones…', icon: Pencil, action: () => { editing.value = s } },
+    { label: t('Copy link', 'Copiar enlace'), icon: Copy, action: () => copy(s) },
+    { label: t('Show in Files', 'Mostrar en Archivos'), icon: FolderOpen, action: () => navigate(s.location, folderOf(s)) },
+    { label: t('Options…', 'Opciones…'), icon: Pencil, action: () => { editing.value = s } },
     { separator: true },
-    { label: 'Eliminar enlace', icon: Trash2, danger: true, action: () => remove(s) },
+    { label: t('Delete link', 'Eliminar enlace'), icon: Trash2, danger: true, action: () => remove(s) },
   ])
 }
 </script>
@@ -53,34 +54,34 @@ function menu(s, e) {
 <template>
   <section class="shares">
     <header class="bar">
-      <h1 class="bar-title">Enlaces compartidos</h1>
+      <h1 class="bar-title">{{ t('Shared links', 'Enlaces compartidos') }}</h1>
     </header>
     <div class="content">
       <div class="page-head">
-        <h1 class="large-title">Enlaces compartidos</h1>
-        <p class="subheadline secondary">Lo que has compartido con un enlace. Quien lo tenga puede abrirlo sin cuenta.</p>
+        <h1 class="large-title">{{ t('Shared links', 'Enlaces compartidos') }}</h1>
+        <p class="subheadline secondary">{{ t('What you’ve shared with a link. Anyone who has it can open it without an account.', 'Lo que has compartido con un enlace. Quien lo tenga puede abrirlo sin cuenta.') }}</p>
       </div>
 
       <div v-if="!shares" class="state"><Spinner :size="24" /></div>
       <div v-else-if="!shares.length" class="state">
         <span class="empty-icon"><Link :size="34" /></span>
-        <h3 class="headline">Aún no has compartido nada</h3>
-        <p class="subheadline secondary">Abre el menú de una carpeta o un archivo y elige «Compartir…».</p>
+        <h3 class="headline">{{ t('You haven’t shared anything yet', 'Aún no has compartido nada') }}</h3>
+        <p class="subheadline secondary">{{ t('Open a folder’s or file’s menu and choose “Share…”.', 'Abre el menú de una carpeta o un archivo y elige «Compartir…».') }}</p>
       </div>
-      <ListSection v-else :footer="`${shares.length} ${shares.length === 1 ? 'enlace' : 'enlaces'}`">
+      <ListSection v-else :footer="`${shares.length} ${shares.length === 1 ? t('link', 'enlace') : t('links', 'enlaces')}`">
         <div v-for="s in sorted" :key="s.token" class="row share-row" @click="editing = s" @contextmenu="menu(s, $event)">
           <FileIcon :entry="{ type: s.is_file ? 'file' : 'directory', name: nameOf(s) }" :size="40" />
           <span class="row-body">
             <span class="row-title">{{ nameOf(s) }}</span>
             <span class="row-subtitle small url">{{ s.url }}</span>
             <span class="tags">
-              <span v-if="s.has_password" class="badge"><Lock :size="10" :stroke-width="2.6" /> Contraseña</span>
-              <span class="badge" :class="{ green: s.editable }">{{ s.editable ? 'Se puede editar' : 'Solo lectura' }}</span>
-              <span v-if="s.public" class="badge orange">Página pública</span>
+              <span v-if="s.has_password" class="badge"><Lock :size="10" :stroke-width="2.6" /> {{ t('Password', 'Contraseña') }}</span>
+              <span class="badge" :class="{ green: s.editable }">{{ s.editable ? t('Can edit', 'Se puede editar') : t('Read only', 'Solo lectura') }}</span>
+              <span v-if="s.public" class="badge orange">{{ t('Public page', 'Página pública') }}</span>
             </span>
           </span>
-          <button type="button" class="icon-action" title="Copiar enlace" @click.stop="copy(s)"><Copy :size="17" /></button>
-          <button type="button" class="icon-action" title="Más" @click.stop="menu(s, $event)"><MoreHorizontal :size="18" /></button>
+          <button type="button" class="icon-action" :title="t('Copy link', 'Copiar enlace')" @click.stop="copy(s)"><Copy :size="17" /></button>
+          <button type="button" class="icon-action" :title="t('More', 'Más')" @click.stop="menu(s, $event)"><MoreHorizontal :size="18" /></button>
         </div>
       </ListSection>
     </div>

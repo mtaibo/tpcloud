@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { t } from './ui/i18n.js'
 
 const STORAGE_KEY = 'tpcloud-favourites'
 const favourites = ref([])
@@ -16,11 +17,11 @@ export function useFavourites() {
   }
 
   function derivLabel(loc, path, userEmail) {
-    if (!path) return 'Archivos'
+    if (!path) return t('Files', 'Archivos')
     const parts = path.split('/').filter(Boolean)
     const last = parts[parts.length - 1]
-    if (userEmail && path === `users/${userEmail}`) return 'Inicio'
-    if (last === 'shared') return 'Compartido'
+    if (userEmail && path === `users/${userEmail}`) return t('Home', 'Inicio')
+    if (last === 'shared') return t('Shared', 'Compartido')
     return last
   }
 

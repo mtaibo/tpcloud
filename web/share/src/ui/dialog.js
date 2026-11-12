@@ -12,24 +12,24 @@ export function ask({ title, message = '', actions, field = null }) {
 
 // An alert with a text field (new folder, rename…). Resolves to the text, or null if cancelled.
 // `select` is how much of the text starts selected (e.g. the name without its extension).
-export function prompt({ title, message = '', value = '', placeholder = '', confirm = 'Aceptar', select = null }) {
+export function prompt({ title, message = '', value = '', placeholder = '', confirm = 'OK', select = null }) {
   return ask({
     title,
     message,
     field: { value, placeholder, select },
     actions: [
-      { label: 'Cancelar', role: 'cancel', value: null },
+      { label: 'Cancel', role: 'cancel', value: null },
       { label: confirm, role: 'default', value: '__field__' },
     ],
   })
 }
 
-export function confirmDestructive(title, message, label = 'Eliminar') {
+export function confirmDestructive(title, message, label = 'Delete') {
   return ask({
     title,
     message,
     actions: [
-      { label: 'Cancelar', role: 'cancel', value: false },
+      { label: 'Cancel', role: 'cancel', value: false },
       { label, role: 'destructive', value: true },
     ],
   })

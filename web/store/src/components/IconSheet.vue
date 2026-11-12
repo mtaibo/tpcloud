@@ -4,6 +4,7 @@ import { Search, X } from 'lucide-vue-next'
 import Sheet from '../ui/Sheet.vue'
 import { FOLDER_ICONS_MAP, FOLDER_ICON_CATEGORIES } from '../folderIcons.js'
 import FileIcon from './FileIcon.vue'
+import { t } from '../ui/i18n.js'
 
 // The symbol pressed into a folder's front. tpapp shows the same names as SF Symbols.
 const props = defineProps({ entry: Object })
@@ -20,26 +21,31 @@ const categories = computed(() => {
   return matched.length ? [{ label: null, icons: matched }] : []
 })
 
+// folderIcons.js names its categories in English.
+const CATEGORY_ES = {
+  General: 'General', Education: 'Educación', 'Calendar & Time': 'Calendario y hora', Media: 'Multimedia', Documents: 'Documentos',
+  Tech: 'Tecnología', Work: 'Trabajo', Personal: 'Personal', 'Nature & Travel': 'Naturaleza y viajes', Misc: 'Otros',
+}
 const changed = computed(() => selected.value !== (props.entry.icon_name || null))
 </script>
 
 <template>
-  <Sheet v-model:open="open" title="Icono de la carpeta" confirmable :can-confirm="changed" @confirm="emit('done', selected)" @close="emit('close')">
+  <Sheet v-model:open="open" :title="t('Folder icon', 'Icono de la carpeta')" confirmable :can-confirm="changed" @confirm="emit('done', selected)" @close="emit('close')">
     <div class="preview">
       <FileIcon :entry="{ ...entry, icon_name: selected }" :size="96" />
       <p class="headline">{{ entry.name }}</p>
-      <button v-if="selected" type="button" class="btn btn-bordered small" @click="selected = null">Quitar icono</button>
+      <button v-if="selected" type="button" class="btn btn-bordered small" @click="selected = null">{{ t('Remove icon', 'Quitar icono') }}</button>
     </div>
 
     <label class="search">
       <Search :size="16" />
-      <input v-model="search" placeholder="Buscar símbolos" autocomplete="off" spellcheck="false" />
-      <button v-if="search" type="button" class="clear" aria-label="Borrar" @click="search = ''"><X :size="11" :stroke-width="3" /></button>
+      <input v-model="search" :placeholder="t('Search symbols', 'Buscar símbolos')" autocomplete="off" spellcheck="false" />
+      <button v-if="search" type="button" class="clear" :aria-label="t('Clear', 'Borrar')" @click="search = ''"><X :size="11" :stroke-width="3" /></button>
     </label>
 
-    <p v-if="!categories.length" class="footnote secondary none">Ningún símbolo coincide con «{{ search }}».</p>
+    <p v-if="!categories.length" class="footnote secondary none">{{ t(`No symbol matches “${search}”.`, `Ningún símbolo coincide con «${search}».`) }}</p>
     <section v-for="cat in categories" :key="cat.label || 'results'" class="cat">
-      <p v-if="cat.label" class="section-header">{{ cat.label }}</p>
+      <p v-if="cat.label" class="section-header">{{ t(cat.label, CATEGORY_ES[cat.label] || cat.label) }}</p>
       <div class="grid card">
         <button
           v-for="name in cat.icons"

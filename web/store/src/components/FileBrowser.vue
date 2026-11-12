@@ -24,6 +24,8 @@ import { shareMediaUrls, storeMediaUrls } from '../mediaUrls.js'
 import MoveSheet from './MoveSheet.vue'
 import ShareSheet from './ShareSheet.vue'
 import IconSheet from './IconSheet.vue'
+import { t as tr } from '../ui/i18n.js'
+import { apiError } from '../apiErrors.js'
 
 const phoneQuery = window.matchMedia('(max-width: 767px)')
 const phone = ref(phoneQuery.matches)
@@ -82,7 +84,7 @@ const displayEntries = computed(() => {
     })
 })
 
-const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' })
+const collator = new Intl.Collator(['es', 'en'], { numeric: true, sensitivity: 'base' })
 const visible = computed(() => {
   const q = query.value.trim().toLowerCase()
   const list = q ? displayEntries.value.filter(e => e.name.toLowerCase().includes(q)) : [...displayEntries.value]
@@ -199,7 +201,7 @@ async function loadDirectory() {
     const res = await fetch(`/store/api/files/list?${params}`, { signal })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      throw new Error(data.detail || `Error ${res.status}`)
+      throw new Error(apiError(data.detail) || `Error ${res.status}`)
     }
     let real = (await res.json()).entries
 
@@ -247,7 +249,7 @@ async function loadShareDirectory() {
     const res = await fetch(`/store/api/share/${shareMode.value.token}/files/list?${params}`)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      throw new Error(data.detail || `Error ${res.status}`)
+      throw new Error(apiError(data.detail) || `Error ${res.status}`)
     }
     entries.value = (await res.json()).entries
   } catch (e) {
@@ -286,7 +288,7 @@ const crumbs = computed(() => {
   if (shareMode.value) {
     const parts = shareMode.value.path.split('/').filter(Boolean)
     return [
-      { label: 'Compartido', go: exitShareMode, home: false },
+      { label: tr('Shared', 'Compartido'), go: exitShareMode, home: false },
       { label: shareMode.value.label, go: () => navigateShareTo(''), share: true },
       ...parts.map((p, i) => ({ label: p, go: () => navigateShareTo(parts.slice(0, i + 1).join('/')) })),
     ]
@@ -294,20 +296,20 @@ const crumbs = computed(() => {
   const parts = store.path.split('/').filter(Boolean)
   const inHome = store.path === homePath.value || store.path.startsWith(`${homePath.value}/`)
   const skip = inHome ? 2 : 1
-  const root = { label: inHome ? 'Inicio' : 'Compartido', home: inHome, go: () => navigate('external', parts.slice(0, skip).join('/')) }
+  const root = { label: inHome ? tr('Home', 'Inicio') : tr('Shared', 'Compartido'), home: inHome, go: () => navigate('external', parts.slice(0, skip).join('/')) }
   return [root, ...parts.slice(skip).map((p, i) => ({ label: p, go: () => navigate('external', parts.slice(0, skip + i + 1).join('/')) }))]
 })
 
 const status = computed(() => {
   if (searching.value) {
-    if (searchResults.value === null) return 'Buscando…'
+    if (searchResults.value === null) return tr('Searching…', 'Buscando…')
     const r = sortedResults.value.length
-    return `${r === 1 ? '1 resultado' : `${r}${searchTruncated.value ? '+' : ''} resultados`}`
+    return r === 1 ? tr('1 result', '1 resultado') : tr(`${r}${searchTruncated.value ? '+' : ''} results`, `${r}${searchTruncated.value ? '+' : ''} resultados`)
   }
   const n = visible.value.length
-  const items = n === 1 ? '1 elemento' : `${n} elementos`
-  const sel = selected.value.size > 1 ? `${selected.value.size} de ${items} seleccionados` : items
-  return store.disk ? `${sel}, ${formatSize(store.disk.free)} disponibles` : sel
+  const items = n === 1 ? tr('1 item', '1 elemento') : tr(`${n} items`, `${n} elementos`)
+  const sel = selected.value.size > 1 ? tr(`${selected.value.size} of ${items} selected`, `${selected.value.size} de ${items} seleccionados`) : items
+  return store.disk ? tr(`${sel}, ${formatSize(store.disk.free)} available`, `${sel}, ${formatSize(store.disk.free)} disponibles`) : sel
 })
 
 // ---- Thumbnails and viewing ----
@@ -498,7 +500,7 @@ async function post(url, body) {
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
-    throw new Error(data.detail || `Error ${res.status}`)
+    throw new Error(apiError(data.detail) || `Error ${res.status}`)
   }
   return res
 }
@@ -509,23 +511,23 @@ async function run(task, done) {
     if (done) toast(done)
     loadDirectory()
   } catch (e) {
-    toast(e.message || 'No se pudo completar', 'warning')
+    toast(e.message || tr('Couldn’t finish', 'No se pudo completar'), 'warning')
   }
 }
 
 async function createFolder() {
-  const name = await prompt({ title: 'Nueva carpeta', value: 'Carpeta sin título', confirm: 'Crear' })
+  const name = await prompt({ title: tr('New folder', 'Nueva carpeta'), value: tr('untitled folder', 'Carpeta sin título'), confirm: tr('Create', 'Crear') })
   if (name) run(() => post('/store/api/files/mkdir', { path: joinPath(store.path, name), location: store.location }))
 }
 
 async function createFile() {
-  const name = await prompt({ title: 'Nuevo archivo', placeholder: 'nombre.txt', confirm: 'Crear' })
+  const name = await prompt({ title: tr('New file', 'Nuevo archivo'), placeholder: tr('name.txt', 'nombre.txt'), confirm: tr('Create', 'Crear') })
   if (name) run(() => post('/store/api/files/touch', { path: joinPath(store.path, name), location: store.location }))
 }
 
 async function renameItem(entry) {
   const dot = entry.type === 'file' ? entry.name.lastIndexOf('.') : -1
-  const name = await prompt({ title: 'Renombrar', value: entry.name, confirm: 'Renombrar', select: dot > 0 ? dot : null })
+  const name = await prompt({ title: tr('Rename', 'Renombrar'), value: entry.name, confirm: tr('Rename', 'Renombrar'), select: dot > 0 ? dot : null })
   if (name && name !== entry.name) {
     run(() => post('/store/api/files/rename', { path: joinPath(store.path, entry.name), new_name: name, location: store.location }))
   }
@@ -534,8 +536,8 @@ async function renameItem(entry) {
 async function deleteItems(list) {
   const one = list.length === 1
   const ok = await confirmDestructive(
-    one ? `¿Eliminar «${list[0].name}»?` : `¿Eliminar ${list.length} elementos?`,
-    'Se borrarán del servidor. No se puede deshacer.',
+    one ? tr(`Delete “${list[0].name}”?`, `¿Eliminar «${list[0].name}»?`) : tr(`Delete ${list.length} items?`, `¿Eliminar ${list.length} elementos?`),
+    tr('They’ll be deleted from the server. This can’t be undone.', 'Se borrarán del servidor. No se puede deshacer.'),
   )
   if (!ok) return
   run(async () => {
@@ -544,10 +546,10 @@ async function deleteItems(list) {
       const res = await fetch(`/store/api/files?${params}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.detail || `No se pudo eliminar «${entry.name}»`)
+        throw new Error(apiError(data.detail) || tr(`Couldn’t delete “${entry.name}”`, `No se pudo eliminar «${entry.name}»`))
       }
     }
-  }, one ? 'Eliminado' : `${list.length} elementos eliminados`)
+  }, one ? tr('Deleted', 'Eliminado') : tr(`${list.length} items deleted`, `${list.length} elementos eliminados`))
 }
 
 function duplicateItem(entry) {
@@ -560,7 +562,7 @@ function compressItem(entry) {
 
 async function decompressItem(entry) {
   const ok = await startDecompress(entry.name, store.path, store.location)
-  toast(ok ? 'Descomprimiendo…' : 'No se pudo descomprimir', ok ? 'check-circle' : 'warning')
+  toast(ok ? tr('Decompressing…', 'Descomprimiendo…') : tr('Couldn’t decompress', 'No se pudo descomprimir'), ok ? 'check-circle' : 'warning')
 }
 
 function downloadItem(entry) {
@@ -601,17 +603,17 @@ async function onIconChosen(iconName) {
 
 function addFavourite(path) {
   const added = addFav(store.location, path, store.user.email)
-  toast(added ? 'Añadida a Favoritos' : 'Ya está en Favoritos', added ? 'check-circle' : 'info')
+  toast(added ? tr('Added to Favourites', 'Añadida a Favoritos') : tr('Already in Favourites', 'Ya está en Favoritos'), added ? 'check-circle' : 'info')
 }
 
 async function deleteShareLink(entry) {
-  const ok = await confirmDestructive(`¿Eliminar el enlace de «${entry.name}»?`, 'Quien lo tenga dejará de poder abrirlo. Los archivos no se borran.', 'Eliminar enlace')
-  if (ok) run(() => fetch(`/store/api/shares/${entry.token}`, { method: 'DELETE' }), 'Enlace eliminado')
+  const ok = await confirmDestructive(tr(`Delete the link to “${entry.name}”?`, `¿Eliminar el enlace de «${entry.name}»?`), tr('Anyone who has it won’t be able to open it any more. The files aren’t deleted.', 'Quien lo tenga dejará de poder abrirlo. Los archivos no se borran.'), tr('Delete link', 'Eliminar enlace'))
+  if (ok) run(() => fetch(`/store/api/shares/${entry.token}`, { method: 'DELETE' }), tr('Link deleted', 'Enlace eliminado'))
 }
 
 function copyLink(url) {
   navigator.clipboard.writeText(url)
-  toast('Enlace copiado')
+  toast(tr('Link copied', 'Enlace copiado'))
 }
 
 // ---- Uploads and downloads ----
@@ -713,22 +715,22 @@ function onDrop(e) {
 
 function viewItems() {
   return [
-    { label: 'Iconos', icon: LayoutGrid, checked: store.view === 'icons', action: () => setView('icons') },
-    { label: 'Lista', icon: List, checked: store.view === 'list', action: () => setView('list') },
+    { label: tr('Icons', 'Iconos'), icon: LayoutGrid, checked: store.view === 'icons', action: () => setView('icons') },
+    { label: tr('List', 'Lista'), icon: List, checked: store.view === 'list', action: () => setView('list') },
     { separator: true },
-    { label: 'Nombre', checked: store.sortKey === 'name', action: () => setSort('name') },
-    { label: 'Fecha de modificación', checked: store.sortKey === 'modified', action: () => setSort('modified') },
-    { label: 'Tamaño', checked: store.sortKey === 'size', action: () => setSort('size') },
-    { label: 'Tipo', checked: store.sortKey === 'kind', action: () => setSort('kind') },
+    { label: tr('Name', 'Nombre'), checked: store.sortKey === 'name', action: () => setSort('name') },
+    { label: tr('Date modified', 'Fecha de modificación'), checked: store.sortKey === 'modified', action: () => setSort('modified') },
+    { label: tr('Size', 'Tamaño'), checked: store.sortKey === 'size', action: () => setSort('size') },
+    { label: tr('Kind', 'Tipo'), checked: store.sortKey === 'kind', action: () => setSort('kind') },
   ]
 }
 
 function newItems() {
   return [
-    { label: 'Subir archivos…', icon: Upload, action: triggerUpload },
+    { label: tr('Upload files…', 'Subir archivos…'), icon: Upload, action: triggerUpload },
     { separator: true },
-    { label: 'Nueva carpeta', icon: FolderPlus, action: createFolder },
-    { label: 'Nuevo archivo', icon: FilePlus, action: createFile },
+    { label: tr('New folder', 'Nueva carpeta'), icon: FolderPlus, action: createFolder },
+    { label: tr('New file', 'Nuevo archivo'), icon: FilePlus, action: createFile },
   ]
 }
 
@@ -737,64 +739,64 @@ function folderItems() {
   return [
     ...newItems(),
     { separator: true },
-    { label: 'Añadir a Favoritos', icon: Star, action: () => addFavourite(store.path) },
-    { label: 'Enlaces compartidos', icon: Link, action: () => { store.panel = 'shares' } },
+    { label: tr('Add to Favourites', 'Añadir a Favoritos'), icon: Star, action: () => addFavourite(store.path) },
+    { label: tr('Shared links', 'Enlaces compartidos'), icon: Link, action: () => { store.panel = 'shares' } },
   ]
 }
 
 function entryItems(entry) {
   if (entry.type === 'upload-pending') {
     return [
-      { label: 'Reanudar subida…', icon: Upload, action: () => resumeUpload({ ...entry, file_size: entry.size }) },
+      { label: tr('Resume upload…', 'Reanudar subida…'), icon: Upload, action: () => resumeUpload({ ...entry, file_size: entry.size }) },
       { separator: true },
-      { label: 'Cancelar subida', icon: Trash2, danger: true, action: () => cancelPendingUpload(entry.upload_id) },
+      { label: tr('Cancel upload', 'Cancelar subida'), icon: Trash2, danger: true, action: () => cancelPendingUpload(entry.upload_id) },
     ]
   }
   if (entry.type === 'share-link') {
     return [
-      { label: 'Abrir', icon: Eye, action: () => openShareLink(entry) },
-      { label: 'Abrir en el navegador', icon: ExternalLink, action: () => window.open(entry.url, '_blank') },
-      { label: 'Copiar enlace', icon: Copy, action: () => copyLink(entry.url) },
+      { label: tr('Open', 'Abrir'), icon: Eye, action: () => openShareLink(entry) },
+      { label: tr('Open in browser', 'Abrir en el navegador'), icon: ExternalLink, action: () => window.open(entry.url, '_blank') },
+      { label: tr('Copy link', 'Copiar enlace'), icon: Copy, action: () => copyLink(entry.url) },
       entry.share?.isOwn !== false && { separator: true },
-      entry.share?.isOwn !== false && { label: 'Opciones del enlace…', icon: Pencil, action: () => { shareProps.value = entry.share } },
-      entry.share?.isOwn !== false && { label: 'Eliminar enlace', icon: Trash2, danger: true, action: () => deleteShareLink(entry) },
+      entry.share?.isOwn !== false && { label: tr('Link options…', 'Opciones del enlace…'), icon: Pencil, action: () => { shareProps.value = entry.share } },
+      entry.share?.isOwn !== false && { label: tr('Delete link', 'Eliminar enlace'), icon: Trash2, danger: true, action: () => deleteShareLink(entry) },
     ]
   }
   if (shareMode.value) {
     return [
-      entry.type === 'file' && { label: 'Abrir', icon: Eye, action: () => viewItem(entry) },
-      { label: entry.type === 'directory' ? 'Descargar como ZIP' : 'Descargar', icon: Download, action: () => downloadItem(entry) },
+      entry.type === 'file' && { label: tr('Open', 'Abrir'), icon: Eye, action: () => viewItem(entry) },
+      { label: entry.type === 'directory' ? tr('Download as ZIP', 'Descargar como ZIP') : tr('Download', 'Descargar'), icon: Download, action: () => downloadItem(entry) },
     ]
   }
   const many = selected.value.size > 1 && selected.value.has(entry.name)
   if (many) {
     const list = selectedEntries.value
     return [
-      { label: `Descargar ${list.length} elementos`, icon: Download, action: () => list.forEach(downloadItem) },
+      { label: tr(`Download ${list.length} items`, `Descargar ${list.length} elementos`), icon: Download, action: () => list.forEach(downloadItem) },
       { separator: true },
-      { label: `Eliminar ${list.length} elementos`, icon: Trash2, danger: true, action: () => deleteItems(list) },
+      { label: tr(`Delete ${list.length} items`, `Eliminar ${list.length} elementos`), icon: Trash2, danger: true, action: () => deleteItems(list) },
     ]
   }
   const isDir = entry.type === 'directory'
   const isZip = entry.name.toLowerCase().endsWith('.zip')
   return [
-    { label: 'Abrir', icon: Eye, action: () => open(entry) },
+    { label: tr('Open', 'Abrir'), icon: Eye, action: () => open(entry) },
     { separator: true },
-    { label: 'Renombrar', icon: Pencil, action: () => renameItem(entry) },
-    isDir && { label: 'Cambiar icono…', icon: Palette, action: () => { iconEntry.value = entry } },
-    isDir && { label: 'Añadir a Favoritos', icon: Star, action: () => addFavourite(joinPath(store.path, entry.name)) },
-    { label: 'Compartir…', icon: Share, action: () => { shareEntry.value = entry } },
+    { label: tr('Rename', 'Renombrar'), icon: Pencil, action: () => renameItem(entry) },
+    isDir && { label: tr('Change icon…', 'Cambiar icono…'), icon: Palette, action: () => { iconEntry.value = entry } },
+    isDir && { label: tr('Add to Favourites', 'Añadir a Favoritos'), icon: Star, action: () => addFavourite(joinPath(store.path, entry.name)) },
+    { label: tr('Share…', 'Compartir…'), icon: Share, action: () => { shareEntry.value = entry } },
     { separator: true },
-    { label: 'Mover a…', icon: FolderInput, action: () => { moveMode.value = 'move'; moveEntry.value = entry } },
-    { label: 'Copiar a…', icon: Copy, action: () => { moveMode.value = 'copy'; moveEntry.value = entry } },
-    { label: 'Duplicar', icon: CopyPlus, action: () => duplicateItem(entry) },
+    { label: tr('Move to…', 'Mover a…'), icon: FolderInput, action: () => { moveMode.value = 'move'; moveEntry.value = entry } },
+    { label: tr('Copy to…', 'Copiar a…'), icon: Copy, action: () => { moveMode.value = 'copy'; moveEntry.value = entry } },
+    { label: tr('Duplicate', 'Duplicar'), icon: CopyPlus, action: () => duplicateItem(entry) },
     { separator: true },
-    { label: isDir ? 'Descargar como ZIP' : 'Descargar', icon: Download, action: () => downloadItem(entry) },
+    { label: isDir ? tr('Download as ZIP', 'Descargar como ZIP') : tr('Download', 'Descargar'), icon: Download, action: () => downloadItem(entry) },
     isZip
-      ? { label: 'Descomprimir', icon: ArchiveRestore, action: () => decompressItem(entry) }
-      : { label: 'Comprimir', icon: Archive, action: () => compressItem(entry) },
+      ? { label: tr('Decompress', 'Descomprimir'), icon: ArchiveRestore, action: () => decompressItem(entry) }
+      : { label: tr('Compress', 'Comprimir'), icon: Archive, action: () => compressItem(entry) },
     { separator: true },
-    { label: 'Eliminar', icon: Trash2, danger: true, action: () => deleteItems([entry]) },
+    { label: tr('Delete', 'Eliminar'), icon: Trash2, danger: true, action: () => deleteItems([entry]) },
   ]
 }
 
@@ -846,8 +848,8 @@ function uploadPercent(entry) {
 }
 
 function subtitle(entry) {
-  if (entry.type === 'upload-pending') return `Subiendo · ${uploadPercent(entry)} %`
-  if (entry.type === 'share-link') return entry.share?.isOwn === false ? 'Enlace público' : 'Tu enlace compartido'
+  if (entry.type === 'upload-pending') return tr(`Uploading · ${uploadPercent(entry)}%`, `Subiendo · ${uploadPercent(entry)} %`)
+  if (entry.type === 'share-link') return entry.share?.isOwn === false ? tr('Public link', 'Enlace público') : tr('Your shared link', 'Tu enlace compartido')
   if (entry.type === 'directory') return formatDate(entry.modified)
   return `${formatDate(entry.modified)} · ${formatSize(entry.size)}`
 }
@@ -872,36 +874,36 @@ onUnmounted(() => {
     <header class="toolbar" :class="{ scrolled }">
       <template v-if="!phone">
         <div class="nav-pill glass-control">
-          <button type="button" :disabled="!backEnabled" aria-label="Atrás" @click="back"><ChevronLeft :size="20" :stroke-width="2.2" /></button>
+          <button type="button" :disabled="!backEnabled" :aria-label="tr('Back', 'Atrás')" @click="back"><ChevronLeft :size="20" :stroke-width="2.2" /></button>
           <button type="button" :disabled="!forwardEnabled" aria-label="Adelante" @click="forward"><ChevronRight :size="20" :stroke-width="2.2" /></button>
         </div>
         <h1 class="toolbar-title">{{ title }}</h1>
         <div class="toolbar-spacer" />
-        <div class="segmented-pill glass-control" role="group" aria-label="Vista">
+        <div class="segmented-pill glass-control" role="group" :aria-label="tr('View', 'Vista')">
           <button type="button" :class="{ on: store.view === 'icons' }" aria-label="Iconos" @click="setView('icons')"><LayoutGrid :size="17" /></button>
           <button type="button" :class="{ on: store.view === 'list' }" aria-label="Lista" @click="setView('list')"><List :size="18" /></button>
         </div>
-        <button type="button" class="tool-btn glass-control" aria-label="Ordenar" @click="openMenu($event.currentTarget, viewItems().slice(3))"><ArrowUpDown :size="17" /></button>
+        <button type="button" class="tool-btn glass-control" :aria-label="tr('Sort', 'Ordenar')" @click="openMenu($event.currentTarget, viewItems().slice(3))"><ArrowUpDown :size="17" /></button>
         <template v-if="!shareMode">
-          <button type="button" class="tool-btn glass-control" aria-label="Nuevo" @click="openMenu($event.currentTarget, newItems())"><Plus :size="19" /></button>
+          <button type="button" class="tool-btn glass-control" :aria-label="tr('New', 'Nuevo')" @click="openMenu($event.currentTarget, newItems())"><Plus :size="19" /></button>
         </template>
-        <button type="button" class="tool-btn glass-control" aria-label="Más" @click="moreMenu"><MoreHorizontal :size="19" /></button>
+        <button type="button" class="tool-btn glass-control" :aria-label="tr('More', 'Más')" @click="moreMenu"><MoreHorizontal :size="19" /></button>
         <label class="search glass-control">
           <Search :size="15" />
-          <input ref="searchInput" v-model="query" placeholder="Buscar" aria-label="Buscar en esta carpeta y sus subcarpetas" />
+          <input ref="searchInput" v-model="query" :placeholder="tr('Search', 'Buscar')" :aria-label="tr('Search this folder and its subfolders', 'Buscar en esta carpeta y sus subcarpetas')" />
           <button v-if="query" type="button" class="clear" aria-label="Borrar" @click="query = ''"><X :size="12" :stroke-width="3" /></button>
         </label>
       </template>
 
       <template v-else>
-        <button v-if="parent || backEnabled" type="button" class="round-btn glass-control" aria-label="Atrás" @click="parent ? parent.go() : back()">
+        <button v-if="parent || backEnabled" type="button" class="round-btn glass-control" :aria-label="tr('Back', 'Atrás')" @click="parent ? parent.go() : back()">
           <ChevronLeft :size="24" :stroke-width="2.2" />
         </button>
         <span v-else />
         <span class="toolbar-title inline">{{ title }}</span>
         <div class="phone-actions">
-          <button v-if="!shareMode" type="button" class="round-btn glass-control" aria-label="Nuevo" @click="openMenu($event.currentTarget, newItems())"><Plus :size="22" /></button>
-          <button type="button" class="round-btn glass-control" aria-label="Más" @click="moreMenu"><MoreHorizontal :size="22" /></button>
+          <button v-if="!shareMode" type="button" class="round-btn glass-control" :aria-label="tr('New', 'Nuevo')" @click="openMenu($event.currentTarget, newItems())"><Plus :size="22" /></button>
+          <button type="button" class="round-btn glass-control" :aria-label="tr('More', 'Más')" @click="moreMenu"><MoreHorizontal :size="22" /></button>
         </div>
       </template>
     </header>
@@ -920,7 +922,7 @@ onUnmounted(() => {
         <h1 class="large-title">{{ title }}</h1>
         <label class="phone-search">
           <Search :size="17" />
-          <input v-model="query" placeholder="Buscar" aria-label="Buscar en esta carpeta y sus subcarpetas" />
+          <input v-model="query" :placeholder="tr('Search', 'Buscar')" :aria-label="tr('Search this folder and its subfolders', 'Buscar en esta carpeta y sus subcarpetas')" />
           <button v-if="query" type="button" class="clear" aria-label="Borrar" @click="query = ''"><X :size="12" :stroke-width="3" /></button>
         </label>
       </div>
@@ -928,18 +930,18 @@ onUnmounted(() => {
       <Transition name="fade">
         <div v-if="isDragOver" class="drop-zone">
           <FileIcon :entry="{ type: 'directory', name: title }" :size="72" />
-          <p class="headline">Suelta para subir a «{{ title }}»</p>
+          <p class="headline">{{ tr(`Drop to upload to “${title}”`, `Suelta para subir a «${title}»`) }}</p>
         </div>
       </Transition>
 
       <!-- Searching: this folder and all the folders inside it -->
       <div v-if="searching" class="results deselect">
-        <p class="results-scope footnote secondary">En «{{ title }}» y sus subcarpetas</p>
+        <p class="results-scope footnote secondary">{{ tr(`In “${title}” and its subfolders`, `En «${title}» y sus subcarpetas`) }}</p>
         <div v-if="searchResults === null" class="state"><Spinner :size="24" /></div>
         <div v-else-if="!sortedResults.length && !searchLoading" class="state">
           <Search :size="40" class="tertiary" />
-          <h3 class="headline">Sin resultados</h3>
-          <p class="subheadline secondary">Nada en «{{ title }}» ni en sus subcarpetas se llama «{{ query.trim() }}».</p>
+          <h3 class="headline">{{ tr('No results', 'Sin resultados') }}</h3>
+          <p class="subheadline secondary">{{ tr(`Nothing in “${title}” or its subfolders is called “${query.trim()}”.`, `Nada en «${title}» ni en sus subcarpetas se llama «${query.trim()}».`) }}</p>
         </div>
         <div v-else class="list" role="grid" :class="{ stale: searchLoading }">
           <div
@@ -967,13 +969,13 @@ onUnmounted(() => {
             </template>
           </div>
         </div>
-        <p v-if="searchTruncated" class="results-more footnote secondary">Hay más resultados. Escribe algo más concreto para verlos.</p>
+        <p v-if="searchTruncated" class="results-more footnote secondary">{{ tr('There are more results. Type something more specific to see them.', 'Hay más resultados. Escribe algo más concreto para verlos.') }}</p>
       </div>
 
       <div v-else-if="loading && !entries.length" class="state"><Spinner :size="24" /></div>
 
       <div v-else-if="error" class="state">
-        <h3 class="headline">No se puede abrir la carpeta</h3>
+        <h3 class="headline">{{ tr('Can’t open the folder', 'No se puede abrir la carpeta') }}</h3>
         <p class="subheadline secondary">{{ error }}</p>
         <button type="button" class="btn btn-bordered small" @click="loadDirectory">Reintentar</button>
       </div>
@@ -981,13 +983,13 @@ onUnmounted(() => {
       <div v-else-if="!visible.length" class="state deselect">
         <template v-if="query">
           <Search :size="40" class="tertiary" />
-          <h3 class="headline">Sin resultados</h3>
-          <p class="subheadline secondary">Nada en «{{ title }}» se llama «{{ query }}».</p>
+          <h3 class="headline">{{ tr('No results', 'Sin resultados') }}</h3>
+          <p class="subheadline secondary">{{ tr(`Nothing in “${title}” is called “${query}”.`, `Nada en «${title}» se llama «${query}».`) }}</p>
         </template>
         <template v-else>
           <FileIcon :entry="{ type: 'directory', name: '' }" :size="84" class="empty-folder" />
-          <h3 class="headline">Carpeta vacía</h3>
-          <p v-if="!shareMode" class="subheadline secondary">{{ phone ? 'Usa + para subir archivos o crear una carpeta.' : 'Arrastra archivos aquí o usa + para subirlos.' }}</p>
+          <h3 class="headline">{{ tr('Empty folder', 'Carpeta vacía') }}</h3>
+          <p v-if="!shareMode" class="subheadline secondary">{{ phone ? tr('Use + to upload files or create a folder.', 'Usa + para subir archivos o crear una carpeta.') : tr('Drag files here or use + to upload them.', 'Arrastra archivos aquí o usa + para subirlos.') }}</p>
         </template>
       </div>
 
@@ -1020,7 +1022,7 @@ onUnmounted(() => {
       <!-- List -->
       <div v-else class="list" role="grid">
         <div v-if="!phone" class="list-head" role="row">
-          <button v-for="col in [['name', 'Nombre'], ['modified', 'Fecha de modificación'], ['size', 'Tamaño'], ['kind', 'Tipo']]" :key="col[0]" type="button" class="col" :class="[`col-${col[0]}`, { sorted: store.sortKey === col[0] }]" @click.stop="setSort(col[0])">
+          <button v-for="col in [['name', tr('Name', 'Nombre')], ['modified', tr('Date modified', 'Fecha de modificación')], ['size', tr('Size', 'Tamaño')], ['kind', tr('Kind', 'Tipo')]]" :key="col[0]" type="button" class="col" :class="[`col-${col[0]}`, { sorted: store.sortKey === col[0] }]" @click.stop="setSort(col[0])">
             {{ col[1] }}
             <ChevronRight v-if="store.sortKey === col[0]" :size="12" :stroke-width="2.6" class="sort-arrow" :class="{ asc: store.sortAsc }" />
           </button>

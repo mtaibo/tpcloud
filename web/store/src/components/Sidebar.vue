@@ -12,6 +12,7 @@ import { toast } from '../ui/dialog.js'
 import { transferSummary } from '../transferSummary.js'
 import TransferPanel from './TransferPanel.vue'
 import BackupSheet from './BackupSheet.vue'
+import { t } from '../ui/i18n.js'
 
 const favouritesOpen = ref(true)
 const transfersOpen = ref(false)
@@ -32,17 +33,17 @@ function isActive(loc, path) {
 
 function addCurrent() {
   const added = add(store.location, store.path, store.user.email)
-  toast(added ? 'Añadida a Favoritos' : 'Ya está en Favoritos', added ? 'check-circle' : 'info')
+  toast(added ? t('Added to Favourites', 'Añadida a Favoritos') : t('Already in Favourites', 'Ya está en Favoritos'), added ? 'check-circle' : 'info')
 }
 
 function userMenu(e) {
   openMenu(e.currentTarget, [
-    { label: 'Tu cuenta', icon: User, action: () => { window.location.href = '/accounts' } },
-    { label: 'Volver a TPCloud', icon: Cloud, action: () => { window.location.href = '/' } },
+    { label: t('Your account', 'Tu cuenta'), icon: User, action: () => { window.location.href = '/accounts' } },
+    { label: t('Back to TPCloud', 'Volver a TPCloud'), icon: Cloud, action: () => { window.location.href = '/' } },
     store.user.is_admin && { separator: true },
-    store.user.is_admin && { label: 'Copia de seguridad…', icon: DatabaseBackup, action: () => { showBackup.value = true } },
+    store.user.is_admin && { label: t('Backup…', 'Copia de seguridad…'), icon: DatabaseBackup, action: () => { showBackup.value = true } },
     { separator: true },
-    { label: 'Cerrar sesión', icon: LogOut, danger: true, action: logout },
+    { label: t('Log out', 'Cerrar sesión'), icon: LogOut, danger: true, action: logout },
   ])
 }
 
@@ -66,46 +67,46 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocDown))
 
 <template>
   <aside class="sidebar">
-    <a href="/" class="brand" title="Volver a TPCloud">
+    <a href="/" class="brand" :title="t('Back to TPCloud', 'Volver a TPCloud')">
       <span class="brand-icon"><Cloud :size="15" :stroke-width="2.4" /></span>
-      <span>Archivos</span>
+      <span>{{ t('Files', 'Archivos') }}</span>
     </a>
 
     <nav class="nav">
       <div class="group-head" @click="favouritesOpen = !favouritesOpen">
-        <span>Favoritos</span>
-        <button type="button" class="head-btn" title="Añadir esta carpeta" @click.stop="addCurrent"><Plus :size="14" :stroke-width="2.4" /></button>
+        <span>{{ t('Favourites', 'Favoritos') }}</span>
+        <button type="button" class="head-btn" :title="t('Add this folder', 'Añadir esta carpeta')" @click.stop="addCurrent"><Plus :size="14" :stroke-width="2.4" /></button>
         <ChevronRight :size="13" :stroke-width="2.6" class="head-chevron" :class="{ open: favouritesOpen }" />
       </div>
       <template v-if="favouritesOpen">
-        <p v-if="!favourites.length" class="hint">Usa + o «Añadir a Favoritos» en una carpeta.</p>
+        <p v-if="!favourites.length" class="hint">{{ t('Use + or “Add to Favourites” on a folder.', 'Usa + o «Añadir a Favoritos» en una carpeta.') }}</p>
         <div v-for="fav in favourites" :key="fav.id" class="item-wrap">
           <button type="button" class="item" :class="{ active: isActive(fav.location, fav.path) }" @click="navigate(fav.location, fav.path)">
             <component :is="FOLDER_ICONS_MAP[fav.icon_name] || (fav.path === homePath ? House : Folder)" :size="18" :stroke-width="1.9" class="item-icon" />
             <span class="item-label">{{ folderTitle(fav.path) }}</span>
           </button>
-          <button type="button" class="remove" title="Quitar de Favoritos" @click="remove(fav.id)"><X :size="12" :stroke-width="2.6" /></button>
+          <button type="button" class="remove" :title="t('Remove from Favourites', 'Quitar de Favoritos')" @click="remove(fav.id)"><X :size="12" :stroke-width="2.6" /></button>
         </div>
       </template>
 
       <div class="group-head static"><span>Ubicaciones</span></div>
       <button type="button" class="item" :class="{ active: isActive('external', homePath) }" @click="navigate('external', homePath)">
         <House :size="18" :stroke-width="1.9" class="item-icon" />
-        <span class="item-label">Inicio</span>
+        <span class="item-label">{{ t('Home', 'Inicio') }}</span>
       </button>
       <button type="button" class="item" :class="{ active: isActive('external', 'shared') }" @click="navigate('external', 'shared')">
         <Users :size="18" :stroke-width="1.9" class="item-icon" />
         <span class="item-label">Compartido</span>
       </button>
-      <a href="/photos/" class="item" title="Abrir la Galería">
+      <a href="/photos/" class="item" :title="t('Open Photos', 'Abrir la Galería')">
         <Images :size="18" :stroke-width="1.9" class="item-icon" />
-        <span class="item-label">Galería</span>
+        <span class="item-label">{{ t('Photos', 'Galería') }}</span>
       </a>
 
-      <div class="group-head static"><span>Enlaces</span></div>
+      <div class="group-head static"><span>{{ t('Links', 'Enlaces') }}</span></div>
       <button type="button" class="item" :class="{ active: store.panel === 'shares' }" @click="store.panel = 'shares'">
         <Link :size="18" :stroke-width="1.9" class="item-icon" />
-        <span class="item-label">Enlaces compartidos</span>
+        <span class="item-label">{{ t('Shared links', 'Enlaces compartidos') }}</span>
       </button>
     </nav>
 
@@ -123,7 +124,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocDown))
 
     <div v-if="store.disk" class="storage">
       <div class="meter"><i :style="{ width: `${usedPct}%` }" :class="{ full: usedPct > 90 }" /></div>
-      <p>{{ formatSize(store.disk.free) }} disponibles de {{ formatSize(store.disk.used + store.disk.free) }}</p>
+      <p>{{ t(`${formatSize(store.disk.free)} available of ${formatSize(store.disk.used + store.disk.free)}`, `${formatSize(store.disk.free)} disponibles de ${formatSize(store.disk.used + store.disk.free)}`) }}</p>
     </div>
 
     <button type="button" class="user" @click="userMenu">

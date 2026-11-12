@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChevronLeft, ChevronRight, Download, Heart, Trash2, X } from 'lucide-vue-next'
 import { kindOf } from '../fileTypes.js'
+import { t } from '../ui/i18n.js'
 
 // Quick Look for photos and videos: the file over a dark blur, its name on top, arrows (and the
 // keyboard, and swipes) to move through the folder's media. It shows the light versions (a
@@ -73,18 +74,18 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div class="look" @click.self="emit('close')" @touchstart.passive="onTouchStart" @touchend="onTouchEnd">
       <header class="look-bar">
-        <button type="button" class="look-btn" aria-label="Cerrar" @click="emit('close')"><X :size="20" :stroke-width="2.2" /></button>
+        <button type="button" class="look-btn" :aria-label="t('Close', 'Cerrar')" @click="emit('close')"><X :size="20" :stroke-width="2.2" /></button>
         <div class="look-title">
           <span class="look-name">{{ entry.name }}</span>
           <span v-if="subtitle" class="look-count">{{ subtitle(entry) }}</span>
-          <span v-else-if="items.length > 1" class="look-count">{{ index + 1 }} de {{ items.length }}</span>
+          <span v-else-if="items.length > 1" class="look-count">{{ t(`${index + 1} of ${items.length}`, `${index + 1} de ${items.length}`) }}</span>
         </div>
         <div class="look-actions">
-          <button v-if="favorite" type="button" class="look-btn" :class="{ faved: favorite(entry) }" :aria-label="favorite(entry) ? 'Quitar de Favoritos' : 'Añadir a Favoritos'" @click="emit('favorite', entry)">
+          <button v-if="favorite" type="button" class="look-btn" :class="{ faved: favorite(entry) }" :aria-label="favorite(entry) ? t('Remove from Favourites', 'Quitar de Favoritos') : t('Add to Favourites', 'Añadir a Favoritos')" @click="emit('favorite', entry)">
             <Heart :size="19" :stroke-width="2" :fill="favorite(entry) ? 'currentColor' : 'none'" />
           </button>
-          <button v-if="deletable" type="button" class="look-btn" aria-label="Eliminar" @click="emit('delete', entry)"><Trash2 :size="19" :stroke-width="2" /></button>
-          <button type="button" class="look-btn" aria-label="Descargar" @click="emit('download', entry)"><Download :size="19" :stroke-width="2" /></button>
+          <button v-if="deletable" type="button" class="look-btn" :aria-label="t('Delete', 'Eliminar')" @click="emit('delete', entry)"><Trash2 :size="19" :stroke-width="2" /></button>
+          <button type="button" class="look-btn" :aria-label="t('Download', 'Descargar')" @click="emit('download', entry)"><Download :size="19" :stroke-width="2" /></button>
         </div>
       </header>
 
@@ -106,8 +107,8 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <button v-if="index > 0" type="button" class="arrow left" aria-label="Anterior" @click="go(-1)"><ChevronLeft :size="26" :stroke-width="2.2" /></button>
-      <button v-if="index < items.length - 1" type="button" class="arrow right" aria-label="Siguiente" @click="go(1)"><ChevronRight :size="26" :stroke-width="2.2" /></button>
+      <button v-if="index > 0" type="button" class="arrow left" :aria-label="t('Previous', 'Anterior')" @click="go(-1)"><ChevronLeft :size="26" :stroke-width="2.2" /></button>
+      <button v-if="index < items.length - 1" type="button" class="arrow right" :aria-label="t('Next', 'Siguiente')" @click="go(1)"><ChevronRight :size="26" :stroke-width="2.2" /></button>
     </div>
   </Teleport>
 </template>

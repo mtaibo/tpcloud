@@ -10,6 +10,7 @@ import { downloadLink, photoMediaUrls } from '../mediaUrls.js'
 import { kindOf } from '../fileTypes.js'
 import GalleryThumb from './GalleryThumb.vue'
 import QuickLook from './QuickLook.vue'
+import { locale, t } from '../ui/i18n.js'
 
 // The photos backed up from the phone, newest first and grouped by month like Photos, with the
 // same light thumbnails and previews as a share page so they come up at once.
@@ -21,18 +22,18 @@ const section = defineModel('section', { type: String, default: 'all' })
 const props = defineProps({ albums: { type: Array, default: () => [] } })
 const emit = defineEmits(['albums-changed'])
 
-const titles = { all: 'Galería', camera: 'Cámara', screenshots: 'Capturas' }
+const titles = () => ({ all: t('Photos', 'Galería'), camera: t('Camera', 'Cámara'), screenshots: t('Screenshots', 'Capturas') })
 const albumId = computed(() => (section.value.startsWith('album:') ? Number(section.value.slice(6)) : null))
 const album = computed(() => props.albums.find(a => a.id === albumId.value) || null)
 const favoritesId = ref(null)
 const inFavorites = computed(() => albumId.value !== null && albumId.value === favoritesId.value)
-const title = computed(() => album.value?.name || titles[section.value] || 'Galería')
+const title = computed(() => (album.value?.kind === 'favorites' ? t('Favourites', 'Favoritos') : album.value?.name) || titles()[section.value] || t('Photos', 'Galería'))
 
 const filters = computed(() => [
-  { value: 'all', label: 'Todas' },
-  { value: 'camera', label: 'Cámara' },
-  { value: 'screenshots', label: 'Capturas' },
-  ...(favoritesId.value ? [{ value: `album:${favoritesId.value}`, label: 'Favoritos' }] : []),
+  { value: 'all', label: t('All', 'Todas') },
+  { value: 'camera', label: t('Camera', 'Cámara') },
+  { value: 'screenshots', label: t('Screenshots', 'Capturas') },
+  ...(favoritesId.value ? [{ value: `album:${favoritesId.value}`, label: t('Favourites', 'Favoritos') }] : []),
 ])
 
 const photos = ref([])
@@ -46,8 +47,8 @@ const scroller = ref(null)
 let generation = 0
 let observer = null
 
-const monthFormat = new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric' })
-const dayFormat = new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+const monthFormat = new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric' })
+const dayFormat = new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 function toItem(p) {
   const date = p.taken_at ? new Date(p.taken_at) : null
@@ -57,7 +58,7 @@ function toItem(p) {
     // Its readable name on the server (ID123_20240229_1755.heic), which downloads keep too.
     name: p.path.split('/').at(-1),
     date,
-    month: date ? monthFormat.format(date).replace(/^./, c => c.toUpperCase()) : 'Sin fecha',
+    month: date ? monthFormat.format(date).replace(/^./, c => c.toUpperCase()) : t('No date', 'Sin fecha'),
   }
 }
 
@@ -83,14 +84,14 @@ async function loadMore() {
     if (cursor.value) params.set('cursor', cursor.value)
     const res = await fetch(`/store/api/photos?${params}`)
     if (mine !== generation) return
-    if (!res.ok) { error.value = 'No se han podido cargar las fotos.'; return }
+    if (!res.ok) { error.value = t('The photos couldn’t be loaded.', 'No se han podido cargar las fotos.'); return }
     const data = await res.json()
     favoritesId.value = data.favorites_album ?? favoritesId.value
     photos.value = photos.value.concat(data.items.map(toItem))
     cursor.value = data.next_cursor
     done.value = !data.next_cursor
   } catch {
-    if (mine === generation) error.value = 'No hay conexión. Vuelve a intentarlo.'
+    if (mine === generation) error.value = t('No connection. Try again.', 'No hay conexión. Vuelve a intentarlo.')
   } finally {
     if (mine === generation) {
       loading.value = false
@@ -132,7 +133,7 @@ function download(p) {
 // Deletes it from the server. The iPhone app backs up whatever is in the phone's library, so a
 // photo still on the phone comes back with the next backup.
 async function remove(p) {
-  const ok = await confirmDestructive('¿Eliminar esta foto?', 'Se borrará del servidor. Si sigue en el iPhone, la próxima copia de seguridad la volverá a subir.', 'Eliminar')
+  const ok = await confirmDestructive(t('Delete this photo?', '¿Eliminar esta foto?'), t('It will be deleted from the server. If it’s still on the iPhone, the next backup will upload it again.', 'Se borrará del servidor. Si sigue en el iPhone, la próxima copia de seguridad la volverá a subir.'), t('Delete', 'Eliminar'))
   if (!ok) return
   const res = await fetch(`/store/api/photos/${p.id}`, { method: 'DELETE' })
   if (!res.ok) { toast('No se ha podido eliminar', 'x-circle'); return }
@@ -166,11 +167,11 @@ async function toggleFavorite(p) {
 function menu(p, at) {
   openMenu(at, [
     favoritesId.value && (p.favorite
-      ? { label: 'Quitar de Favoritos', icon: HeartOff, action: () => toggleFavorite(p) }
-      : { label: 'Añadir a Favoritos', icon: Heart, action: () => toggleFavorite(p) }),
-    { label: 'Descargar el original', icon: Download, action: () => download(p) },
+      ? { label: t('Remove from Favourites', 'Quitar de Favoritos'), icon: HeartOff, action: () => toggleFavorite(p) }
+      : { label: t('Add to Favourites', 'Añadir a Favoritos'), icon: Heart, action: () => toggleFavorite(p) }),
+    { label: t('Download the original', 'Descargar el original'), icon: Download, action: () => download(p) },
     { separator: true },
-    { label: 'Eliminar', icon: Trash2, danger: true, action: () => remove(p) },
+    { label: t('Delete', 'Eliminar'), icon: Trash2, danger: true, action: () => remove(p) },
   ], p.name)
 }
 
@@ -196,25 +197,25 @@ onUnmounted(() => observer?.disconnect())
     <div ref="scroller" class="content">
       <div class="page-head">
         <a href="/" class="back"><ChevronLeft :size="20" :stroke-width="2.4" /> TPCloud</a>
-        <h1 class="large-title">Galería</h1>
+        <h1 class="large-title">{{ t('Photos', 'Galería') }}</h1>
         <Segmented v-model="section" :options="filters" class="filters" />
       </div>
 
       <div v-if="!photos.length && loading" class="state"><Spinner :size="26" /></div>
       <div v-else-if="!photos.length && error" class="state">
         <p class="headline">{{ error }}</p>
-        <button type="button" class="btn btn-bordered small" @click="loadMore">Reintentar</button>
+        <button type="button" class="btn btn-bordered small" @click="loadMore">{{ t('Try again', 'Reintentar') }}</button>
       </div>
       <div v-else-if="!photos.length && done" class="state">
         <template v-if="inFavorites">
           <span class="empty-icon favorites"><Heart :size="34" fill="currentColor" /></span>
-          <p class="headline">Aún no hay favoritos</p>
-          <p class="subheadline secondary">Toca el corazón en una foto para tenerla aquí.</p>
+          <p class="headline">{{ t('No favourites yet', 'Aún no hay favoritos') }}</p>
+          <p class="subheadline secondary">{{ t('Tap the heart on a photo to keep it here.', 'Toca el corazón en una foto para tenerla aquí.') }}</p>
         </template>
         <template v-else>
           <span class="empty-icon"><Images :size="34" /></span>
-          <p class="headline">{{ section === 'all' ? 'Aún no hay fotos' : 'No hay fotos aquí' }}</p>
-          <p v-if="section === 'all'" class="subheadline secondary">Activa la copia de seguridad en la app del iPhone y aparecerán aquí.</p>
+          <p class="headline">{{ section === 'all' ? t('No photos yet', 'Aún no hay fotos') : t('No photos here', 'No hay fotos aquí') }}</p>
+          <p v-if="section === 'all'" class="subheadline secondary">{{ t('Turn on backup in the iPhone app and they’ll show up here.', 'Activa la copia de seguridad en la app del iPhone y aparecerán aquí.') }}</p>
         </template>
       </div>
 
@@ -239,7 +240,7 @@ onUnmounted(() => observer?.disconnect())
 
       <div ref="sentinel" class="sentinel">
         <Spinner v-if="photos.length && loading" :size="20" />
-        <button v-else-if="photos.length && error" type="button" class="btn btn-bordered small" @click="loadMore">Reintentar</button>
+        <button v-else-if="photos.length && error" type="button" class="btn btn-bordered small" @click="loadMore">{{ t('Try again', 'Reintentar') }}</button>
       </div>
     </div>
 

@@ -1,4 +1,5 @@
 import { computed, reactive, ref } from 'vue'
+import { t } from './ui/i18n.js'
 
 // Where the browser is and how it shows things, shared by the sidebar, the browser and the
 // phone's tabs. Folders are addressed as (location, path) like the API.
@@ -63,9 +64,9 @@ export function rootOf(path) {
 }
 
 export function folderTitle(path) {
-  if (!path) return 'Archivos'
-  if (path === homePath.value) return 'Inicio'
-  if (path === 'shared') return 'Compartido'
+  if (!path) return t('Files', 'Archivos')
+  if (path === homePath.value) return t('Home', 'Inicio')
+  if (path === 'shared') return t('Shared', 'Compartido')
   return path.split('/').filter(Boolean).at(-1)
 }
 

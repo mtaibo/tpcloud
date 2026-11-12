@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted } from 'vue'
+import { t } from '../ui/i18n.js'
 
 const props = defineProps({
   filename: String,
@@ -12,7 +13,7 @@ const isVideo = computed(() => props.contentType?.startsWith('video/'))
 const isAudio = computed(() => props.contentType?.startsWith('audio/'))
 
 onMounted(() => { document.title = props.filename })
-onUnmounted(() => { document.title = 'Archivos · TPCloud' })
+onUnmounted(() => { document.title = t('Files · TPCloud', 'Archivos · TPCloud') })
 </script>
 
 <template>

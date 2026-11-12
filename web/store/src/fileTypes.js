@@ -1,3 +1,4 @@
+import { t } from './ui/i18n.js'
 export const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'heic'])
 export const VIDEO_EXTS = new Set(['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v'])
 export const AUDIO_EXTS = new Set(['mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a', 'opus'])
@@ -32,28 +33,29 @@ export function kindOf(entry) {
   return 'file'
 }
 
-const KIND_NAMES = {
-  upload: 'Subiendo',
-  share: 'Enlace compartido',
-  folder: 'Carpeta',
-  image: 'Imagen',
-  video: 'Vídeo',
+// Read through kindName(), so the language can change while the page is open.
+const KIND_NAMES = () => ({
+  upload: t('Uploading', 'Subiendo'),
+  share: t('Shared link', 'Enlace compartido'),
+  folder: t('Folder', 'Carpeta'),
+  image: t('Image', 'Imagen'),
+  video: t('Video', 'Vídeo'),
   audio: 'Audio',
-  archive: 'Archivo comprimido',
-  pdf: 'Documento PDF',
-  sheet: 'Hoja de cálculo',
-  slides: 'Presentación',
-  word: 'Documento',
-  text: 'Texto',
-  code: 'Código fuente',
-  file: 'Documento',
-}
+  archive: t('Archive', 'Archivo comprimido'),
+  pdf: t('PDF document', 'Documento PDF'),
+  sheet: t('Spreadsheet', 'Hoja de cálculo'),
+  slides: t('Presentation', 'Presentación'),
+  word: t('Document', 'Documento'),
+  text: t('Text', 'Texto'),
+  code: t('Source code', 'Código fuente'),
+  file: t('Document', 'Documento'),
+})
 
 export function kindName(entry) {
   const kind = kindOf(entry)
   const ext = extOf(entry)
-  if ((kind === 'image' || kind === 'video' || kind === 'audio') && ext) return `${KIND_NAMES[kind]} ${ext.toUpperCase()}`
-  return KIND_NAMES[kind]
+  if ((kind === 'image' || kind === 'video' || kind === 'audio') && ext) return `${KIND_NAMES()[kind]} ${ext.toUpperCase()}`
+  return KIND_NAMES()[kind]
 }
 
 // The colour of a document's label, like the system's document icons.

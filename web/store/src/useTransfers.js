@@ -1,4 +1,6 @@
 import { ref, computed } from 'vue'
+import { t as tr } from './ui/i18n.js'
+import { apiError } from './apiErrors.js'
 
 const CHUNK_SIZE = 32 * 1024 * 1024
 const CHUNK_THRESHOLD = 10 * 1024 * 1024
@@ -139,7 +141,7 @@ export function useTransfers() {
         })
         if (!res.ok) {
           let msg = `Error ${res.status}`
-          try { msg = (await res.json()).detail || msg } catch {}
+          try { msg = apiError((await res.json()).detail) || msg } catch {}
           fail(id, msg)
           failed = true
           break
@@ -171,7 +173,7 @@ export function useTransfers() {
       const res = await fetch(`/store/api/files/upload?${params}`, { method: 'POST', body: form })
       if (!res.ok) {
         let msg = `Error ${res.status}`
-        try { msg = (await res.json()).detail || msg } catch {}
+        try { msg = apiError((await res.json()).detail) || msg } catch {}
         console.error('Upload failed:', msg)
       }
     } catch (e) {
@@ -196,7 +198,7 @@ export function useTransfers() {
         const file = input.files?.[0]
         if (!file) { resolve(); return }
         if (file.name !== pending.filename || file.size !== pending.file_size) {
-          alert(`Archivo incorrecto. Se esperaba "${pending.filename}" (${formatBytes(pending.file_size)})`)
+          alert(tr(`Wrong file. Expected "${pending.filename}" (${formatBytes(pending.file_size)})`, `Archivo incorrecto. Se esperaba "${pending.filename}" (${formatBytes(pending.file_size)})`))
           resolve()
           return
         }

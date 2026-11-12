@@ -5,6 +5,8 @@ import Sheet from '../ui/Sheet.vue'
 import Spinner from '../ui/Spinner.vue'
 import ListSection from '../ui/ListSection.vue'
 import ListRow from '../ui/ListRow.vue'
+import { locale, t } from '../ui/i18n.js'
+import { apiError } from '../apiErrors.js'
 
 // The storage drive's copy onto the backup drive (admins only).
 const emit = defineEmits(['close'])
@@ -25,11 +27,11 @@ async function run() {
   error.value = null
   const res = await fetch('/store/api/backup/run', { method: 'POST' })
   if (res.ok) await fetchStatus()
-  else error.value = (await res.json().catch(() => ({}))).detail ?? 'No se pudo lanzar la copia'
+  else error.value = apiError((await res.json().catch(() => ({}))).detail) ?? t('Couldn’t start the backup', 'No se pudo lanzar la copia')
 }
 
 function formatDate(iso) {
-  return iso ? new Date(iso).toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' }) : '—'
+  return iso ? new Date(iso).toLocaleString(locale(), { dateStyle: 'long', timeStyle: 'short' }) : '—'
 }
 
 onMounted(() => { fetchStatus(); timer = setInterval(fetchStatus, 3000) })
@@ -37,7 +39,7 @@ onUnmounted(() => clearInterval(timer))
 </script>
 
 <template>
-  <Sheet v-model:open="open" title="Copia de seguridad" @close="emit('close')">
+  <Sheet v-model:open="open" :title="t('Backup', 'Copia de seguridad')" @close="emit('close')">
     <div v-if="!status" class="center"><Spinner :size="24" /></div>
     <template v-else>
       <div class="hero">
@@ -48,14 +50,14 @@ onUnmounted(() => clearInterval(timer))
           <DatabaseBackup v-else :size="32" />
         </span>
         <p class="title-3">
-          {{ status.running ? 'Copiando…' : status.last_exit_code === 0 ? 'Copia al día' : status.last_exit_code !== null ? `La última copia falló (${status.last_exit_code})` : 'Todavía no hay copias' }}
+          {{ status.running ? t('Copying…', 'Copiando…') : status.last_exit_code === 0 ? t('Backup up to date', 'Copia al día') : status.last_exit_code !== null ? t(`The last backup failed (${status.last_exit_code})`, `La última copia falló (${status.last_exit_code})`) : t('No backups yet', 'Todavía no hay copias') }}
         </p>
       </div>
-      <ListSection footer="Copia el disco de almacenamiento en el disco de copias con rsync. Se hace sola cada domingo a las 2:00.">
-        <ListRow title="Última copia" :value="formatDate(status.last_run)" />
+      <ListSection :footer="t('Copies the storage drive to the backup drive with rsync. It runs on its own every Sunday at 2:00.', 'Copia el disco de almacenamiento en el disco de copias con rsync. Se hace sola cada domingo a las 2:00.')">
+        <ListRow :title="t('Last backup', 'Última copia')" :value="formatDate(status.last_run)" />
       </ListSection>
       <button type="button" class="btn btn-prominent block" :disabled="status.running" @click="run">
-        {{ status.running ? 'En curso…' : 'Hacer una copia ahora' }}
+        {{ status.running ? t('In progress…', 'En curso…') : t('Back up now', 'Hacer una copia ahora') }}
       </button>
       <p v-if="error" class="footnote danger err">{{ error }}</p>
     </template>

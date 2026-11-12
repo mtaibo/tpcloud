@@ -3,17 +3,18 @@ import { computed } from 'vue'
 import { Compass, House, Images, Users } from 'lucide-vue-next'
 import { homePath, navigate, store } from '../store.js'
 import { transferSummary } from '../transferSummary.js'
+import { t as tr } from '../ui/i18n.js'
 
 // The phone's floating tab bar (iOS 26), and the pill above it while something is uploading.
 const emit = defineEmits(['transfers'])
 const summary = transferSummary()
 
-const tabs = [
-  { id: 'home', label: 'Inicio', icon: House },
-  { id: 'shared', label: 'Compartido', icon: Users },
-  { id: 'gallery', label: 'Galería', icon: Images },
-  { id: 'browse', label: 'Explorar', icon: Compass },
-]
+const tabs = computed(() => [
+  { id: 'home', label: tr('Home', 'Inicio'), icon: House },
+  { id: 'shared', label: tr('Shared', 'Compartido'), icon: Users },
+  { id: 'gallery', label: tr('Photos', 'Galería'), icon: Images },
+  { id: 'browse', label: tr('Browse', 'Explorar'), icon: Compass },
+])
 
 const active = computed(() => {
   if (store.panel === 'browse' || store.panel === 'shares') return 'browse'
