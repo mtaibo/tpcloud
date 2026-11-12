@@ -6,7 +6,7 @@ import Icon from './Icon.vue'
 <template>
   <Teleport to="body">
     <Transition name="alert">
-      <div v-if="alertState.open" class="overlay" style="align-items: center" @click.self="answer(false)">
+      <div v-if="alertState.open" class="overlay" style="align-items: center; z-index: 300" @click.self="answer(false)">
         <div class="alert" role="alertdialog" aria-modal="true">
           <h2>{{ alertState.title }}</h2>
           <p v-if="alertState.message" class="secondary">{{ alertState.message }}</p>
