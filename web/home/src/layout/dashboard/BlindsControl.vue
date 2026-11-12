@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { ChevronDown, ChevronUp, Lock, LockOpen, Pause } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Lock, Pause } from 'lucide-vue-next'
 
 import BlindSlider from '@/components/BlindSlider.vue'
 
@@ -61,7 +61,7 @@ async function toggleLock() {
     <div v-if="device" class="control blind-control">
         <span v-if="device.locked" class="badge orange"><Lock :size="12" :stroke-width="2.4" />{{ t('Locked by an administrator', 'Bloqueada por un administrador') }}</span>
 
-        <div class="stage">
+        <div class="stage" :style="{ '--rows': isAdmin ? 4 : 3 }">
             <BlindSlider
                 class="slider"
                 :fill-pos="fill"
@@ -81,13 +81,21 @@ async function toggleLock() {
                 <button class="round" type="button" :aria-label="t('Lower', 'Bajar')" :disabled="disabled" @click="moveBlind(id, 'down')">
                     <ChevronDown :size="24" :stroke-width="2.4" />
                 </button>
+                <button
+                    v-if="isAdmin"
+                    class="round lock"
+                    :class="{ on: device.locked }"
+                    type="button"
+                    :aria-label="device.locked ? t('Unlock', 'Desbloquear') : t('Lock', 'Bloquear')"
+                    :title="device.locked ? t('Unlock', 'Desbloquear') : t('Lock', 'Bloquear')"
+                    :aria-pressed="device.locked"
+                    :disabled="locking"
+                    @click="toggleLock"
+                >
+                    <Lock :size="20" :stroke-width="2.4" />
+                </button>
             </div>
         </div>
-
-        <button v-if="isAdmin" class="lock-btn" :class="{ on: device.locked }" type="button" :disabled="locking" @click="toggleLock">
-            <component :is="device.locked ? LockOpen : Lock" :size="16" :stroke-width="2.4" />
-            {{ device.locked ? t('Unlock', 'Desbloquear') : t('Lock', 'Bloquear') }}
-        </button>
     </div>
 </template>
 
@@ -99,8 +107,8 @@ async function toggleLock() {
 <style scoped>
 .control { --round: 56px; --gap: 14px; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 8px 0 12px; }
 .stage { display: flex; align-items: center; justify-content: center; gap: 22px; }
-/* As tall as the three buttons, and twice as wide as one. */
-.slider { width: calc(2 * var(--round)); height: calc(3 * var(--round) + 2 * var(--gap)); border-radius: calc(var(--round) / 2); }
+/* As tall as the column of buttons (three, or four with an admin's lock), and twice as wide as one. */
+.slider { width: calc(2 * var(--round)); height: calc(var(--rows) * var(--round) + (var(--rows) - 1) * var(--gap)); border-radius: calc(var(--round) / 2); }
 .buttons { display: flex; flex-direction: column; gap: var(--gap); }
 .round {
     width: var(--round);
@@ -115,22 +123,6 @@ async function toggleLock() {
 .round:hover:not(:disabled) { background: var(--fill-2); }
 .round:active:not(:disabled) { transform: scale(0.9); }
 .round:disabled { opacity: 0.35; }
-/* Admins only: under the controls, a plain pill; orange to undo a lock. */
-.lock-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 36px;
-    padding: 0 16px;
-    border-radius: 999px;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--label);
-    background: var(--fill-3);
-    transition: transform 0.2s var(--spring), background 0.2s, opacity 0.2s;
-}
-.lock-btn:hover:not(:disabled) { background: var(--fill-2); }
-.lock-btn:active:not(:disabled) { transform: scale(0.96); }
-.lock-btn:disabled { opacity: 0.5; }
-.lock-btn.on { color: #fff; background: var(--orange); }
+/* Admins only: the padlock under the three, orange while the blind is locked. */
+.round.lock.on { color: #fff; background: var(--orange); opacity: 1; }
 </style>
