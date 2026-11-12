@@ -60,7 +60,7 @@ The three web apps of the core, drawn after iOS (grouped lists, large titles, sh
 ### 🧩 Modules
 Separate repos that run next to tpcloud and use its gateway and auth:
 
-- [**tpstore**](https://github.com/mtaibo/tpstore) — storage, photos and share links
+- [**tpstore**](https://github.com/mtaibo/tpstore) — storage, photo gallery and share links
 - [**tphome**](https://github.com/mtaibo/tphome) — home automation
 - [**tpapp**](https://github.com/mtaibo/tpapp) — native iOS and macOS app for all of it
 
@@ -97,6 +97,7 @@ Separate repos that run next to tpcloud and use its gateway and auth:
 | `/accounts` | Account management | ✅ |
 | `/store` | [tpstore](https://github.com/mtaibo/tpstore) file browser, API at `/store/api` | ✅ |
 | `/share` | [tpstore](https://github.com/mtaibo/tpstore) public share links (only the share endpoints of its API) | — |
+| `/photos` | [tpstore](https://github.com/mtaibo/tpstore) gallery of the photos backed up from the iPhone (data from `/store/api`) | ✅ |
 | `/home` | [tphome](https://github.com/mtaibo/tphome) control panel, API at `/home/api` | ✅ |
 | `/admin` | Server admin API (private) | ✅ admin |
 | `/auth` | The auth API every client signs in against | — |

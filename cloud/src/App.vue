@@ -16,7 +16,7 @@ const activity = ref([])
 // Only the modules this server runs (auth reports them in /me).
 const allServices = [
   { module: 'store', name: 'Archivos', description: 'Tus archivos y fotos', icon: 'folder', tint: 'blue', url: '/store/' },
-  { module: 'store', name: 'Galería', description: 'Las fotos de tu iPhone', icon: 'photo', tint: 'pink', url: '/store/gallery' },
+  { module: 'store', name: 'Galería', description: 'Las fotos de tu iPhone', icon: 'photo', tint: 'pink', url: '/photos/' },
   { module: 'store', name: 'Compartido', description: 'Carpetas abiertas con enlace', icon: 'link', tint: 'teal', url: '/share/' },
   { module: 'home', name: 'Casa', description: 'Luces, persianas y enchufes', icon: 'house', tint: 'orange', url: '/home/' },
   { module: null, name: 'Cuenta', description: 'Seguridad y dispositivos', icon: 'person', tint: 'gray', url: '/accounts' },

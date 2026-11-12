@@ -1,7 +1,7 @@
 # Every module is served from one host, each under its own path:
 #
 #   /login  /accounts  /           tpcloud (sign-in, account, dashboard)
-#   /store  /share                 tpstore (files, public share links)
+#   /store  /share  /photos        tpstore (files, public share links, gallery)
 #   /home                          tphome
 #   /admin                         tpadmin
 #   /auth                          the auth API every client signs in against
@@ -114,6 +114,18 @@
 			reverse_proxy /api/* store-api:8000
 			import caching
 			reverse_proxy store-frontend:80
+		}
+	}
+
+	# tpstore's gallery, a section of its own. Only the page is served here: its data comes from
+	# tpstore's API under /store/api, like the store's.
+	redir /photos /photos/ 308
+	handle /photos/* {
+		route {
+			import protected
+			uri strip_prefix /photos
+			import caching
+			reverse_proxy photos-frontend:80
 		}
 	}
 
