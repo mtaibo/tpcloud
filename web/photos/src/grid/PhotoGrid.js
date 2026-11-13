@@ -18,6 +18,12 @@ import { ThumbCache, sizeFor } from './thumbs.js'
 
 export const LEVELS = [3, 5, 9, 15, 31, 61]
 
+/** The densest level a grid this wide offers: 61 columns only on a big screen; on a phone or a
+ *  tablet held upright the tiles would be a few pixels across. */
+export function maxLevelFor(width) {
+  return width >= 900 ? LEVELS.length - 1 : LEVELS.length - 2
+}
+
 const gapFor = cols => (cols >= 15 ? 1 : 2)
 
 class Layout {
@@ -264,7 +270,9 @@ export class PhotoGrid {
       this.schedule()
     })
 
-    this.current = new Layer(this, opts.level ?? 2)
+    const start = opts.level ?? 2
+    this.current = new Layer(this, Math.min(start, maxLevelFor(this.width)))
+    if (this.current.level !== start) queueMicrotask(() => opts.onLevel?.(this.current.level))
 
     this.onScroll = () => {
       this.scrollTop = scroller.scrollTop
@@ -330,6 +338,13 @@ export class PhotoGrid {
     this.width = w
     this.height = h
     this.dpr = dpr
+    // Narrowed below where 61 columns are offered: drop to 31.
+    const max = maxLevelFor(w)
+    if (this.current.level > max) {
+      this.current.level = max
+      this.buildChipGroups()
+      this.opts.onLevel?.(max)
+    }
     this.current.relayout()
     this.spacer.style.height = `${this.current.layout.height}px`
     if (atBottom || !keep) this.setScrollTop(this.current.layout.height)
@@ -511,7 +526,7 @@ export class PhotoGrid {
   pinchChanged(scale, raw) {
     // Spreading the fingers zooms in: fewer, bigger columns.
     const target = this.level + (scale >= 1 ? -1 : 1)
-    if (target < 0 || target >= LEVELS.length) {
+    if (target < 0 || target > maxLevelFor(this.width)) {
       this.revert()
       this.setStretch(Math.pow(scale, 0.2))
       return
@@ -573,7 +588,7 @@ export class PhotoGrid {
    * view (the zoom bar and the keys use the middle, a tap the photo tapped), as if pinched there.
    */
   zoomTo(level, fx = this.width / 2, fy = this.insetTop + (this.height - this.insetTop - this.insetBottom) / 2, response = 0.42) {
-    level = Math.min(LEVELS.length - 1, Math.max(0, level))
+    level = Math.min(maxLevelFor(this.width), Math.max(0, level))
     if (this.pinch || !this.items.length) return
     this.completeSettleNow()
     if (level === this.current.level) return

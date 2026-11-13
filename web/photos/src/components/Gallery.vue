@@ -7,7 +7,7 @@ import { openMenu } from '../menu.js'
 import { confirmDestructive, toast } from '../ui/dialog.js'
 import { vLongPress } from '../longPress.js'
 import { downloadLink, photoMediaUrls } from '../mediaUrls.js'
-import { LEVELS, PhotoGrid } from '../grid/PhotoGrid.js'
+import { LEVELS, PhotoGrid, maxLevelFor } from '../grid/PhotoGrid.js'
 import QuickLook from './QuickLook.vue'
 import { locale, t } from '../ui/i18n.js'
 
@@ -47,6 +47,7 @@ const look = shallowRef(null)
 const favVersion = ref(0) // bumped when a heart changes, so Quick Look shows it
 const level = ref(readLevel())
 const view = ref({ first: -1, last: -1, atNewest: true })
+const maxLevel = ref(LEVELS.length - 1) // 61 columns only on a big screen
 
 const scroller = ref(null)
 const head = ref(null)
@@ -153,6 +154,7 @@ watch(section, load)
 // them at its ends.
 function measure() {
   if (!grid || !gallery.value) return
+  if (scroller.value) maxLevel.value = maxLevelFor(scroller.value.clientWidth)
   const top = head.value ? head.value.offsetHeight : 0
   let bottom = 4
   if (filtersEl.value && getComputedStyle(filtersEl.value).display !== 'none') {
@@ -166,7 +168,7 @@ function zoom(step) {
 }
 
 function onSlider(e) {
-  grid?.zoomTo(LEVELS.length - 1 - Number(e.target.value))
+  grid?.zoomTo(maxLevel.value - Number(e.target.value))
 }
 
 function onKey(e) {
@@ -294,16 +296,16 @@ onUnmounted(() => {
       <div class="head-row">
         <h1 class="head-title">{{ title }}</h1>
         <div v-if="items.length" class="zoom glass" role="group" :aria-label="t('Zoom', 'Zoom')">
-          <button type="button" class="zoom-btn" :disabled="level >= LEVELS.length - 1" :aria-label="t('Smaller', 'Más pequeñas')" @click="zoom(1)">
+          <button type="button" class="zoom-btn" :disabled="level >= maxLevel" :aria-label="t('Smaller', 'Más pequeñas')" @click="zoom(1)">
             <Minus :size="16" :stroke-width="2.4" />
           </button>
           <input
             class="zoom-slider"
             type="range"
             min="0"
-            :max="LEVELS.length - 1"
+            :max="maxLevel"
             step="1"
-            :value="LEVELS.length - 1 - level"
+            :value="maxLevel - level"
             :aria-label="t('Photo size', 'Tamaño de las fotos')"
             @input="onSlider"
           />
