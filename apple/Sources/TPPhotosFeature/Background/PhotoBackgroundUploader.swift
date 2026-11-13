@@ -114,11 +114,12 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
 
         var madeProgress = false
 
+        let inFlight = await chunksInFlight()
         for upload in await ledger.activeUploads() {
             if upload.isComplete {
                 if await finalize(upload) { madeProgress = true }
             } else {
-                enqueueMissingChunks(for: upload)
+                enqueueMissingChunks(for: upload, skipping: inFlight)
                 madeProgress = true
             }
         }
@@ -183,7 +184,28 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
             await PhotoThumbnailCache.ensureThumbnail(for: asset, checksum: upload.uploadId)
         }
         await ledger.remove(uploadId: upload.uploadId)
+        await cancelChunks(of: upload.uploadId)
         return true
+    }
+
+    /// Chunks (upload id, index) that already have a task in the background session. iOS can hold
+    /// a task for hours (no network, low power), and enqueuing the same chunk again on every
+    /// refill used to pile up copies that reached the server after the photo was done, each one
+    /// starting a pending upload there that never finished.
+    private func chunksInFlight() async -> Set<String> {
+        let tasks = await session.allTasks
+        return Set(tasks.compactMap { task in
+            Self.decode(task.taskDescription).map { "\($0.uploadId)#\($0.chunkIndex)" }
+        })
+    }
+
+    /// Cancels whatever is still queued for a photo that's already registered.
+    private func cancelChunks(of uploadId: String) async {
+        for task in await session.allTasks {
+            guard let info = Self.decode(task.taskDescription), info.uploadId == uploadId else { continue }
+            task.cancel()
+            try? FileManager.default.removeItem(atPath: info.chunkFileURL)
+        }
     }
 
     private func plan(asset: PHAsset, ownerEmail: String) async throws {
@@ -231,13 +253,14 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
         // this far but the app died before any chunk task was created) — fetch the possibly-older
         // record back so chunk enqueuing is driven by its actual completedChunks, not an empty set.
         if let current = await ledger.upload(for: upload.uploadId) {
-            enqueueMissingChunks(for: current)
+            enqueueMissingChunks(for: current, skipping: await chunksInFlight())
         }
     }
 
-    private func enqueueMissingChunks(for upload: PendingPhotoUpload) {
+    private func enqueueMissingChunks(for upload: PendingPhotoUpload, skipping inFlight: Set<String>) {
         guard FileManager.default.fileExists(atPath: upload.tempFileURL.path) else { return }
-        for index in 0..<upload.totalChunks where !upload.completedChunks.contains(index) {
+        for index in 0..<upload.totalChunks
+        where !upload.completedChunks.contains(index) && !inFlight.contains("\(upload.uploadId)#\(index)") {
             enqueueChunk(index, of: upload)
         }
     }
