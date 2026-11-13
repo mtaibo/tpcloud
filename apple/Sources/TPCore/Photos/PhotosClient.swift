@@ -7,8 +7,27 @@ public struct PhotosClient: Sendable {
         self.client = client
     }
 
-    public enum Filter: String, Sendable, CaseIterable {
+    /// Which photos a list holds: the library (all of it, camera photos, screenshots), shared
+    /// photos, or one album.
+    public enum Filter: Hashable, Sendable {
         case all, screenshots, camera, shared
+        case album(Int)
+
+        /// A stable name, for the server's `filter` and the on-device cache's file name.
+        public var rawValue: String {
+            switch self {
+            case .all: return "all"
+            case .screenshots: return "screenshots"
+            case .camera: return "camera"
+            case .shared: return "shared"
+            case .album(let id): return "album-\(id)"
+            }
+        }
+
+        public var albumID: Int? {
+            if case .album(let id) = self { return id }
+            return nil
+        }
     }
 
     public struct Registration: Codable, Equatable, Sendable {
@@ -76,11 +95,50 @@ public struct PhotosClient: Sendable {
         cursor: String? = nil,
         limit: Int = 100
     ) async throws -> PhotoPage {
-        var query: [String: String] = ["filter": filter.rawValue, "limit": String(limit)]
+        var query: [String: String] = ["limit": String(limit)]
+        if let album = filter.albumID {
+            query["album"] = String(album)
+        } else {
+            query["filter"] = filter.rawValue
+        }
         if let fromDate { query["from_date"] = fromDate }
         if let toDate { query["to_date"] = toDate }
         if let cursor { query["cursor"] = cursor }
         return try await client.get("/api/photos", query: query)
+    }
+
+    // MARK: Albums
+
+    /// Favorites first, then the user's albums by name, hidden ones included (flagged).
+    public func albums() async throws -> [PhotoAlbum] {
+        try await client.get("/api/albums")
+    }
+
+    public func createAlbum(name: String, photoIDs: [Int] = []) async throws -> PhotoAlbum {
+        struct Body: Encodable { let name: String; let photoIds: [Int] }
+        return try await client.post("/api/albums", body: Body(name: name, photoIds: photoIDs))
+    }
+
+    /// Changes only what's passed: the name, whether it's hidden, whether it keeps its photos out
+    /// of the library.
+    public func updateAlbum(id: Int, name: String? = nil, hidden: Bool? = nil, hidesFromLibrary: Bool? = nil) async throws -> PhotoAlbum {
+        struct Body: Encodable { let name: String?; let hidden: Bool?; let hidesFromLibrary: Bool? }
+        return try await client.patch("/api/albums/\(id)", body: Body(name: name, hidden: hidden, hidesFromLibrary: hidesFromLibrary))
+    }
+
+    /// Deletes the album, not its photos.
+    public func deleteAlbum(id: Int) async throws {
+        let _: [String: Int] = try await client.delete("/api/albums/\(id)")
+    }
+
+    public func addPhotos(_ photoIDs: [Int], toAlbum id: Int) async throws -> PhotoAlbum {
+        struct Body: Encodable { let ids: [Int] }
+        return try await client.post("/api/albums/\(id)/photos", body: Body(ids: photoIDs))
+    }
+
+    public func removePhotos(_ photoIDs: [Int], fromAlbum id: Int) async throws -> PhotoAlbum {
+        struct Body: Encodable { let ids: [Int] }
+        return try await client.post("/api/albums/\(id)/photos/remove", body: Body(ids: photoIDs))
     }
 
     public func detail(id: Int) async throws -> Photo {

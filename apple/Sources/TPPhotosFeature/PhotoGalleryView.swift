@@ -35,6 +35,7 @@ public struct PhotoGalleryView: View {
     let scrollToBottomSignal: Int
 
     @Environment(\.openURL) private var openURL
+    @StateObject private var albums: PhotoAlbumsStore
     @State private var section: PhotosSection = .library
     /// The album last picked under Albums; independent of `section` so a trip to Shared and back
     /// to Library keeps it.
@@ -47,6 +48,10 @@ public struct PhotoGalleryView: View {
     @State private var shareURLs: [URL] = []
     @State private var isSharing = false
     #endif
+    /// The name prompt for a new album (with the photos to put in it) or a rename.
+    @State private var albumPrompt: AlbumPrompt?
+    @State private var albumName = ""
+    @State private var albumToDelete: PhotoAlbum?
     @State private var isStatusPresented = false
     /// The success message whose ✓ has already been shown for a few seconds and hidden.
     @State private var dismissedMessage: String?
@@ -67,6 +72,7 @@ public struct PhotoGalleryView: View {
         self.store = store
         self.syncStore = syncStore
         self.client = client
+        _albums = StateObject(wrappedValue: PhotoAlbumsStore(client: client))
         self.ownerEmail = ownerEmail
         self.isAdmin = isAdmin
     }
@@ -80,15 +86,15 @@ public struct PhotoGalleryView: View {
             Group {
                 switch section {
                 case .albums:
-                    AlbumsListView(selected: albumFilter) { filter in
+                    AlbumsListView(albums: albums, selected: albumFilter, onSelect: { filter in
                         albumFilter = filter
                         withAnimation(.snappy) { section = .library }
-                    }
+                    }, actions: albumActions)
                 case .library, .shared:
                     galleryContent
                 }
             }
-            .navigationTitle(section.title)
+            .navigationTitle(title)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             // Select mode swaps the tab bar for its own actions, like Photos.
@@ -128,6 +134,30 @@ public struct PhotoGalleryView: View {
         .task {
             store.filter = effectiveFilter
             if store.photos.isEmpty { await store.reload() }
+        }
+        .task { await albums.load() }
+        .alert(albumPrompt?.title ?? "", isPresented: isPromptingAlbum) {
+            TextField("Name", text: $albumName)
+            Button("Cancel", role: .cancel) {}
+            Button(albumPrompt?.confirm ?? "Save") { submitAlbumPrompt() }
+                .disabled(albumName.trimmingCharacters(in: .whitespaces).isEmpty)
+        } message: {
+            if case .create(let ids) = albumPrompt, !ids.isEmpty {
+                Text(ids.count == 1 ? "The selected photo will be added to it." : "The \(ids.count) selected photos will be added to it.")
+            }
+        }
+        .confirmationDialog(
+            "Delete “\(albumToDelete?.displayName ?? "")”?",
+            isPresented: Binding(get: { albumToDelete != nil }, set: { if !$0 { albumToDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Album", role: .destructive) {
+                guard let album = albumToDelete else { return }
+                if albumFilter == .album(album.id) { albumFilter = .all }
+                Task { await albums.delete(album) }
+            }
+        } message: {
+            Text("The photos stay in your library. If the album was keeping them out of it, they come back.")
         }
         .onChange(of: effectiveFilter) { _, newValue in
             store.filter = newValue
@@ -170,28 +200,147 @@ public struct PhotoGalleryView: View {
             ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
         }
         #endif
-        ToolbarItemGroup(placement: .primaryAction) {
-            #if os(iOS)
-            if selection.isActive {
-                menuButton
+        #if os(iOS)
+        // Separate glass buttons, not one shared capsule: ••• on the left, Select (or ✕) on the
+        // right, like Photos.
+        if selection.isActive {
+            ToolbarItem(placement: .primaryAction) { menuButton }
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            ToolbarItem(placement: .primaryAction) {
                 Button("Done Selecting", systemImage: "xmark") { selection.isActive = false }
-            } else {
-                if hasStatus {
-                    statusButton
-                }
-                if section != .albums && !store.photos.isEmpty {
+            }
+        } else {
+            if hasStatus {
+                ToolbarItem(placement: .primaryAction) { statusButton }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+            }
+            ToolbarItem(placement: .primaryAction) { menuButton }
+            if section != .albums && !store.photos.isEmpty {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
                     Button("Select") { selection.isActive = true }
                 }
-                menuButton
             }
-            #else
+        }
+        #else
+        ToolbarItemGroup(placement: .primaryAction) {
             if hasStatus {
                 statusButton
             }
             menuButton
-            #endif
+        }
+        #endif
+    }
+
+    // MARK: - Albums
+
+    enum AlbumPrompt {
+        case create([Int])
+        case rename(PhotoAlbum)
+
+        var title: String {
+            switch self {
+            case .create: return "New Album"
+            case .rename: return "Rename Album"
+            }
+        }
+
+        var confirm: String {
+            switch self {
+            case .create: return "Create"
+            case .rename: return "Rename"
+            }
         }
     }
+
+    private var isPromptingAlbum: Binding<Bool> {
+        Binding(get: { albumPrompt != nil }, set: { if !$0 { albumPrompt = nil } })
+    }
+
+    private var albumActions: AlbumActions {
+        AlbumActions(
+            create: { ids in
+                albumName = ""
+                albumPrompt = .create(ids)
+            },
+            rename: { album in
+                albumName = album.name
+                albumPrompt = .rename(album)
+            },
+            delete: { album in albumToDelete = album }
+        )
+    }
+
+    private func submitAlbumPrompt() {
+        let name = albumName.trimmingCharacters(in: .whitespaces)
+        guard let prompt = albumPrompt, !name.isEmpty else { return }
+        albumPrompt = nil
+        switch prompt {
+        case .create(let ids):
+            #if os(iOS)
+            if !ids.isEmpty { selection.isActive = false }
+            #endif
+            Task { await albums.create(name: name, photoIDs: ids) }
+        case .rename(let album):
+            Task { await albums.rename(album, to: name) }
+        }
+    }
+
+    /// The album on screen, when the grid is showing one.
+    private var currentAlbum: PhotoAlbum? {
+        guard section == .library, let id = albumFilter.albumID else { return nil }
+        return albums.album(id: id)
+    }
+
+    /// The album's name over an album, else the section's.
+    private var title: String {
+        if section == .library, albumFilter.albumID != nil {
+            return currentAlbum?.displayName ?? "Album"
+        }
+        return section.title
+    }
+
+    #if os(iOS)
+    /// Adds the selection to an album, or to a new one. Ending the selection, like Photos.
+    @ViewBuilder
+    private var addToAlbumMenu: some View {
+        let ids = selection.ids
+        Menu("Add to Album", systemImage: "rectangle.stack.badge.plus") {
+            Button("New Album…", systemImage: "plus") {
+                albumActions.create(Array(ids))
+            }
+            Section {
+                ForEach(albums.albums.filter { $0.id != currentAlbum?.id }) { album in
+                    Button(album.displayName, systemImage: album.isFavorites ? "heart" : (album.hidden ? "eye.slash" : "rectangle.stack")) {
+                        addSelected(to: album)
+                    }
+                }
+            }
+        }
+        .disabled(ids.isEmpty)
+    }
+
+    private func addSelected(to album: PhotoAlbum) {
+        let ids = selection.ids
+        selection.isActive = false
+        Task {
+            await albums.add(Array(ids), to: album)
+            // An album that keeps its photos out of the library takes them off the library grid.
+            if album.hidesFromLibrary && albumFilter.albumID == nil && section == .library {
+                store.drop(ids)
+            }
+        }
+    }
+
+    private func removeSelectedFromAlbum(_ album: PhotoAlbum) {
+        let ids = selection.ids
+        selection.isActive = false
+        Task {
+            await albums.remove(Array(ids), from: album)
+            store.drop(ids)
+        }
+    }
+    #endif
 
     #if os(iOS)
     private var selectedPhotos: [Photo] {
@@ -285,6 +434,24 @@ public struct PhotoGalleryView: View {
                     Button("Deselect All", systemImage: "circle") { selection.ids.removeAll() }
                         .disabled(selection.ids.isEmpty)
                 }
+                Section {
+                    addToAlbumMenu
+                    if let album = currentAlbum {
+                        Button("Remove from Album", systemImage: "rectangle.stack.badge.minus") {
+                            removeSelectedFromAlbum(album)
+                        }
+                        .disabled(selection.ids.isEmpty)
+                    }
+                }
+            }
+            #endif
+            #if os(iOS)
+            if !selection.isActive, let album = currentAlbum {
+                AlbumMenuItems(album: album, albums: albums, actions: albumActions)
+            }
+            #else
+            if let album = currentAlbum {
+                AlbumMenuItems(album: album, albums: albums, actions: albumActions)
             }
             #endif
             // Library, Albums and Shared, in the menu rather than across the top.
@@ -377,7 +544,7 @@ public struct PhotoGalleryView: View {
                 photos: store.photos,
                 client: client,
                 scrollToBottomSignal: scrollToBottomSignal,
-                title: section.title,
+                title: title,
                 selection: gridSelection,
                 onSelect: { detailPhotoID = $0.id },
                 onDelete: { photo in Task { await store.delete(photo) } }

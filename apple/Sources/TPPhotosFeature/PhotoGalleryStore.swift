@@ -133,6 +133,16 @@ public final class PhotoGalleryStore: ObservableObject {
         Task.detached(priority: .utility) { PhotoIndexCache.save(remaining, filter: filter) }
     }
 
+    /// Takes photos out of the list without deleting them (moved out of the album on screen, or
+    /// into an album that keeps its photos out of the library).
+    public func drop(_ ids: Set<Int>) {
+        guard !ids.isEmpty else { return }
+        photos.removeAll { ids.contains($0.id) }
+        let remaining = photos
+        let filter = self.filter
+        Task.detached(priority: .utility) { PhotoIndexCache.save(remaining, filter: filter) }
+    }
+
     public func delete(_ photo: Photo) async {
         do {
             try await client.delete(id: photo.id)
