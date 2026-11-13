@@ -4,12 +4,14 @@
 // (blurry for a moment) instead of empty.
 
 const SMALL_MAX = 320
+const TINY = 40
 
 // The size a tile is decoded at: its size on screen in pixels, rounded up a little so a few
 // nearby sizes share bitmaps. Up to 320 px it's cut from the server's 320 px thumbnail, above
 // that from the 2048 px preview.
 export function sizeFor(tileCss, dpr) {
   const px = tileCss * dpr
+  if (px <= TINY * 1.15) return TINY // the 61-column grid draws the 40 px copies kept anyway
   if (px <= SMALL_MAX * 1.12) return Math.min(SMALL_MAX, Math.max(64, Math.ceil(px / 32) * 32))
   return Math.min(1024, Math.ceil(px / 64) * 64)
 }
@@ -84,6 +86,7 @@ export class ThumbCache {
   }
 
   has(id, size) {
+    if (size === TINY && this.tiny.has(id)) return true
     return this.map.has(`${id}:${size}`) || this.failed.has(`${id}:${size}`)
   }
 

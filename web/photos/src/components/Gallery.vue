@@ -12,9 +12,9 @@ import QuickLook from './QuickLook.vue'
 import { locale, t } from '../ui/i18n.js'
 
 // The photos backed up from the phone, laid out like the iPhone app's Photos tab: one grid with
-// the newest photo at the bottom, where the view starts, at 3, 5, 9, 15 or 31 columns (pinch,
+// the newest photo at the bottom, where the view starts, at 3, 5, 9, 15, 31 or 61 columns (pinch,
 // the zoom bar or + and −), the section's title large over the photos with the dates on screen
-// under it, and at 15 and 31 columns the month or year where each begins. The grid itself is
+// under it, and at 15 columns the month, at 31 and 61 the year, where each begins. The grid itself is
 // `PhotoGrid` (canvas rows and a thumbnail worker), so this only feeds it and handles the rest.
 
 // Which photos: "all", "camera", "screenshots" or "album:<id>", picked in the sidebar on a
@@ -162,7 +162,7 @@ function measure() {
 }
 
 function zoom(step) {
-  grid?.zoomTo(level.value + step)
+  grid?.zoomBy(step)
 }
 
 function onSlider(e) {
@@ -427,8 +427,10 @@ onUnmounted(() => {
 <!-- The grid's own elements are made in JavaScript, so their styles can't be scoped. -->
 <style>
 .pg-spacer { position: relative; width: 100%; overflow: hidden; overflow: clip; }
-.pg-layer { position: absolute; left: 0; top: 0; will-change: transform; }
-.pg-row { position: absolute; left: 0; top: 0; display: block; }
+/* No events on the rows: a touch's events all go to the element it began on, and a row of a grid
+   left behind by a zoom is removed mid-pinch. The scroller handles taps by position anyway. */
+.pg-layer { position: absolute; left: 0; top: 0; will-change: transform; pointer-events: none; }
+.pg-row { position: absolute; left: 0; top: 0; display: block; pointer-events: none; }
 .pg-chips { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .pg-chip {
   position: absolute;
