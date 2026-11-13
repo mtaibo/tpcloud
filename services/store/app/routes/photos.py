@@ -381,6 +381,55 @@ async def list_photos(
     }
 
 
+@router.get("/index")
+async def photo_index(
+    request: Request,
+    filter: str = Query(default="all"),
+    album: Optional[int] = Query(default=None),
+    db: Session = Depends(get_session),
+):
+    """Every photo of the section in one go, newest first, as compact rows for the web gallery:
+    [id, checksum, path, taken_at (ms since epoch or null), mime_type, favourite 0/1]. Knowing the
+    whole library up front lets the grid lay itself out once, like the app's photo index, instead
+    of growing 200 photos at a time."""
+    from app.routes.albums import favorites_album, own_album
+
+    user = await get_current_user(request)
+    stmt = select(Photo.id, Photo.checksum, Photo.path, Photo.taken_at, Photo.mime_type).where(
+        Photo.owner_email == user["email"]
+    )
+    if album is not None:
+        own_album(db, album, user["email"])
+        stmt = stmt.where(Photo.id.in_(select(AlbumPhoto.photo_id).where(AlbumPhoto.album_id == album)))
+    if filter == "screenshots":
+        stmt = stmt.where(Photo.is_screenshot == True)  # noqa: E712
+    elif filter == "camera":
+        stmt = stmt.where(Photo.is_camera_original == True)  # noqa: E712
+    elif filter == "shared":
+        stmt = stmt.where(Photo.source_type == "cloud_shared")
+    elif filter != "all":
+        raise HTTPException(400, "Invalid filter")
+    rows = db.exec(stmt.order_by(Photo.taken_at.desc(), Photo.id.desc())).all()
+
+    favorites = favorites_album(db, user["email"])
+    favorite_ids = set(db.exec(select(AlbumPhoto.photo_id).where(AlbumPhoto.album_id == favorites.id)).all())
+
+    def millis(dt):
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
+
+    return {
+        "favorites_album": favorites.id,
+        "items": [
+            [r.id, r.checksum, r.path, millis(r.taken_at), r.mime_type, 1 if r.id in favorite_ids else 0]
+            for r in rows
+        ],
+    }
+
+
 @router.get("/{photo_id}")
 async def get_photo(
     photo_id: int,

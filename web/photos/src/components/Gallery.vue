@@ -1,21 +1,21 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ChevronLeft, Download, Heart, HeartOff, Images, Trash2 } from 'lucide-vue-next'
+import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { ChevronLeft, Download, Heart, HeartOff, Images, Minus, Plus, Trash2 } from 'lucide-vue-next'
 import Spinner from '../ui/Spinner.vue'
 import Segmented from '../ui/Segmented.vue'
 import { openMenu } from '../menu.js'
 import { confirmDestructive, toast } from '../ui/dialog.js'
 import { vLongPress } from '../longPress.js'
 import { downloadLink, photoMediaUrls } from '../mediaUrls.js'
-import { kindOf } from '../fileTypes.js'
-import GalleryThumb from './GalleryThumb.vue'
+import { LEVELS, PhotoGrid } from '../grid/PhotoGrid.js'
 import QuickLook from './QuickLook.vue'
 import { locale, t } from '../ui/i18n.js'
 
-// The photos backed up from the phone, grouped by month like Photos: newest at the bottom, where
-// the view starts, and older ones loading in above as you scroll up. Same light thumbnails and
-// previews as a share page so they come up at once.
-const PAGE = 200
+// The photos backed up from the phone, laid out like the iPhone app's Photos tab: one grid with
+// the newest photo at the bottom, where the view starts, at 3, 5, 9, 15 or 31 columns (pinch,
+// the zoom bar or + and −), the section's title large over the photos with the dates on screen
+// under it, and at 15 and 31 columns the month or year where each begins. The grid itself is
+// `PhotoGrid` (canvas rows and a thumbnail worker), so this only feeds it and handles the rest.
 
 // Which photos: "all", "camera", "screenshots" or "album:<id>", picked in the sidebar on a
 // computer and with the segmented control on a phone.
@@ -23,12 +23,12 @@ const section = defineModel('section', { type: String, default: 'all' })
 const props = defineProps({ albums: { type: Array, default: () => [] } })
 const emit = defineEmits(['albums-changed'])
 
-const titles = () => ({ all: t('Photos', 'Galería'), camera: t('Camera', 'Cámara'), screenshots: t('Screenshots', 'Capturas') })
+const titles = () => ({ all: t('Library', 'Biblioteca'), camera: t('Camera', 'Cámara'), screenshots: t('Screenshots', 'Capturas') })
 const albumId = computed(() => (section.value.startsWith('album:') ? Number(section.value.slice(6)) : null))
 const album = computed(() => props.albums.find(a => a.id === albumId.value) || null)
 const favoritesId = ref(null)
 const inFavorites = computed(() => albumId.value !== null && albumId.value === favoritesId.value)
-const title = computed(() => (album.value?.kind === 'favorites' ? t('Favourites', 'Favoritos') : album.value?.name) || titles()[section.value] || t('Photos', 'Galería'))
+const title = computed(() => (album.value?.kind === 'favorites' ? t('Favourites', 'Favoritos') : album.value?.name) || titles()[section.value] || t('Library', 'Biblioteca'))
 
 const filters = computed(() => [
   { value: 'all', label: t('All', 'Todas') },
@@ -37,125 +37,150 @@ const filters = computed(() => [
   ...(favoritesId.value ? [{ value: `album:${favoritesId.value}`, label: t('Favourites', 'Favoritos') }] : []),
 ])
 
-const photos = ref([])
-const cursor = ref(null)
-const done = ref(false)
+// Oldest first, as on screen. Plain objects (not reactive): there are thousands of them and the
+// grid reads them every frame.
+const items = shallowRef([])
 const loading = ref(false)
+const loaded = ref(false)
 const error = ref('')
-const look = ref(null)
-const sentinel = ref(null)
+const look = shallowRef(null)
+const favVersion = ref(0) // bumped when a heart changes, so Quick Look shows it
+const level = ref(readLevel())
+const view = ref({ first: -1, last: -1, atNewest: true })
+
 const scroller = ref(null)
-const current = ref('') // the month at the top of the view, shown under the title
+const head = ref(null)
+const filtersEl = ref(null)
+const gallery = ref(null)
+let grid = null
 let generation = 0
-let observer = null
 
-const monthName = new Intl.DateTimeFormat(locale(), { month: 'long' })
-const dayFormat = new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-
-function toItem(p) {
-  const date = p.taken_at ? new Date(p.taken_at) : null
-  return {
-    ...p,
-    type: 'file',
-    // Its readable name on the server (ID123_20240229_1755.heic), which downloads keep too.
-    name: p.path.split('/').at(-1),
-    date,
-    month: date ? monthName.format(date).replace(/^./, c => c.toUpperCase()) : t('No date', 'Sin fecha'),
-    year: date ? String(date.getFullYear()) : '',
-  }
+const LEVEL_KEY = 'tpphotos-level'
+function readLevel() {
+  try {
+    const saved = Number(localStorage.getItem(LEVEL_KEY))
+    if (Number.isInteger(saved) && saved >= 0 && saved < LEVELS.length && localStorage.getItem(LEVEL_KEY) !== null) return saved
+  } catch { /* private window */ }
+  return window.innerWidth < 768 ? 0 : 2
+}
+let saveTimer = 0
+function saveLevel(l) {
+  level.value = l
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => { try { localStorage.setItem(LEVEL_KEY, String(l)) } catch { /* fine */ } }, 400)
 }
 
-// The API pages newest first; on screen it's oldest first, so the newest photo is the last tile.
-const ordered = computed(() => photos.value.slice().reverse())
+const dense = computed(() => LEVELS[level.value] >= 15)
 
-const months = computed(() => {
-  const groups = []
-  for (const p of ordered.value) {
-    const key = `${p.year}-${p.month}`
-    const last = groups.at(-1)
-    if (last && last.key === key) last.items.push(p)
-    else groups.push({ key, month: p.month, year: p.year, items: [p] })
+const dayFormat = new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', year: 'numeric' })
+const longFormat = new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+const monthFormat = new Intl.DateTimeFormat(locale(), { month: 'short' })
+const numberFormat = new Intl.NumberFormat(locale())
+
+// Under the title, like Photos: how many there are at the newest end ("11,881 Items"), anywhere
+// else the days on screen ("4–7 Nov 2026"). The dense grids have their chips instead.
+const subtitle = computed(() => {
+  const list = items.value
+  if (!list.length || dense.value) return ''
+  const { first, last, atNewest } = view.value
+  if (atNewest || first < 0) {
+    const n = numberFormat.format(list.length)
+    return list.length === 1 ? t('1 Item', '1 elemento') : t(`${n} Items`, `${n} elementos`)
   }
-  return groups
+  let from = null
+  let to = null
+  for (let i = first; i <= last && !from; i++) from = list[i]?.date
+  for (let i = last; i >= first && !to; i--) to = list[i]?.date
+  if (!from || !to) return ''
+  try { return dayFormat.formatRange(from, to) } catch { return dayFormat.format(to) }
 })
 
-async function loadMore() {
-  if (loading.value || done.value) return
-  loading.value = true
-  error.value = ''
-  const mine = generation
-  try {
-    const params = new URLSearchParams({ limit: String(PAGE) })
-    if (albumId.value !== null) params.set('album', String(albumId.value))
-    else params.set('filter', section.value)
-    if (cursor.value) params.set('cursor', cursor.value)
-    const res = await fetch(`/store/api/photos?${params}`)
-    if (mine !== generation) return
-    if (!res.ok) { error.value = t('The photos couldn’t be loaded.', 'No se han podido cargar las fotos.'); return }
-    const data = await res.json()
-    favoritesId.value = data.favorites_album ?? favoritesId.value
-    // Older photos go in above what's on screen: keep the distance to the bottom so the view
-    // doesn't move. The first page instead starts at the bottom, on the newest.
-    const el = scroller.value
-    const first = !photos.value.length
-    const fromBottom = el ? el.scrollHeight - el.scrollTop : 0
-    photos.value = photos.value.concat(data.items.map(toItem))
-    cursor.value = data.next_cursor
-    done.value = !data.next_cursor
-    await nextTick()
-    if (el) el.scrollTop = first ? el.scrollHeight : el.scrollHeight - fromBottom
-    updateCurrent()
-  } catch {
-    if (mine === generation) error.value = t('No connection. Try again.', 'No hay conexión. Vuelve a intentarlo.')
-  } finally {
-    if (mine === generation) {
-      loading.value = false
-      // A short first page may leave the sentinel on screen: keep going until it isn't.
-      nextTick(checkSentinel)
-    }
-  }
+function chipLabel(p, kind) {
+  const year = String(p.date.getFullYear())
+  if (kind === 'year') return year
+  const month = monthFormat.format(p.date).replace('.', '')
+  return `${month.charAt(0).toUpperCase()}${month.slice(1)} ${year}`
 }
 
-// The sentinel sits above the oldest month: load more once it comes within 800 px of the top.
-function checkSentinel() {
-  const el = sentinel.value
-  if (!el || !scroller.value || done.value || loading.value || error.value || !photos.value.length) return
-  if (el.getBoundingClientRect().bottom > scroller.value.getBoundingClientRect().top - 800) loadMore()
-}
-
-// Which month is at the top of the view (under the header on a phone).
-let frame = 0
-function updateCurrent() {
-  cancelAnimationFrame(frame)
-  frame = requestAnimationFrame(() => {
-    const el = scroller.value
-    if (!el) return
-    const top = el.getBoundingClientRect().top + (parseFloat(getComputedStyle(el).scrollPaddingTop) || 0)
-    let label = ''
-    for (const s of el.querySelectorAll('.month')) {
-      if (s.getBoundingClientRect().bottom > top + 1) { label = s.dataset.label; break }
-    }
-    current.value = label
+function toItem([id, checksum, path, takenAt, mime, favorite]) {
+  const date = takenAt != null ? new Date(takenAt) : null
+  const name = path.split('/').at(-1) // its readable name on the server, which downloads keep
+  return markRaw({
+    id, checksum, path, name, date, mime_type: mime,
+    taken_at: date ? date.toISOString() : null,
+    favorite: !!favorite,
+    isVideo: (mime || '').startsWith('video/'),
+    type: 'file',
+    location: 'external',
   })
 }
 
-function reset() {
-  generation++
-  photos.value = []
-  cursor.value = null
-  done.value = false
-  loading.value = false
-  current.value = ''
-  loadMore()
+async function load() {
+  const mine = ++generation
+  loading.value = true
+  loaded.value = false
+  error.value = ''
+  look.value = null
+  items.value = []
+  grid?.setItems([])
+  try {
+    const params = new URLSearchParams()
+    if (albumId.value !== null) params.set('album', String(albumId.value))
+    else params.set('filter', section.value)
+    const res = await fetch(`/store/api/photos/index?${params}`)
+    if (mine !== generation) return
+    if (!res.ok) { error.value = t('The photos couldn’t be loaded.', 'No se han podido cargar las fotos.'); return }
+    const data = await res.json()
+    if (mine !== generation) return
+    favoritesId.value = data.favorites_album ?? favoritesId.value
+    // The API lists newest first; on screen it's oldest first, newest last.
+    const list = new Array(data.items.length)
+    for (let i = 0, n = data.items.length; i < n; i++) list[n - 1 - i] = toItem(data.items[i])
+    items.value = list
+    loaded.value = true
+    await nextTick()
+    measure()
+    grid?.setItems(list, { toNewest: true })
+  } catch {
+    if (mine === generation) error.value = t('No connection. Try again.', 'No hay conexión. Vuelve a intentarlo.')
+  } finally {
+    if (mine === generation) loading.value = false
+  }
 }
-watch(section, reset)
+watch(section, load)
 
-function isVideo(p) {
-  return (p.mime_type || '').startsWith('video/') || kindOf(p) === 'video'
+// The title floats over the photos, and on a phone the filters do too: the grid leaves room for
+// them at its ends.
+function measure() {
+  if (!grid || !gallery.value) return
+  const top = head.value ? head.value.offsetHeight : 0
+  let bottom = 4
+  if (filtersEl.value && getComputedStyle(filtersEl.value).display !== 'none') {
+    bottom = gallery.value.getBoundingClientRect().bottom - filtersEl.value.getBoundingClientRect().top + 8
+  }
+  grid.setInsets(top, bottom)
 }
 
-function subtitle(p) {
-  return p.date ? dayFormat.format(p.date).replace(/^./, c => c.toUpperCase()) : ''
+function zoom(step) {
+  grid?.zoomTo(level.value + step)
+}
+
+function onSlider(e) {
+  grid?.zoomTo(LEVELS.length - 1 - Number(e.target.value))
+}
+
+function onKey(e) {
+  if (look.value || e.metaKey || e.ctrlKey || e.altKey) return
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); zoom(-1) }
+  else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoom(1) }
+}
+
+// Pinching anywhere else on the page would zoom the page itself in Safari.
+const stopPageZoom = e => e.preventDefault()
+
+function photoSubtitle(p) {
+  return p.date ? longFormat.format(p.date).replace(/^./, c => c.toUpperCase()) : ''
 }
 
 function download(p) {
@@ -168,16 +193,20 @@ async function remove(p) {
   const ok = await confirmDestructive(t('Delete this photo?', '¿Eliminar esta foto?'), t('It will be deleted from the server. If it’s still on the iPhone, the next backup will upload it again.', 'Se borrará del servidor. Si sigue en el iPhone, la próxima copia de seguridad la volverá a subir.'), t('Delete', 'Eliminar'))
   if (!ok) return
   const res = await fetch(`/store/api/photos/${p.id}`, { method: 'DELETE' })
-  if (!res.ok) { toast('No se ha podido eliminar', 'x-circle'); return }
+  if (!res.ok) { toast(t('It couldn’t be deleted', 'No se ha podido eliminar'), 'x-circle'); return }
   dropFromList(p)
-  toast('Foto eliminada')
+  toast(t('Photo deleted', 'Foto eliminada'))
   if (p.favorite) emit('albums-changed')
 }
 
 function dropFromList(p) {
-  const i = photos.value.indexOf(p)
-  if (look.value === p) look.value = photos.value[i + 1] || photos.value[i - 1] || null
-  photos.value = photos.value.filter(x => x !== p)
+  const list = items.value
+  const i = list.indexOf(p)
+  if (i < 0) return
+  if (look.value === p) look.value = list[i + 1] || list[i - 1] || null
+  const next = list.slice(0, i).concat(list.slice(i + 1))
+  items.value = next
+  grid?.setItems(next)
 }
 
 // The heart, as in Photos: adds it to Favoritos or takes it out (and out of view, when looking
@@ -185,16 +214,27 @@ function dropFromList(p) {
 async function toggleFavorite(p) {
   if (!favoritesId.value) return
   const on = !p.favorite
-  p.favorite = on
+  setFavorite(p, on)
   const res = await fetch(`/store/api/albums/${favoritesId.value}/photos/${p.id}`, { method: on ? 'PUT' : 'DELETE' }).catch(() => null)
   if (!res?.ok) {
-    p.favorite = !on
-    toast('No se ha podido cambiar', 'x-circle')
+    setFavorite(p, !on)
+    toast(t('It couldn’t be changed', 'No se ha podido cambiar'), 'x-circle')
     return
   }
   if (!on && inFavorites.value) dropFromList(p)
   emit('albums-changed')
 }
+
+function setFavorite(p, on) {
+  p.favorite = on
+  favVersion.value++
+  grid?.refresh(p.id)
+}
+
+const isFavorite = computed(() => {
+  favVersion.value // a new function whenever a heart changes, so Quick Look draws it again
+  return favoritesId.value ? (p => p.favorite) : null
+})
 
 function menu(p, at) {
   openMenu(at, [
@@ -207,149 +247,169 @@ function menu(p, at) {
   ], p.name)
 }
 
-function onContext(p, e) {
-  e.preventDefault()
-  menu(p, e)
+function onLongPress(pt) {
+  const i = grid?.indexAt(pt.x, pt.y) ?? -1
+  if (i >= 0) menu(items.value[i], { clientX: pt.x, clientY: pt.y })
 }
 
+function closeLook() {
+  const i = items.value.indexOf(look.value)
+  look.value = null
+  if (i >= 0) grid?.reveal(i)
+}
+
+let resizeObserver = null
 onMounted(() => {
-  observer = new IntersectionObserver(([e]) => { if (e.isIntersecting && photos.value.length) loadMore() }, { root: scroller.value, rootMargin: '800px 0px' })
-  if (sentinel.value) observer.observe(sentinel.value)
-  loadMore()
+  grid = new PhotoGrid(scroller.value, {
+    level: level.value,
+    onOpen: i => { look.value = items.value[i] },
+    onMenu: (i, at) => menu(items.value[i], at),
+    onLevel: saveLevel,
+    onView: v => { view.value = v },
+    chipLabel,
+  })
+  resizeObserver = new ResizeObserver(measure)
+  if (head.value) resizeObserver.observe(head.value)
+  if (gallery.value) resizeObserver.observe(gallery.value)
+  window.addEventListener('keydown', onKey)
+  document.addEventListener('gesturestart', stopPageZoom)
+  load()
 })
-onUnmounted(() => { observer?.disconnect(); cancelAnimationFrame(frame) })
+onUnmounted(() => {
+  resizeObserver?.disconnect()
+  window.removeEventListener('keydown', onKey)
+  document.removeEventListener('gesturestart', stopPageZoom)
+  grid?.destroy()
+  grid = null
+})
 </script>
 
 <template>
-  <section class="gallery">
-    <header class="bar">
-      <h1 class="bar-title">{{ title }}</h1>
-      <span v-if="current" class="bar-sub">{{ current }}</span>
-    </header>
+  <section ref="gallery" class="gallery">
+    <div ref="scroller" v-long-press="onLongPress" class="content" />
 
-    <!-- On a phone: the title floats over the photos, like Photos, and the filters at the bottom. -->
-    <div class="page-head">
+    <!-- The title over the photos, like Photos: they blur and darken behind it. -->
+    <header ref="head" class="head">
       <a href="/" class="back"><ChevronLeft :size="20" :stroke-width="2.4" /> TPCloud</a>
-      <h1 class="large-title">{{ title }}</h1>
-      <p class="head-sub">{{ current || '\u00a0' }}</p>
-    </div>
-    <div class="filters glass"><Segmented v-model="section" :options="filters" /></div>
-
-    <div ref="scroller" class="content" @scroll.passive="updateCurrent">
-      <div ref="sentinel" class="sentinel">
-        <Spinner v-if="photos.length && loading" :size="20" />
-        <button v-else-if="photos.length && error" type="button" class="btn btn-bordered small" @click="loadMore">{{ t('Try again', 'Reintentar') }}</button>
-      </div>
-
-      <div v-if="!photos.length && loading" class="state"><Spinner :size="26" /></div>
-      <div v-else-if="!photos.length && error" class="state">
-        <p class="headline">{{ error }}</p>
-        <button type="button" class="btn btn-bordered small" @click="loadMore">{{ t('Try again', 'Reintentar') }}</button>
-      </div>
-      <div v-else-if="!photos.length && done" class="state">
-        <template v-if="inFavorites">
-          <span class="empty-icon favorites"><Heart :size="34" fill="currentColor" /></span>
-          <p class="headline">{{ t('No favourites yet', 'Aún no hay favoritos') }}</p>
-          <p class="subheadline secondary">{{ t('Tap the heart on a photo to keep it here.', 'Toca el corazón en una foto para tenerla aquí.') }}</p>
-        </template>
-        <template v-else>
-          <span class="empty-icon"><Images :size="34" /></span>
-          <p class="headline">{{ section === 'all' ? t('No photos yet', 'Aún no hay fotos') : t('No photos here', 'No hay fotos aquí') }}</p>
-          <p v-if="section === 'all'" class="subheadline secondary">{{ t('Turn on backup in the iPhone app and they’ll show up here.', 'Activa la copia de seguridad en la app del iPhone y aparecerán aquí.') }}</p>
-        </template>
-      </div>
-
-      <section v-for="m in months" :key="m.key" class="month" :data-label="`${m.month} ${m.year}`.trim()">
-        <h2 class="month-title">{{ m.month }} <span>{{ m.year }}</span></h2>
-        <div class="grid">
-          <button
-            v-for="p in m.items"
-            :key="p.id"
-            v-long-press="pt => menu(p, { clientX: pt.x, clientY: pt.y })"
-            type="button"
-            class="photo"
-            :aria-label="p.name"
-            @click="look = p"
-            @contextmenu="onContext(p, $event)"
-          >
-            <GalleryThumb :src="photoMediaUrls.thumbnail(p)" :alt="p.name" :type="isVideo(p) ? 'video' : 'image'" />
-            <Heart v-if="p.favorite" class="fav-badge" :size="15" fill="currentColor" :stroke-width="0" />
+      <div class="head-row">
+        <h1 class="head-title">{{ title }}</h1>
+        <div v-if="items.length" class="zoom glass" role="group" :aria-label="t('Zoom', 'Zoom')">
+          <button type="button" class="zoom-btn" :disabled="level >= LEVELS.length - 1" :aria-label="t('Smaller', 'Más pequeñas')" @click="zoom(1)">
+            <Minus :size="16" :stroke-width="2.4" />
+          </button>
+          <input
+            class="zoom-slider"
+            type="range"
+            min="0"
+            :max="LEVELS.length - 1"
+            step="1"
+            :value="LEVELS.length - 1 - level"
+            :aria-label="t('Photo size', 'Tamaño de las fotos')"
+            @input="onSlider"
+          />
+          <button type="button" class="zoom-btn" :disabled="level <= 0" :aria-label="t('Bigger', 'Más grandes')" @click="zoom(-1)">
+            <Plus :size="16" :stroke-width="2.4" />
           </button>
         </div>
-      </section>
+      </div>
+      <p class="head-sub">{{ subtitle || ' ' }}</p>
+    </header>
+
+    <div ref="filtersEl" class="filters glass"><Segmented v-model="section" :options="filters" /></div>
+
+    <div v-if="loading" class="state"><Spinner :size="26" /></div>
+    <div v-else-if="error" class="state">
+      <p class="headline">{{ error }}</p>
+      <button type="button" class="btn btn-bordered small" @click="load">{{ t('Try again', 'Reintentar') }}</button>
+    </div>
+    <div v-else-if="loaded && !items.length" class="state">
+      <template v-if="inFavorites">
+        <span class="empty-icon favorites"><Heart :size="34" fill="currentColor" /></span>
+        <p class="headline">{{ t('No favourites yet', 'Aún no hay favoritos') }}</p>
+        <p class="subheadline secondary">{{ t('Tap the heart on a photo to keep it here.', 'Toca el corazón en una foto para tenerla aquí.') }}</p>
+      </template>
+      <template v-else>
+        <span class="empty-icon"><Images :size="34" /></span>
+        <p class="headline">{{ section === 'all' ? t('No photos yet', 'Aún no hay fotos') : t('No photos here', 'No hay fotos aquí') }}</p>
+        <p v-if="section === 'all'" class="subheadline secondary">{{ t('Turn on backup in the iPhone app and they’ll show up here.', 'Activa la copia de seguridad en la app del iPhone y aparecerán aquí.') }}</p>
+      </template>
     </div>
 
     <QuickLook
       v-if="look"
-      :items="ordered"
+      :items="items"
       :entry="look"
       :urls="photoMediaUrls"
-      :subtitle="subtitle"
+      :subtitle="photoSubtitle"
       deletable
-      :favorite="favoritesId ? (p => p.favorite) : null"
+      :favorite="isFavorite"
       @favorite="toggleFavorite"
       @delete="remove"
-      @change="p => { look = p; if (ordered.indexOf(p) < 10) loadMore() }"
+      @change="p => { look = p }"
       @download="download"
-      @close="look = null"
+      @close="closeLook"
     />
   </section>
 </template>
 
 <style scoped>
-.gallery { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
-.bar { height: 64px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 24px; }
-.bar-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
-.bar-sub { font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
-/* overflow-anchor off: loadMore keeps the place itself when older months go in above. */
-.content { flex: 1; overflow-y: auto; overflow-anchor: none; padding: 0 24px 24px; }
-.page-head, .filters { display: none; }
-.state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 80px 24px; text-align: center; }
-.empty-icon { width: 72px; height: 72px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: linear-gradient(180deg, #ffb340, #ff7a00); margin-bottom: 6px; }
+.gallery { position: relative; flex: 1; min-width: 0; overflow: hidden; touch-action: pan-x pan-y; }
+.content {
+  position: absolute;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 
-.month + .month { margin-top: 22px; }
-.month-title { margin: 0 0 8px 2px; font-size: 20px; font-weight: 700; letter-spacing: -0.4px; }
-.month-title span { font-weight: 600; color: var(--label-3); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 3px; }
-.photo { position: relative; aspect-ratio: 1; border-radius: 6px; background: var(--fill-3); overflow: hidden; transition: opacity 0.15s, transform 0.25s; -webkit-touch-callout: none; }
-.photo:hover { opacity: 0.88; }
-.photo.long-pressing { transform: scale(0.95); }
-.fav-badge { position: absolute; left: 6px; bottom: 6px; color: #fff; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)); pointer-events: none; }
+.head {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 3;
+  padding: 18px 24px 22px;
+  pointer-events: none;
+}
+/* Photos' top edge: the photos blur and darken behind the title and fade back in below it. */
+.head::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 -18px;
+  z-index: -1;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 82%, transparent), color-mix(in srgb, var(--bg) 40%, transparent));
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}
+.head > *, .head-row > * { pointer-events: auto; }
+.head-row { display: flex; align-items: center; gap: 16px; pointer-events: none; }
+.head-title { flex: 1; min-width: 0; font-family: var(--font-display); font-size: 30px; font-weight: 800; letter-spacing: -0.6px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.head-sub { margin-top: 2px; font-size: 15px; font-weight: 600; color: var(--label-2); font-variant-numeric: tabular-nums; }
+.back { display: none; }
+
+.zoom { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; }
+.zoom-btn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: var(--label); }
+.zoom-btn:hover:not(:disabled) { background: var(--fill-3); }
+.zoom-btn:disabled { color: var(--label-3); }
+.zoom-slider { width: 120px; margin: 0 4px; accent-color: var(--accent); }
+
+.filters { display: none; }
+.state { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; pointer-events: none; }
+.state > * { pointer-events: auto; }
+.empty-icon { width: 72px; height: 72px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: linear-gradient(180deg, #ffb340, #ff7a00); margin-bottom: 6px; }
 .empty-icon.favorites { background: linear-gradient(180deg, #ff5f8f, #ff2d55); }
-.sentinel { min-height: 48px; display: grid; place-items: center; }
 
 @media (max-width: 767px) {
-  .bar { display: none; }
-  .content {
-    --head: calc(126px + env(safe-area-inset-top));
-    padding: var(--head) 0 calc(84px + env(safe-area-inset-bottom));
-    scroll-padding-top: var(--head);
-  }
-  .page-head {
-    position: absolute;
-    inset: 0 0 auto;
-    z-index: 3;
-    display: flex;
-    flex-direction: column;
-    padding: calc(10px + env(safe-area-inset-top)) 20px 30px;
-    pointer-events: none;
-  }
-  /* Photos' top edge: the photos blur and darken behind the title and fade back in below it. */
-  .page-head::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    mask-image: linear-gradient(to bottom, #000 72%, transparent);
-    -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent);
-  }
-  .page-head > * { pointer-events: auto; }
-  .back { align-self: flex-start; display: inline-flex; align-items: center; gap: 2px; margin-left: -6px; font-size: 17px; color: var(--accent); }
-  .page-head .large-title { margin-top: 4px; }
-  .head-sub { font-size: 15px; font-weight: 600; color: var(--label-2); font-variant-numeric: tabular-nums; }
+  .head { padding: calc(10px + env(safe-area-inset-top)) 16px 22px 20px; }
+  .back { display: inline-flex; align-self: flex-start; align-items: center; gap: 2px; margin-left: -6px; font-size: 17px; color: var(--accent); }
+  .head-title { font-size: 34px; }
+  .zoom-slider { display: none; }
+  .zoom-btn { width: 34px; height: 34px; }
   .filters {
     position: absolute;
     left: 50%;
@@ -361,9 +421,33 @@ onUnmounted(() => { observer?.disconnect(); cancelAnimationFrame(frame) })
     border-radius: 14px;
     transform: translateX(-50%);
   }
-  .month + .month { margin-top: 18px; }
-  .month-title { margin: 0 0 6px; padding: 0 20px; font-size: 18px; }
-  .grid { grid-template-columns: repeat(3, 1fr); gap: 2px; }
-  .photo { border-radius: 0; }
 }
+</style>
+
+<!-- The grid's own elements are made in JavaScript, so their styles can't be scoped. -->
+<style>
+.pg-spacer { position: relative; width: 100%; overflow: hidden; overflow: clip; }
+.pg-layer { position: absolute; left: 0; top: 0; will-change: transform; }
+.pg-row { position: absolute; left: 0; top: 0; display: block; }
+.pg-chips { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.pg-chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 26px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  border-radius: 13px;
+  font-size: 13px;
+  font-weight: 400;
+  color: #fff;
+  white-space: pre;
+  background: rgba(30, 30, 30, 0.55);
+  backdrop-filter: blur(14px) saturate(1.6);
+  -webkit-backdrop-filter: blur(14px) saturate(1.6);
+  pointer-events: none;
+}
+.pg-chip b { font-weight: 700; }
+.pg-pinned { z-index: 4; }
 </style>
