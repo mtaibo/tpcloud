@@ -62,8 +62,10 @@ struct PhotoGrid: View {
     let client: PhotosClient
     /// Bumped when the Photos tab is tapped again, to jump to the newest photos at the bottom.
     let scrollToBottomSignal: Int
-    /// "Library" or "Shared", drawn large over the grid on iPhone and iPad.
+    /// "All", "Shared" or the album's name, drawn large over the grid on iPhone and iPad.
     let title: String
+    /// Where the large title starts: past the back button on a pushed screen (an album).
+    var titleLeadingInset: CGFloat = 20
     /// Select mode (iPhone and iPad).
     let selection: PhotoSelection?
     /// Opens a photo on the Mac; on iPhone and iPad the grid opens its own viewer.
@@ -88,6 +90,7 @@ struct PhotoGrid: View {
             columnLevel: $columnLevel,
             scrollToBottomSignal: scrollToBottomSignal,
             title: title,
+            titleLeadingInset: titleLeadingInset,
             selection: selection,
             onDelete: onDelete
         )

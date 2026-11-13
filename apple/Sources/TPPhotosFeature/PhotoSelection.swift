@@ -48,11 +48,14 @@ struct PhotoSelectionBar: View {
             Button {
                 if count > 0 { selection.showSelectedSignal += 1 }
             } label: {
+                // Never wider than the room it has: with a fixed size, a count growing a digit made
+                // the bar a few points wider than the screen, SwiftUI widened the whole screen to
+                // fit it, and the grid's tiles grew with it — the grid jumped by rows mid-selection.
                 Text(count == 0 ? "Select Items" : "Show Selected (\(count))")
                     .font(.body.weight(.semibold))
                     .monospacedDigit()
                     .lineLimit(1)
-                    .fixedSize()
+                    .minimumScaleFactor(0.7)
                     .padding(.horizontal, 6)
             }
             .buttonStyle(.glass)
@@ -72,6 +75,130 @@ struct PhotoSelectionBar: View {
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 4)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// Select mode's chrome around a grid, the same on the library and in an album: the tab bar
+/// swapped for `PhotoSelectionBar`, sharing the originals, and deleting with a confirmation. It
+/// only reads whether select mode is on; the count is read where it's shown (the bar) and when a
+/// button is pressed, so selecting more photos never re-renders the screen around the grid.
+struct PhotoSelectionChrome: ViewModifier {
+    let selection: PhotoSelection
+    let store: PhotoGalleryStore
+    let client: PhotosClient
+
+    @State private var deleteCount = 0
+    @State private var isConfirmingDelete = false
+    @State private var isPreparingShare = false
+    @State private var shareURLs: [URL] = []
+    @State private var isSharing = false
+
+    func body(content: Content) -> some View {
+        content
+            .toolbar(selection.isActive ? .hidden : .visible, for: .tabBar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if selection.isActive {
+                    PhotoSelectionBar(
+                        selection: selection,
+                        isWorking: isPreparingShare,
+                        onShare: share,
+                        onDelete: {
+                            deleteCount = selection.ids.count
+                            isConfirmingDelete = deleteCount > 0
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.snappy, value: selection.isActive)
+            .confirmationDialog(
+                deleteCount == 1 ? "Delete this photo?" : "Delete \(deleteCount) photos?",
+                isPresented: $isConfirmingDelete,
+                titleVisibility: .visible
+            ) {
+                Button(deleteCount == 1 ? "Delete Photo" : "Delete \(deleteCount) Photos", role: .destructive) {
+                    let photos = selected()
+                    selection.isActive = false
+                    Task { await store.delete(photos) }
+                }
+            } message: {
+                Text("They'll be removed from your server. The copies on this device aren't affected.")
+            }
+            .sheet(isPresented: $isSharing) {
+                PhotoShareSheet(items: shareURLs)
+                    .presentationDetents([.medium, .large])
+                    .ignoresSafeArea()
+            }
+    }
+
+    private func selected() -> [Photo] {
+        let ids = selection.ids
+        return store.photos.reversed().filter { ids.contains($0.id) }
+    }
+
+    private func share() {
+        let photos = selected()
+        guard !photos.isEmpty else { return }
+        isPreparingShare = true
+        Task {
+            let urls = await PhotoShareDownloads.originals(of: photos, client: client)
+            isPreparingShare = false
+            guard !urls.isEmpty else { return }
+            shareURLs = urls
+            isSharing = true
+        }
+    }
+}
+
+/// The ••• menu's part for select mode: Select All / Deselect All, Add to Album (an album or a new
+/// one) and, inside an album, Remove from Album. Its own view so only it follows the count.
+struct PhotoSelectionMenuItems: View {
+    let selection: PhotoSelection
+    let store: PhotoGalleryStore
+    @ObservedObject var albums: PhotoAlbumsStore
+    /// The album on screen, if any (it can't be added to itself; its photos can be taken out).
+    let currentAlbum: PhotoAlbum?
+    let actions: AlbumActions
+    let onAdded: (PhotoAlbum, Set<Int>) -> Void
+    let onRemoved: (PhotoAlbum, Set<Int>) -> Void
+
+    var body: some View {
+        let isEmpty = selection.ids.isEmpty
+        Section {
+            Button("Select All", systemImage: "checkmark.circle") {
+                selection.ids = Set(store.photos.map(\.id))
+            }
+            Button("Deselect All", systemImage: "circle") { selection.ids.removeAll() }
+                .disabled(isEmpty)
+        }
+        Section {
+            Menu("Add to Album", systemImage: "rectangle.stack.badge.plus") {
+                Button("New Album…", systemImage: "plus") {
+                    let ids = selection.ids
+                    selection.isActive = false
+                    actions.create(Array(ids))
+                }
+                Section {
+                    ForEach(albums.albums.filter { $0.id != currentAlbum?.id }) { album in
+                        Button(album.displayName, systemImage: album.isFavorites ? "heart" : (album.hidden ? "eye.slash" : "rectangle.stack")) {
+                            let ids = selection.ids
+                            selection.isActive = false
+                            onAdded(album, ids)
+                        }
+                    }
+                }
+            }
+            .disabled(isEmpty)
+            if let album = currentAlbum {
+                Button("Remove from Album", systemImage: "rectangle.stack.badge.minus") {
+                    let ids = selection.ids
+                    selection.isActive = false
+                    onRemoved(album, ids)
+                }
+                .disabled(isEmpty)
+            }
+        }
     }
 }
 

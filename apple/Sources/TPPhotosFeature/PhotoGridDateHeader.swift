@@ -54,6 +54,10 @@ final class PhotoGridDateHeader: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// How far right the title and date start: past the back button on a pushed screen (an
+    /// album), at the edge on the tab's own screen.
+    var leadingInset: CGFloat = 20
+
     /// `top`: where the bars end. The title sits in the bar's row, level with its buttons, and
     /// the date just under the bar.
     func layout(in bounds: CGRect, top: CGFloat) {
@@ -61,8 +65,10 @@ final class PhotoGridDateHeader: UIView {
         blur.frame = self.bounds
         blurMask.frame = blur.bounds
         shade.frame = self.bounds
-        titleLabel.frame = CGRect(x: 20, y: top - 49, width: bounds.width * 0.6, height: 41)
-        dateLabel.frame = CGRect(x: 20, y: top - 6, width: bounds.width - 40, height: 22)
+        // The bar's buttons take the right ~40% (••• and Select).
+        let titleWidth = max(bounds.width * 0.6 - (leadingInset - 20), 80)
+        titleLabel.frame = CGRect(x: leadingInset, y: top - 49, width: titleWidth, height: 41)
+        dateLabel.frame = CGRect(x: leadingInset, y: top - 6, width: bounds.width - leadingInset - 20, height: 22)
     }
 
     var title: String? {

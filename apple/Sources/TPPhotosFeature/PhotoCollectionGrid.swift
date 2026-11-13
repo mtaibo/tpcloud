@@ -16,6 +16,8 @@ struct PhotoCollectionGrid: UIViewRepresentable {
     @Binding var columnLevel: Int
     let scrollToBottomSignal: Int
     let title: String
+    /// Past the back button when the grid is on a pushed screen.
+    var titleLeadingInset: CGFloat = 20
     let selection: PhotoSelection?
     let onDelete: (Photo) -> Void
 
@@ -50,6 +52,9 @@ struct PhotoCollectionGrid: UIViewRepresentable {
         selectPan.maximumNumberOfTouches = 1
         gridView.addGestureRecognizer(selectPan)
         gridView.panGestureRecognizer.require(toFail: selectPan)
+        // Only in select mode: a disabled recognizer holds nothing up, so outside it the scroll
+        // never waits on this one to fail.
+        selectPan.isEnabled = false
         coordinator.selectPan = selectPan
         gridView.layer.addSublayer(coordinator.badges.layer)
 
@@ -63,9 +68,10 @@ struct PhotoCollectionGrid: UIViewRepresentable {
         coordinator.computeMonthStartsSoon()
         gridView.accessibilityIdentifier = "PhotoGrid"
         if PhotoGridHitchMonitor.isEnabled {
-            coordinator.hitchMonitor = PhotoGridHitchMonitor { [weak gridView, weak zoom = coordinator.zoom] in
+            coordinator.hitchMonitor = PhotoGridHitchMonitor { [weak gridView, weak zoom = coordinator.zoom, weak coordinator] in
                 guard let gridView else { return false }
                 return gridView.isDragging || gridView.isDecelerating || (zoom?.isZooming ?? false)
+                    || (coordinator?.isSelectDragging ?? false)
             }
             coordinator.hitchMonitor?.offset = { [weak gridView] in gridView?.contentOffset.y ?? 0 }
             coordinator.hitchMonitor?.state = { [weak gridView] in
@@ -74,7 +80,7 @@ struct PhotoCollectionGrid: UIViewRepresentable {
             }
             coordinator.hitchMonitor?.describeGrid = { [weak gridView, weak zoom = coordinator.zoom] in
                 guard let gridView else { return "-" }
-                return "y\(Int(gridView.contentOffset.y)),cols\(gridView.columns),zooming\(zoom?.isZooming == true ? 1 : 0),pan\(gridView.panGestureRecognizer.isEnabled ? 1 : 0)"
+                return "y\(Int(gridView.contentOffset.y)),cols\(gridView.columns),zooming\(zoom?.isZooming == true ? 1 : 0),pan\(gridView.panGestureRecognizer.isEnabled ? 1 : 0),safeTop\(Int(gridView.safeAreaInsets.top)),safeBottom\(Int(gridView.safeAreaInsets.bottom)),h\(Int(gridView.bounds.height))"
             }
         }
 
@@ -82,6 +88,7 @@ struct PhotoCollectionGrid: UIViewRepresentable {
         coordinator.dateHeader = container.dateHeader
         coordinator.dateChips = container.dateChips
         container.dateHeader.title = title
+        container.dateHeader.leadingInset = titleLeadingInset
         container.statsView = coordinator.hitchMonitor?.statsView
         // Performance tests: zoom through every level and back on its own, so nothing else (a
         // menu closing, the test querying the app) runs alongside the measurement.
@@ -154,7 +161,13 @@ struct PhotoCollectionGrid: UIViewRepresentable {
         let badges = PhotoGridSelectionBadges()
         weak var selectPan: UIPanGestureRecognizer?
         private var selectionActive = false
+        /// The grid's own copy of the selection: changed and drawn on the spot by taps and drags,
+        /// and handed to SwiftUI (`selection.ids`) at most every so often while a drag goes on —
+        /// every change used to re-render the gallery's bars and menus on the way to the badges.
         private var selectedIDs: Set<Int> = []
+        /// What SwiftUI last got from (or gave to) the grid.
+        private var publishedIDs: Set<Int> = []
+        private var publishScheduled = false
         private var showSelectedSignal = 0
         /// The drag: where it began, whether it selects or deselects, and the selection before it.
         private var dragAnchor: Int?
@@ -163,19 +176,31 @@ struct PhotoCollectionGrid: UIViewRepresentable {
         private var dragLastItem: Int?
         private var dragPoint: CGPoint = .zero
         private var autoScrollLink: CADisplayLink?
+        /// A selection drag is underway (the hitch monitor counts it as movement).
+        var isSelectDragging: Bool { dragAnchor != nil }
 
         /// Brings the grid in line with SwiftUI's selection (called from `updateUIView`, which
         /// SwiftUI reruns whenever what it read here changes).
         func sync(selection: PhotoSelection?) {
+            PhotoGridHitchMonitor.count("gridSync")
             self.selection = selection
             let active = selection?.isActive ?? false
             let ids = selection?.ids ?? []
             let signal = selection?.showSelectedSignal ?? 0
-            if active != selectionActive || ids != selectedIDs {
+            var changed = false
+            if active != selectionActive {
                 selectionActive = active
-                selectedIDs = ids
-                updateBadges()
+                selectPan?.isEnabled = active
+                gridView?.jumpThreshold = active ? 40 : 5000
+                changed = true
             }
+            // Changed outside the grid (Select All, Deselect All, done, removed from an album).
+            if ids != publishedIDs {
+                publishedIDs = ids
+                selectedIDs = ids
+                changed = true
+            }
+            if changed { updateBadges() }
             if signal != showSelectedSignal {
                 showSelectedSignal = signal
                 showSelected()
@@ -197,9 +222,35 @@ struct PhotoCollectionGrid: UIViewRepresentable {
         }
 
         private func toggleSelection(_ item: Int) {
-            guard let selection, item < photos.count else { return }
+            guard item < photos.count else { return }
             let id = photo(at: item).id
-            if selection.ids.contains(id) { selection.ids.remove(id) } else { selection.ids.insert(id) }
+            var ids = selectedIDs
+            if ids.contains(id) { ids.remove(id) } else { ids.insert(id) }
+            setSelected(ids, publishNow: true)
+        }
+
+        /// Selects these photos here and now (badges included), and lets SwiftUI know right away
+        /// or, mid-drag, a moment later.
+        private func setSelected(_ ids: Set<Int>, publishNow: Bool) {
+            guard ids != selectedIDs else {
+                if publishNow { publishSelection() }
+                return
+            }
+            selectedIDs = ids
+            updateBadges()
+            if publishNow {
+                publishSelection()
+            } else if !publishScheduled {
+                publishScheduled = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in self?.publishSelection() }
+            }
+        }
+
+        private func publishSelection() {
+            publishScheduled = false
+            guard let selection, selectionActive, selectedIDs != publishedIDs else { return }
+            publishedIDs = selectedIDs
+            selection.ids = selectedIDs
         }
 
         private func showSelected() {
@@ -209,14 +260,15 @@ struct PhotoCollectionGrid: UIViewRepresentable {
         }
 
         @objc func handleSelectPan(_ pan: UIPanGestureRecognizer) {
-            guard let gridView, let selection else { return }
+            guard let gridView, selection != nil else { return }
             dragPoint = pan.location(in: gridView.superview)
             switch pan.state {
             case .began:
+                PhotoGridHitchMonitor.count("selectDragBegan")
                 guard let item = nearestItem(toViewPoint: dragPoint) else { return }
                 dragAnchor = item
-                dragBase = selection.ids
-                dragSelects = !selection.ids.contains(photo(at: item).id)
+                dragBase = selectedIDs
+                dragSelects = !selectedIDs.contains(photo(at: item).id)
                 dragLastItem = nil
                 extendDrag()
                 startAutoScroll()
@@ -225,17 +277,18 @@ struct PhotoCollectionGrid: UIViewRepresentable {
             default:
                 dragAnchor = nil
                 stopAutoScroll()
+                publishSelection()
             }
         }
 
         /// Selects (or deselects) every photo between where the drag began and the finger, in
         /// reading order, on top of what was selected before the drag.
         private func extendDrag() {
-            guard let selection, let anchor = dragAnchor, let item = nearestItem(toViewPoint: dragPoint),
+            guard let anchor = dragAnchor, let item = nearestItem(toViewPoint: dragPoint),
                   item != dragLastItem else { return }
             dragLastItem = item
-            let run = Set((min(anchor, item)...max(anchor, item)).map { photo(at: $0).id })
-            selection.ids = dragSelects ? dragBase.union(run) : dragBase.subtracting(run)
+            let run = (min(anchor, item)...max(anchor, item)).lazy.map { self.photo(at: $0).id }
+            setSelected(dragSelects ? dragBase.union(run) : dragBase.subtracting(run), publishNow: false)
         }
 
         /// The item under a point of the container (the nearest one in a gap or past the ends).
@@ -266,15 +319,29 @@ struct PhotoCollectionGrid: UIViewRepresentable {
 
         @objc private func autoScrollStep(_ link: CADisplayLink) {
             guard let gridView, dragAnchor != nil else { return }
-            let insets = gridView.adjustedContentInset
-            let top = insets.top + 40
-            let bottom = gridView.bounds.height - insets.bottom - 70
-            let zone: CGFloat = 70
+            // Only at the real edges, like Photos: the finger over the bars (or just inside the
+            // photos next to them). The zone used to start ~110 pt inside the photos at full tilt
+            // straight away, so selecting upwards sent the grid flying a few rows at a time.
+            let safe = gridView.safeAreaInsets
+            let top = safe.top + 24
+            let bottom = gridView.bounds.height - safe.bottom - 24
+            let ramp: CGFloat = 90
             var speed: CGFloat = 0
-            if dragPoint.y < top + zone { speed = -min((top + zone - dragPoint.y) / zone, 1.5) }
-            else if dragPoint.y > bottom - zone { speed = min((dragPoint.y - bottom + zone) / zone, 1.5) }
+            if dragPoint.y < top {
+                let depth = min((top - dragPoint.y) / ramp, 1)
+                speed = -depth * depth
+            } else if dragPoint.y > bottom {
+                let depth = min((dragPoint.y - bottom) / ramp, 1)
+                speed = depth * depth
+            }
             guard speed != 0 else { return }
+            PhotoGridHitchMonitor.count("autoScrollStep")
+            // Moved by the selection drag, the grid lets go of the bottom, like a scroll by hand:
+            // still pinned, every layout pass (the count changing in the bar, say) snapped it back
+            // down to the newest photos.
+            gridView.isPinnedToBottom = false
             let step = speed * 1100 * CGFloat(link.targetTimestamp - link.timestamp)
+            let insets = gridView.adjustedContentInset
             let minY = -insets.top
             let maxY = max(gridView.contentSize.height + insets.bottom - gridView.bounds.height, minY)
             gridView.contentOffset.y = min(max(gridView.contentOffset.y + step, minY), maxY)

@@ -8,8 +8,15 @@ import UIKit
 /// its running totals in `statsView`'s accessibility value for the test to read.
 @MainActor
 final class PhotoGridHitchMonitor: NSObject {
-    static var isEnabled: Bool {
-        ProcessInfo.processInfo.arguments.contains("-measureGridHitches")
+    static var isEnabled: Bool { enabled }
+    private static let enabled = ProcessInfo.processInfo.arguments.contains("-measureGridHitches")
+
+    /// How many times something happened (SwiftUI re-rendering the gallery, say), for the tests.
+    private static var counters: [String: Int] = [:]
+
+    static func count(_ name: String) {
+        guard enabled else { return }
+        counters[name, default: 0] += 1
     }
 
     /// Carries the totals for the test to read: a 1-point view that's always there, whatever
@@ -122,8 +129,10 @@ final class PhotoGridHitchMonitor: NSObject {
 
     private func publish() {
         statsView.accessibilityValue = String(
-            format: "hitchMs=%.1f movingS=%.2f frames=%d late=%d grid=%@ zoom=%@ late=%@ track=%@ jumps=%@ present=%@ open=%@ sharp=%@",
-            hitchSeconds * 1000, movingSeconds, frames, lateFrames, describeGrid(), zoomSteps.joined(separator: ","), lateLog.joined(separator: ","), track.joined(separator: ","), jumps.joined(separator: "|"),
+            format: "hitchMs=%.1f movingS=%.2f frames=%d late=%d counts=%@ grid=%@ zoom=%@ late=%@ track=%@ jumps=%@ present=%@ open=%@ sharp=%@",
+            hitchSeconds * 1000, movingSeconds, frames, lateFrames,
+            Self.counters.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" }.joined(separator: ";"),
+            describeGrid(), zoomSteps.joined(separator: ","), lateLog.joined(separator: ","), track.joined(separator: ","), jumps.joined(separator: "|"),
             presentMs.map(String.init).joined(separator: ","),
             openMs.map(String.init).joined(separator: ","), sharpMs.map(String.init).joined(separator: ",")
         )

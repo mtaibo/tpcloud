@@ -122,11 +122,14 @@ final class PhotoGridView: UIScrollView {
 
     /// Performance tests only: who moves the grid by thousands of points at once.
     static var jumpLog: ((String) -> Void)?
+    /// How big a single move has to be to be logged (smaller in select mode, where any jump is
+    /// a bug: nothing but the finger should move the grid there).
+    var jumpThreshold: CGFloat = 5000
 
     override var contentOffset: CGPoint {
         didSet {
-            guard let jumpLog = Self.jumpLog, abs(contentOffset.y - oldValue.y) > 5000 else { return }
-            let stack = Thread.callStackSymbols.dropFirst(1).prefix(10).map { line in
+            guard let jumpLog = Self.jumpLog, abs(contentOffset.y - oldValue.y) > jumpThreshold else { return }
+            let stack = Thread.callStackSymbols.dropFirst(1).prefix(14).map { line in
                 line.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).prefix(1).joined()
             }
             jumpLog("\(Int(oldValue.y))>\(Int(contentOffset.y))[\(stack.joined(separator: "<"))]")
@@ -230,6 +233,10 @@ final class PhotoGridView: UIScrollView {
         super.layoutSubviews()
         let current = geometry(columns: columns)
         if current.width != geometry.width || current.itemCount != geometry.itemCount || current.scale != geometry.scale {
+            if jumpThreshold < 5000 {
+                let i = adjustedContentInset
+                Self.jumpLog?("geom:w\(geometry.width)>\(current.width),n\(geometry.itemCount)>\(current.itemCount),bw\(bounds.width),il\(i.left),ir\(i.right)")
+            }
             recycleAll()
             updateGeometry()
         }
@@ -414,6 +421,9 @@ final class PhotoGridView: UIScrollView {
         superview?.setNeedsLayout()
         let insets = adjustedContentInset
         defer { lastInsets = insets }
+        if jumpThreshold < 5000, let old = lastInsets, old != insets {
+            Self.jumpLog?("insets:t\(Int(old.top))>\(Int(insets.top)),b\(Int(old.bottom))>\(Int(insets.bottom)),l\(Int(old.left))>\(Int(insets.left)),r\(Int(old.right))>\(Int(insets.right))")
+        }
         guard let old = lastInsets, old != insets, contentSize.height > 0, bounds.height > 0 else { return }
         let wasAtBottom = contentOffset.y >= maxOffsetY(for: old) - 1
         if isTracking || isDecelerating || isGridZooming() {

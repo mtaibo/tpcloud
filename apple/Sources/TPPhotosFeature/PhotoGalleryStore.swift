@@ -33,8 +33,9 @@ public final class PhotoGalleryStore: ObservableObject {
     /// The server's maximum page size.
     private static let pageSize = 200
 
-    public init(client: PhotosClient) {
+    public init(client: PhotosClient, filter: PhotosClient.Filter = .all) {
         self.client = client
+        self.filter = filter
     }
 
     public func reload() async {

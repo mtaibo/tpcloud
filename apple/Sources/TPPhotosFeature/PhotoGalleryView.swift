@@ -5,13 +5,14 @@ import TPUI
 import UIKit
 #endif
 
-/// Which part of the Photos tab is showing, picked from the segmented control in the nav bar.
+/// Which part of the Photos tab is showing, picked from the ••• menu. "All" is the whole library,
+/// always: albums open on screens of their own.
 enum PhotosSection: String, CaseIterable {
     case library, albums, shared
 
     var title: String {
         switch self {
-        case .library: return "Library"
+        case .library: return "All"
         case .albums: return "Albums"
         case .shared: return "Shared"
         }
@@ -36,17 +37,12 @@ public struct PhotoGalleryView: View {
 
     @Environment(\.openURL) private var openURL
     @StateObject private var albums: PhotoAlbumsStore
+    /// All or Shared, the tab's own screen. Albums is pushed on top of it (`path`).
     @State private var section: PhotosSection = .library
-    /// The album last picked under Albums; independent of `section` so a trip to Shared and back
-    /// to Library keeps it.
-    @State private var albumFilter: PhotosClient.Filter = .all
+    @State private var path: [PhotosRoute] = []
     @State private var detailPhotoID: Int?
     #if os(iOS)
     @State private var selection = PhotoSelection()
-    @State private var isConfirmingDelete = false
-    @State private var isPreparingShare = false
-    @State private var shareURLs: [URL] = []
-    @State private var isSharing = false
     #endif
     /// The name prompt for a new album (with the photos to put in it) or a rename.
     @State private var albumPrompt: AlbumPrompt?
@@ -78,64 +74,62 @@ public struct PhotoGalleryView: View {
     }
 
     private var effectiveFilter: PhotosClient.Filter {
-        section == .shared ? .shared : albumFilter
+        section == .shared ? .shared : .all
     }
 
     public var body: some View {
-        NavigationStack {
-            Group {
-                switch section {
-                case .albums:
-                    AlbumsListView(albums: albums, selected: albumFilter, onSelect: { filter in
-                        albumFilter = filter
-                        withAnimation(.snappy) { section = .library }
-                    }, actions: albumActions)
-                case .library, .shared:
-                    galleryContent
-                }
-            }
-            .navigationTitle(title)
+        #if os(iOS)
+        let _ = PhotoGridHitchMonitor.count("gallery")
+        #endif
+        NavigationStack(path: $path) {
+            galleryContent
+            .navigationTitle(section.title)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             // Select mode swaps the tab bar for its own actions, like Photos.
-            .toolbar(selection.isActive ? .hidden : .visible, for: .tabBar)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if selection.isActive {
-                    PhotoSelectionBar(
-                        selection: selection,
-                        isWorking: isPreparingShare,
-                        onShare: shareSelected,
-                        onDelete: { isConfirmingDelete = true }
-                    )
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .animation(.snappy, value: selection.isActive)
-            .confirmationDialog(
-                selection.ids.count == 1 ? "Delete this photo?" : "Delete \(selection.ids.count) photos?",
-                isPresented: $isConfirmingDelete,
-                titleVisibility: .visible
-            ) {
-                Button(selection.ids.count == 1 ? "Delete Photo" : "Delete \(selection.ids.count) Photos", role: .destructive) {
-                    deleteSelected()
-                }
-            } message: {
-                Text("They'll be removed from your server. The copies on this device aren't affected.")
-            }
-            .sheet(isPresented: $isSharing) {
-                PhotoShareSheet(items: shareURLs)
-                    .presentationDetents([.medium, .large])
-                    .ignoresSafeArea()
-            }
+            .modifier(PhotoSelectionChrome(selection: selection, store: store, client: client))
             .onChange(of: section) { selection.isActive = false }
+            .onChange(of: path) { selection.isActive = false }
             #endif
             .toolbar { toolbarContent }
+            .navigationDestination(for: PhotosRoute.self) { route in
+                switch route {
+                case .albums:
+                    AlbumsListView(albums: albums, actions: albumActions)
+                        .navigationTitle("Albums")
+                        #if os(iOS)
+                        .navigationBarTitleDisplayMode(.inline)
+                        #endif
+                case .hidden:
+                    HiddenAlbumsView(albums: albums, actions: albumActions)
+                case .photos(let filter):
+                    PhotoListScreen(
+                        filter: filter,
+                        fallbackTitle: filter == .camera ? "Camera" : filter == .screenshots ? "Screenshots" : "Album",
+                        client: client,
+                        albums: albums,
+                        albumActions: albumActions
+                    )
+                }
+            }
         }
         .task {
             store.filter = effectiveFilter
             if store.photos.isEmpty { await store.reload() }
         }
-        .task { await albums.load() }
+        .task {
+            // Album changes that take photos out of the library (or let them back in) show up in
+            // All right away, not at its next sync.
+            albums.onPhotosLeftLibrary = { [weak store] ids in
+                guard let store, store.filter == .all else { return }
+                store.drop(ids)
+            }
+            albums.onLibraryNeedsReload = { [weak store] in
+                guard let store else { return }
+                Task { await store.reload() }
+            }
+            await albums.load()
+        }
         .alert(albumPrompt?.title ?? "", isPresented: isPromptingAlbum) {
             TextField("Name", text: $albumName)
             Button("Cancel", role: .cancel) {}
@@ -153,7 +147,6 @@ public struct PhotoGalleryView: View {
         ) {
             Button("Delete Album", role: .destructive) {
                 guard let album = albumToDelete else { return }
-                if albumFilter == .album(album.id) { albumFilter = .all }
                 Task { await albums.delete(album) }
             }
         } message: {
@@ -196,9 +189,7 @@ public struct PhotoGalleryView: View {
         #if os(iOS)
         // Over the grid the title is drawn by the grid itself, large and with the dates under
         // it, like Photos (`PhotoGridDateHeader`); the bar keeps only its buttons.
-        if section != .albums {
-            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
-        }
+        ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
         #endif
         #if os(iOS)
         // Separate glass buttons, not one shared capsule: ••• on the left, Select (or ✕) on the
@@ -215,7 +206,7 @@ public struct PhotoGalleryView: View {
                 ToolbarSpacer(.fixed, placement: .primaryAction)
             }
             ToolbarItem(placement: .primaryAction) { menuButton }
-            if section != .albums && !store.photos.isEmpty {
+            if !store.photos.isEmpty {
                 ToolbarSpacer(.fixed, placement: .primaryAction)
                 ToolbarItem(placement: .primaryAction) {
                     Button("Select") { selection.isActive = true }
@@ -277,95 +268,13 @@ public struct PhotoGalleryView: View {
         albumPrompt = nil
         switch prompt {
         case .create(let ids):
-            #if os(iOS)
-            if !ids.isEmpty { selection.isActive = false }
-            #endif
             Task { await albums.create(name: name, photoIDs: ids) }
         case .rename(let album):
             Task { await albums.rename(album, to: name) }
         }
     }
 
-    /// The album on screen, when the grid is showing one.
-    private var currentAlbum: PhotoAlbum? {
-        guard section == .library, let id = albumFilter.albumID else { return nil }
-        return albums.album(id: id)
-    }
 
-    /// The album's name over an album, else the section's.
-    private var title: String {
-        if section == .library, albumFilter.albumID != nil {
-            return currentAlbum?.displayName ?? "Album"
-        }
-        return section.title
-    }
-
-    #if os(iOS)
-    /// Adds the selection to an album, or to a new one. Ending the selection, like Photos.
-    @ViewBuilder
-    private var addToAlbumMenu: some View {
-        let ids = selection.ids
-        Menu("Add to Album", systemImage: "rectangle.stack.badge.plus") {
-            Button("New Album…", systemImage: "plus") {
-                albumActions.create(Array(ids))
-            }
-            Section {
-                ForEach(albums.albums.filter { $0.id != currentAlbum?.id }) { album in
-                    Button(album.displayName, systemImage: album.isFavorites ? "heart" : (album.hidden ? "eye.slash" : "rectangle.stack")) {
-                        addSelected(to: album)
-                    }
-                }
-            }
-        }
-        .disabled(ids.isEmpty)
-    }
-
-    private func addSelected(to album: PhotoAlbum) {
-        let ids = selection.ids
-        selection.isActive = false
-        Task {
-            await albums.add(Array(ids), to: album)
-            // An album that keeps its photos out of the library takes them off the library grid.
-            if album.hidesFromLibrary && albumFilter.albumID == nil && section == .library {
-                store.drop(ids)
-            }
-        }
-    }
-
-    private func removeSelectedFromAlbum(_ album: PhotoAlbum) {
-        let ids = selection.ids
-        selection.isActive = false
-        Task {
-            await albums.remove(Array(ids), from: album)
-            store.drop(ids)
-        }
-    }
-    #endif
-
-    #if os(iOS)
-    private var selectedPhotos: [Photo] {
-        store.photos.reversed().filter { selection.ids.contains($0.id) }
-    }
-
-    private func shareSelected() {
-        let photos = selectedPhotos
-        guard !photos.isEmpty else { return }
-        isPreparingShare = true
-        Task {
-            let urls = await PhotoShareDownloads.originals(of: photos, client: client)
-            isPreparingShare = false
-            guard !urls.isEmpty else { return }
-            shareURLs = urls
-            isSharing = true
-        }
-    }
-
-    private func deleteSelected() {
-        let photos = selectedPhotos
-        selection.isActive = false
-        Task { await store.delete(photos) }
-    }
-    #endif
 
     private var isBusy: Bool {
         syncStore.isRunning || syncStore.isSanitizing || syncStore.isChecking
@@ -423,40 +332,40 @@ public struct PhotoGalleryView: View {
         }
     }
 
+    /// The menu's View picker: All and Shared switch the tab's own screen; Albums is pushed on
+    /// top of it, so the back button and the swipe from the left edge return to All.
+    private var viewChoice: Binding<PhotosSection> {
+        Binding(
+            get: { path.first == .albums ? .albums : section },
+            set: { choice in
+                if choice == .albums {
+                    if path.first != .albums { path = [.albums] }
+                } else {
+                    path = []
+                    withAnimation(.snappy) { section = choice }
+                }
+            }
+        )
+    }
+
     private var menuButton: some View {
         Menu {
             #if os(iOS)
             if selection.isActive {
-                Section {
-                    Button("Select All", systemImage: "checkmark.circle") {
-                        selection.ids = Set(store.photos.map(\.id))
-                    }
-                    Button("Deselect All", systemImage: "circle") { selection.ids.removeAll() }
-                        .disabled(selection.ids.isEmpty)
-                }
-                Section {
-                    addToAlbumMenu
-                    if let album = currentAlbum {
-                        Button("Remove from Album", systemImage: "rectangle.stack.badge.minus") {
-                            removeSelectedFromAlbum(album)
-                        }
-                        .disabled(selection.ids.isEmpty)
-                    }
-                }
+                PhotoSelectionMenuItems(
+                    selection: selection,
+                    store: store,
+                    albums: albums,
+                    currentAlbum: nil,
+                    actions: albumActions,
+                    onAdded: { album, ids in Task { await albums.add(Array(ids), to: album) } },
+                    onRemoved: { _, _ in }
+                )
             }
             #endif
-            #if os(iOS)
-            if !selection.isActive, let album = currentAlbum {
-                AlbumMenuItems(album: album, albums: albums, actions: albumActions)
-            }
-            #else
-            if let album = currentAlbum {
-                AlbumMenuItems(album: album, albums: albums, actions: albumActions)
-            }
-            #endif
-            // Library, Albums and Shared, in the menu rather than across the top.
+            // All, Albums and Shared, in the menu rather than across the top.
             Section {
-                Picker("View", selection: $section.animation(.snappy)) {
+                Picker("View", selection: viewChoice) {
                     ForEach(PhotosSection.allCases, id: \.self) { item in
                         Label(item.title, systemImage: item.systemImage).tag(item)
                     }
@@ -484,18 +393,16 @@ public struct PhotoGalleryView: View {
             }
             .disabled(isBusy)
 
-            if section != .albums {
-                // The pinch gesture's equivalent for VoiceOver, keyboards and Macs without a trackpad.
-                Section {
-                    Button("Zoom In", systemImage: "plus.magnifyingglass") {
-                        withAnimation(.snappy) { columnLevel = max(columnLevel - 1, 0) }
-                    }
-                    .disabled(columnLevel <= 0)
-                    Button("Zoom Out", systemImage: "minus.magnifyingglass") {
-                        withAnimation(.snappy) { columnLevel = min(columnLevel + 1, PhotoGridDensity.columnLevels.count - 1) }
-                    }
-                    .disabled(columnLevel >= PhotoGridDensity.columnLevels.count - 1)
+            // The pinch gesture's equivalent for VoiceOver, keyboards and Macs without a trackpad.
+            Section {
+                Button("Zoom In", systemImage: "plus.magnifyingglass") {
+                    withAnimation(.snappy) { columnLevel = max(columnLevel - 1, 0) }
                 }
+                .disabled(columnLevel <= 0)
+                Button("Zoom Out", systemImage: "minus.magnifyingglass") {
+                    withAnimation(.snappy) { columnLevel = min(columnLevel + 1, PhotoGridDensity.columnLevels.count - 1) }
+                }
+                .disabled(columnLevel >= PhotoGridDensity.columnLevels.count - 1)
             }
         } label: {
             Label("More", systemImage: "ellipsis")
@@ -544,7 +451,7 @@ public struct PhotoGalleryView: View {
                 photos: store.photos,
                 client: client,
                 scrollToBottomSignal: scrollToBottomSignal,
-                title: title,
+                title: section.title,
                 selection: gridSelection,
                 onSelect: { detailPhotoID = $0.id },
                 onDelete: { photo in Task { await store.delete(photo) } }

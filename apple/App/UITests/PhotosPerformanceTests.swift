@@ -19,7 +19,7 @@ final class PhotosPerformanceTests: XCTestCase {
         let photos = app.tabBars.buttons["Photos"]
         XCTAssertTrue(photos.waitForExistence(timeout: 15))
         // The tab bar can swallow the first tap while the app settles: make sure Photos is up.
-        let library = app.staticTexts["Library"]
+        let library = app.staticTexts["All"]
         for _ in 0..<4 where !library.exists {
             photos.tap()
             _ = library.waitForExistence(timeout: 3)
@@ -35,6 +35,7 @@ final class PhotosPerformanceTests: XCTestCase {
 
     private struct Stats {
         var hitchMs = 0.0, movingS = 0.0, frames = 0, late = 0
+        var counts = ""
         var grid = "", zoom = "", lateLog = "", track = "", jumps = "", present = "", open = "", sharp = ""
     }
 
@@ -48,6 +49,7 @@ final class PhotosPerformanceTests: XCTestCase {
             case "movingS": result.movingS = Double(pair[1]) ?? 0
             case "frames": result.frames = Int(pair[1]) ?? 0
             case "late" where !pair[1].contains("@"): result.late = Int(pair[1]) ?? 0
+            case "counts": result.counts = String(pair[1])
             case "grid": result.grid = String(pair[1])
             case "track": result.track = String(pair[1])
             case "jumps": result.jumps = String(pair[1])
@@ -200,6 +202,195 @@ final class PhotosPerformanceTests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
     }
+
+    /// How smooth selecting is: drags across a few rows and down to the edge (so the grid scrolls
+    /// itself), measured like a fling, plus how often SwiftUI re-rendered the gallery and the grid
+    /// meanwhile. Never deletes or shares.
+    private func measureSelectDrag(level: Int, name: String) {
+        launch(level: level)
+        app.navigationBars.buttons["Select"].firstMatch.tap()
+        sleep(1)
+        let countsBefore = stats().counts
+        report(name) {
+            let start = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.40))
+            let across = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.62))
+            start.press(forDuration: 0.1, thenDragTo: across, withVelocity: .slow, thenHoldForDuration: 0.3)
+            // Starts below the first run (on photos not selected yet, so it selects too), sets off
+            // more sideways than down (or it's a scroll, as in Photos) and ends in the bottom edge's
+            // auto-scroll zone.
+            let low = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.68))
+            let edge = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.93))
+            low.press(forDuration: 0.1, thenDragTo: edge, withVelocity: .slow, thenHoldForDuration: 1.5)
+        }
+        print("PERF \(name) counts before: \(countsBefore) after: \(stats().counts)")
+        print("PERF \(name) selected: " + app.buttons.allElementsBoundByIndex.filter { $0.label.contains("Selected") }.map(\.label).joined(separator: ","))
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "\(name)-end"
+        shot.lifetime = .keepAlways
+        add(shot)
+        app.navigationBars.buttons["Done Selecting"].firstMatch.tap()
+        sleep(1)
+    }
+
+    /// The All header and its two buttons, Albums, Hidden and an album on its own screen. Only
+    /// navigates (no album is changed), with a screenshot at each step.
+    func testAlbumScreens() {
+        launch(level: 1)
+        func snap(_ name: String) {
+            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            shot.name = name
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+        snap("alb-1-all")
+        print("PERF nav buttons: " + app.navigationBars.buttons.allElementsBoundByIndex.map(\.label).joined(separator: " | "))
+        app.navigationBars.buttons["More"].firstMatch.tap()
+        let albums = app.buttons["Albums"].firstMatch
+        XCTAssertTrue(albums.waitForExistence(timeout: 3))
+        albums.tap()
+        sleep(2)
+        snap("alb-2-albums")
+        print("PERF albums screen: " + app.staticTexts.allElementsBoundByIndex.prefix(30).map(\.label).joined(separator: " | "))
+        let hidden = app.buttons["Hidden"].firstMatch
+        if hidden.waitForExistence(timeout: 3) {
+            hidden.tap()
+            sleep(2)
+            snap("alb-3-hidden")
+            print("PERF hidden screen: " + app.staticTexts.allElementsBoundByIndex.prefix(20).map(\.label).joined(separator: " | "))
+            // An album inside Hidden opens straight on the album, and back goes to Hidden.
+            if let hiddenAlbum = app.buttons.allElementsBoundByIndex.first(where: { $0.label.contains("photo") }) {
+                hiddenAlbum.tap()
+                sleep(3)
+                snap("alb-3b-hidden-album")
+                print("PERF hidden album nav buttons: " + app.navigationBars.buttons.allElementsBoundByIndex.map(\.label).joined(separator: " | "))
+                print("PERF hidden album nav bars: " + app.navigationBars.allElementsBoundByIndex.map(\.identifier).joined(separator: " | "))
+                app.navigationBars.buttons.element(boundBy: 0).tap()
+                sleep(2)
+                snap("alb-3c-back-to-hidden")
+                print("PERF after back: " + app.staticTexts.allElementsBoundByIndex.prefix(10).map(\.label).joined(separator: " | "))
+            }
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            sleep(1)
+        }
+        let favorites = app.buttons.allElementsBoundByIndex.first { $0.label.hasPrefix("Favorites") }
+        favorites?.tap()
+        sleep(3)
+        snap("alb-4-favorites")
+        print("PERF album nav buttons: " + app.navigationBars.buttons.allElementsBoundByIndex.map(\.label).joined(separator: " | "))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        sleep(1)
+        let camera = app.buttons["Camera"].firstMatch
+        if camera.exists {
+            camera.tap()
+            sleep(3)
+            snap("alb-5-camera")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            sleep(1)
+        }
+        snap("alb-6-back")
+        // Albums is pushed on top of All: the swipe from the left edge goes back to it…
+        print("PERF albums nav buttons: " + app.navigationBars.buttons.allElementsBoundByIndex.map(\.label).joined(separator: " | "))
+        let window = app.windows.firstMatch
+        // XCUITest's own edge swipe: a drag from x = 0, quick, with no hold before it.
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.55))
+            .press(forDuration: 0.01, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.55)), withVelocity: .fast, thenHoldForDuration: 0)
+        sleep(2)
+        snap("alb-7-swiped-to-all")
+        print("PERF after edge swipe, on All: \(app.staticTexts["All"].exists) nav: " + app.navigationBars.buttons.allElementsBoundByIndex.map(\.label).joined(separator: " | "))
+        // …and so does its back button.
+        if !app.staticTexts["All"].exists { app.navigationBars.buttons.element(boundBy: 0).tap(); sleep(2) }
+        app.navigationBars.buttons["More"].firstMatch.tap()
+        let albumsAgain = app.buttons["Albums"].firstMatch
+        if albumsAgain.waitForExistence(timeout: 3) {
+            albumsAgain.tap()
+            sleep(2)
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            sleep(2)
+            snap("alb-8-back-button-to-all")
+            print("PERF after back button, on All: \(app.staticTexts["All"].exists)")
+        }
+    }
+
+    /// A selection drag that ends in the upper part of the grid (well below the title), as when
+    /// selecting upwards: the grid must not run off on its own. Prints the scroll offset track.
+    func testSelectDragUpwards() {
+        launch(level: 1)
+        app.navigationBars.buttons["Select"].firstMatch.tap()
+        sleep(1)
+        let before = stats()
+        let start = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.55))
+        let up = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.30))
+        start.press(forDuration: 0.1, thenDragTo: up, withVelocity: .slow, thenHoldForDuration: 1.0)
+        sleep(1)
+        let after = stats()
+        print("PERF upward drag grid before: \(before.grid) after: \(after.grid)")
+        print("PERF upward drag track: \(after.track.split(separator: ",").suffix(70).joined(separator: ","))")
+        print("PERF upward drag selected: " + app.buttons.allElementsBoundByIndex.filter { $0.label.contains("Selected") }.map(\.label).joined(separator: ","))
+        // Up to the bar at the top: now it should scroll, gently.
+        let start2 = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.45))
+        let top = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.10))
+        start2.press(forDuration: 0.1, thenDragTo: top, withVelocity: .slow, thenHoldForDuration: 1.5)
+        sleep(1)
+        let end = stats()
+        print("PERF top-edge drag grid after: \(end.grid) counts: \(end.counts)")
+        print("PERF top-edge drag track: \(end.track.split(separator: ",").suffix(60).joined(separator: ","))")
+        app.navigationBars.buttons["Done Selecting"].firstMatch.tap()
+    }
+
+    /// Many selection drags of every kind (sideways, up, down, short, long, held, near the edges
+    /// and in the middle), from the newest photos and from further up, logging every jump of the
+    /// grid bigger than 40 pt with what caused it. Nothing but the finger should move it.
+    func testSelectDragJumps() {
+        launch(level: 1)
+        app.navigationBars.buttons["Select"].firstMatch.tap()
+        sleep(1)
+        let drags: [(CGFloat, CGFloat, CGFloat, CGFloat, Double)] = [
+            (0.08, 0.50, 0.92, 0.42, 0.3), (0.90, 0.60, 0.10, 0.52, 0.2), (0.10, 0.70, 0.90, 0.35, 0.8),
+            (0.15, 0.40, 0.85, 0.66, 0.5), (0.05, 0.62, 0.95, 0.58, 0.1), (0.92, 0.35, 0.08, 0.30, 1.0),
+            (0.10, 0.45, 0.90, 0.20, 0.6), (0.10, 0.30, 0.90, 0.75, 0.6), (0.50, 0.55, 0.95, 0.50, 2.0),
+            (0.05, 0.75, 0.95, 0.80, 0.4), (0.10, 0.55, 0.90, 0.15, 1.2), (0.20, 0.50, 0.80, 0.90, 1.2),
+        ]
+        for round in 0..<2 {
+            for (index, d) in drags.enumerated() {
+                let from = grid.coordinate(withNormalizedOffset: CGVector(dx: d.0, dy: d.1))
+                let to = grid.coordinate(withNormalizedOffset: CGVector(dx: d.2, dy: d.3))
+                from.press(forDuration: 0.08, thenDragTo: to, withVelocity: index % 3 == 0 ? .fast : .slow, thenHoldForDuration: d.4)
+                usleep(400_000)
+            }
+            // Second round from further up the library: scroll away from the newest photos.
+            if round == 0 {
+                app.navigationBars.buttons["Done Selecting"].firstMatch.tap()
+                sleep(1)
+                for _ in 0..<3 { grid.swipeDown(velocity: .fast) }
+                sleep(2)
+                app.navigationBars.buttons["Select"].firstMatch.tap()
+                sleep(1)
+            }
+        }
+        sleep(1)
+        let result = stats()
+        print("PERF select jumps: \(result.jumps)")
+        print("PERF select jumps grid: \(result.grid) counts: \(result.counts)")
+        app.navigationBars.buttons["Done Selecting"].firstMatch.tap()
+    }
+
+    /// A few selection drags in the middle of the screen, logging the grid's geometry and inset
+    /// changes and every jump.
+    func testSelectDragJumpsShort() {
+        launch(level: 1)
+        app.navigationBars.buttons["Select"].firstMatch.tap()
+        sleep(2)
+        for (index, d) in [(0.08, 0.50, 0.92, 0.42), (0.90, 0.60, 0.10, 0.52), (0.10, 0.62, 0.90, 0.45), (0.15, 0.40, 0.85, 0.55), (0.92, 0.48, 0.08, 0.40), (0.10, 0.58, 0.90, 0.50)].enumerated() {
+            grid.coordinate(withNormalizedOffset: CGVector(dx: d.0, dy: d.1))
+                .press(forDuration: 0.08, thenDragTo: grid.coordinate(withNormalizedOffset: CGVector(dx: d.2, dy: d.3)), withVelocity: .slow, thenHoldForDuration: 0.3)
+            print("PERF after drag \(index): \(stats().grid)")
+        }
+        sleep(1)
+        print("PERF short jumps: \(stats().jumps)")
+    }
+
+    func testSelectDragAtFiveColumns() { measureSelectDrag(level: 1, name: "select drag 5 cols") }
+    func testSelectDragAtFifteenColumns() { measureSelectDrag(level: 3, name: "select drag 15 cols") }
 
     /// Select mode, the way it was tried on Photos (never deletes or shares).
     func testSelect() {

@@ -6,8 +6,10 @@ import UIKit
 #endif
 
 /// The Albums section, like the Photos app's: the user's albums (Favorites first) with their
-/// covers, the server's filters as "Media Types", and the hidden albums behind "Hidden". Picking
-/// one jumps back to the grid, showing it. Holding an album offers its actions.
+/// covers, the server's filters as "Media Types", and the hidden albums behind "Hidden". Each opens
+/// on a screen of its own (`PhotoListScreen`, through the stack's destination for
+/// `PhotosClient.Filter`); the library tab keeps showing everything. Holding an album offers its
+/// actions.
 struct AlbumsListView: View {
     private struct MediaType: Identifiable {
         let title: String
@@ -18,12 +20,9 @@ struct AlbumsListView: View {
     }
 
     @ObservedObject var albums: PhotoAlbumsStore
-    let selected: PhotosClient.Filter
-    let onSelect: (PhotosClient.Filter) -> Void
     let actions: AlbumActions
 
     private let mediaTypes: [MediaType] = [
-        MediaType(title: "All Photos", systemImage: "photo.on.rectangle", filter: .all),
         MediaType(title: "Camera", systemImage: "camera", filter: .camera),
         MediaType(title: "Screenshots", systemImage: "camera.viewfinder", filter: .screenshots),
     ]
@@ -43,34 +42,17 @@ struct AlbumsListView: View {
 
             Section("Media Types") {
                 ForEach(mediaTypes) { type in
-                    Button {
-                        onSelect(type.filter)
-                    } label: {
-                        HStack {
-                            Label(type.title, systemImage: type.systemImage)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            checkmark(type.filter == selected)
-                        }
-                        .contentShape(.rect)
+                    NavigationLink(value: PhotosRoute.photos(type.filter)) {
+                        Label(type.title, systemImage: type.systemImage)
                     }
-                    .accessibilityAddTraits(type.filter == selected ? .isSelected : [])
                 }
             }
 
             Section("Utilities") {
-                NavigationLink {
-                    HiddenAlbumsView(albums: albums, selected: selected, onSelect: onSelect, actions: actions)
-                } label: {
-                    HStack {
-                        Label("Hidden", systemImage: "eye.slash")
-                        Spacer()
-                        if !albums.hidden.isEmpty {
-                            Text("\(albums.hidden.count)")
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                    }
+                // By value, like the albums: mixing a link that carries its view with the stack's
+                // value links made opening an album inside Hidden push Hidden again on top of it.
+                NavigationLink(value: PhotosRoute.hidden) {
+                    Label("Hidden", systemImage: "eye.slash")
                 }
             }
         }
@@ -78,18 +60,23 @@ struct AlbumsListView: View {
     }
 
     private func albumRow(_ album: PhotoAlbum) -> some View {
-        AlbumRow(album: album, isSelected: selected == .album(album.id)) {
-            onSelect(.album(album.id))
-        }
-        .contextMenu { AlbumMenuItems(album: album, albums: albums, actions: actions) }
+        AlbumRow(album: album)
+            .contextMenu { AlbumMenuItems(album: album, albums: albums, actions: actions) }
     }
+}
+
+/// The screens the Photos tab pushes on top of All (or Shared): Albums, Hidden, and an album or
+/// media type of its own. Being pushed, each gets the system back button and the swipe from the
+/// left edge.
+enum PhotosRoute: Hashable {
+    case albums
+    case hidden
+    case photos(PhotosClient.Filter)
 }
 
 /// The albums taken out of the albums list, each still a tap away.
 struct HiddenAlbumsView: View {
     @ObservedObject var albums: PhotoAlbumsStore
-    let selected: PhotosClient.Filter
-    let onSelect: (PhotosClient.Filter) -> Void
     let actions: AlbumActions
 
     var body: some View {
@@ -103,10 +90,8 @@ struct HiddenAlbumsView: View {
             } else {
                 List {
                     ForEach(albums.hidden) { album in
-                        AlbumRow(album: album, isSelected: selected == .album(album.id)) {
-                            onSelect(.album(album.id))
-                        }
-                        .contextMenu { AlbumMenuItems(album: album, albums: albums, actions: actions) }
+                        AlbumRow(album: album)
+                            .contextMenu { AlbumMenuItems(album: album, albums: albums, actions: actions) }
                     }
                 }
             }
@@ -117,11 +102,9 @@ struct HiddenAlbumsView: View {
 
 private struct AlbumRow: View {
     let album: PhotoAlbum
-    let isSelected: Bool
-    let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
+        NavigationLink(value: PhotosRoute.photos(.album(album.id))) {
             HStack(spacing: 12) {
                 AlbumCover(album: album)
                 VStack(alignment: .leading, spacing: 2) {
@@ -140,21 +123,8 @@ private struct AlbumRow: View {
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
-                Spacer()
-                checkmark(isSelected)
             }
-            .contentShape(.rect)
         }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
-@ViewBuilder
-private func checkmark(_ on: Bool) -> some View {
-    if on {
-        Image(systemName: "checkmark")
-            .foregroundStyle(.tint)
-            .accessibilityHidden(true)
     }
 }
 
