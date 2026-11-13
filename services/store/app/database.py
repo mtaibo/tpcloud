@@ -30,6 +30,12 @@ def init_db():
             conn.execute(text("ALTER TABLE pending_uploads ADD COLUMN received_chunks TEXT NOT NULL DEFAULT ''"))
             conn.commit()
 
+        album_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(albums)")).fetchall()}
+        for col in ("hidden", "hides_from_library"):
+            if album_cols and col not in album_cols:
+                conn.execute(text(f"ALTER TABLE albums ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"))
+                conn.commit()
+
 
 def get_session():
     with Session(engine) as session:

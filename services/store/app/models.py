@@ -127,13 +127,17 @@ class Photo(SQLModel, table=True):
 
 class Album(SQLModel, table=True):
     """A set of a user's photos. `kind` is "favorites" for the one everyone has (made the first
-    time albums are listed, and never deleted or renamed) or "user" for ones they make."""
+    time albums are listed, and never deleted or renamed) or "user" for ones they make.
+    `hidden` moves it out of the albums list into Hidden; `hides_from_library` keeps its photos
+    out of the library (all, camera, screenshots), so they're only seen inside the album."""
     __tablename__ = "albums"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     owner_email: str = Field(index=True)
     name: str
     kind: str = Field(default="user")
+    hidden: bool = Field(default=False)
+    hides_from_library: bool = Field(default=False)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

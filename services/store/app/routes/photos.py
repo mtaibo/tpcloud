@@ -288,7 +288,7 @@ async def list_photos(
     album: Optional[int] = Query(default=None),
     db: Session = Depends(get_session),
 ):
-    from app.routes.albums import favorites_album, own_album
+    from app.routes.albums import favorites_album, library_excluded, own_album
 
     user = await get_current_user(request)
     limit = max(1, min(limit, 200))
@@ -297,6 +297,9 @@ async def list_photos(
     if album is not None:
         own_album(db, album, user["email"])
         stmt = stmt.where(Photo.id.in_(select(AlbumPhoto.photo_id).where(AlbumPhoto.album_id == album)))
+    else:
+        # Photos in an album that keeps them out of the library are only seen inside it.
+        stmt = stmt.where(Photo.id.not_in(library_excluded(user["email"])))
 
     if filter == "screenshots":
         stmt = stmt.where(Photo.is_screenshot == True)  # noqa: E712
@@ -392,7 +395,7 @@ async def photo_index(
     [id, checksum, path, taken_at (ms since epoch or null), mime_type, favourite 0/1]. Knowing the
     whole library up front lets the grid lay itself out once, like the app's photo index, instead
     of growing 200 photos at a time."""
-    from app.routes.albums import favorites_album, own_album
+    from app.routes.albums import favorites_album, library_excluded, own_album
 
     user = await get_current_user(request)
     stmt = select(Photo.id, Photo.checksum, Photo.path, Photo.taken_at, Photo.mime_type).where(
@@ -401,6 +404,9 @@ async def photo_index(
     if album is not None:
         own_album(db, album, user["email"])
         stmt = stmt.where(Photo.id.in_(select(AlbumPhoto.photo_id).where(AlbumPhoto.album_id == album)))
+    else:
+        # Photos in an album that keeps them out of the library are only seen inside it.
+        stmt = stmt.where(Photo.id.not_in(library_excluded(user["email"])))
     if filter == "screenshots":
         stmt = stmt.where(Photo.is_screenshot == True)  # noqa: E712
     elif filter == "camera":

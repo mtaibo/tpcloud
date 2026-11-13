@@ -17,6 +17,8 @@ const albums = ref([])
 const disk = ref(null)
 
 const initials = computed(() => (user.value?.display_name || '?').split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join(''))
+// Hidden albums (hidden from the iPhone app) stay out of the sidebar.
+const visibleAlbums = computed(() => albums.value.filter(a => !a.hidden))
 const usedPct = computed(() => (disk.value ? Math.round((disk.value.used / (disk.value.used + disk.value.free)) * 100) : 0))
 
 const sections = computed(() => [
@@ -91,10 +93,10 @@ async function loadAlbums() {
           <span class="item-label">{{ s.label }}</span>
         </button>
 
-        <template v-if="albums.length">
+        <template v-if="visibleAlbums.length">
           <div class="group-head"><span>{{ t('Albums', 'Álbumes') }}</span></div>
           <button
-            v-for="a in albums"
+            v-for="a in visibleAlbums"
             :key="a.id"
             type="button"
             class="item"
