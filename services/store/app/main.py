@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from app import media
 from app.database import init_db
-from app.routes.files import router as files_router
+from app.routes.files import keep_pending_uploads_clean, router as files_router
 from app.routes.admin import router as admin_router
 from app.routes.shares import router as shares_router
 from app.routes.share_access import router as share_access_router
@@ -35,8 +35,11 @@ async def lifespan(app: FastAPI):
     init_db()
     # The gallery's thumbnails are made ahead of time in the background (see media.py).
     thumbnails = asyncio.create_task(media.keep_photo_thumbnails())
+    # Uploads that will never finish (late duplicate chunks, abandoned ones) are cleared out.
+    pending_cleanup = asyncio.create_task(keep_pending_uploads_clean())
     yield
     thumbnails.cancel()
+    pending_cleanup.cancel()
 
 
 app = FastAPI(title="TPStore API", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)

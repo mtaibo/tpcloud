@@ -22,8 +22,8 @@ from sqlmodel import Session, select
 
 from app import media
 from app.auth import get_current_user
-from app.database import get_session, DATA_DIR
-from app.models import FileViewToken, FolderIcon, PendingUpload
+from app.database import engine, get_session, DATA_DIR
+from app.models import FileViewToken, FolderIcon, PendingUpload, Photo
 from app.utils import (
     file_headers,
     get_base as _base,
@@ -342,6 +342,13 @@ async def upload_chunk(
     if len(body) == 0:
         raise HTTPException(400, "Empty chunk")
 
+    # The app's photo backup names uploads by checksum, and iOS can deliver a late copy of a chunk
+    # after that photo was already put together and registered. Starting a new pending upload for
+    # it would leave a "paused" upload that never finishes (or a stray copy of the photo if every
+    # copy arrives), so a chunk of a photo the user already has is acknowledged and dropped.
+    if db.get(PendingUpload, upload_id) is None and _is_backed_up_photo(db, user["email"], upload_id):
+        return {"status": "complete", "filename": safe_name, "duplicate": True}
+
     offset = chunk_index * chunk_size
     if offset + len(body) > file_size:
         raise HTTPException(400, "Chunk extends past declared file_size")
@@ -392,6 +399,52 @@ async def upload_chunk(
         db.commit()
     _release_upload_lock(upload_id)
     return {"status": "complete", "filename": safe_name}
+
+
+def _is_backed_up_photo(db: Session, email: str, checksum: str) -> bool:
+    return db.exec(
+        select(Photo.id).where(
+            Photo.owner_email == email,
+            Photo.checksum == checksum,
+            Photo.status == "verified",
+        )
+    ).first() is not None
+
+
+STALE_PENDING_UPLOAD_AGE = timedelta(days=7)
+
+
+def purge_stale_pending_uploads() -> int:
+    """Drops pending uploads that will never finish: ones for photos the owner already has (late
+    duplicate chunks from the app's background backup) and anything untouched for a week. The web
+    can resume an upload only by picking the same file again, so a week-old one is abandoned."""
+    cutoff = datetime.now(timezone.utc) - STALE_PENDING_UPLOAD_AGE
+    removed = 0
+    with Session(engine) as db:
+        for pending in db.exec(select(PendingUpload)).all():
+            created = pending.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if created >= cutoff and not _is_backed_up_photo(db, pending.owner_email, pending.upload_id):
+                continue
+            try:
+                part_file = _resolve(_base(pending.location), pending.path) / f".{pending.upload_id}.part"
+                part_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+            db.delete(pending)
+            removed += 1
+        db.commit()
+    return removed
+
+
+async def keep_pending_uploads_clean() -> None:
+    while True:
+        try:
+            await run_in_threadpool(purge_stale_pending_uploads)
+        except Exception:
+            pass
+        await asyncio.sleep(6 * 3600)
 
 
 @router.get("/pending-uploads")
