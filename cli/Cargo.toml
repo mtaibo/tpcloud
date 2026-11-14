@@ -1,6 +1,6 @@
 [package]
 name = "tpcloud"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "Installs, runs and configures a TPCloud server from one file, with nothing else to install."
 license = "MIT"
