@@ -57,11 +57,16 @@ fn spawn(service: &Service) -> Result<Child> {
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(err));
-    // Its own process group, so stopping it also stops whatever it started (ffmpeg, rsync).
+    // Its own process group, so stopping it also stops whatever it started (ffmpeg, rsync), and
+    // its own user where it has one.
+    let user = service.user;
     unsafe {
         use std::os::unix::process::CommandExt;
-        cmd.pre_exec(|| {
+        cmd.pre_exec(move || {
             libc::setpgid(0, 0);
+            if let Some(owner) = user {
+                crate::harden::drop_to(owner)?;
+            }
             Ok(())
         });
     }
@@ -74,25 +79,10 @@ fn prepare() -> Result<()> {
         std::fs::create_dir_all(state.join(dir))?;
     }
     std::fs::write(state.join("run/mosquitto.conf"), services::mosquitto_conf())?;
-    // Mosquitto started as root drops to `nobody`, which must be able to keep its database.
-    chown_tree(&state.join("home/mosquitto"), 65534, 65534);
+    // Owners and permissions (Mosquitto, started as root, drops to `nobody` and keeps its
+    // database in home/mosquitto; auth and home-api run as `tpcloud`).
+    crate::harden::secure_state();
     Ok(())
-}
-
-fn chown_tree(path: &std::path::Path, uid: u32, gid: u32) {
-    use std::os::unix::ffi::OsStrExt;
-    let chown = |p: &std::path::Path| {
-        if let Ok(c) = std::ffi::CString::new(p.as_os_str().as_bytes()) {
-            unsafe { libc::lchown(c.as_ptr(), uid, gid) };
-        }
-    };
-    chown(path);
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() { chown_tree(&p, uid, gid) } else { chown(&p) }
-        }
-    }
 }
 
 fn write_status(running: &[Running]) {

@@ -84,6 +84,7 @@ fn install_this(adopt: Option<PathBuf>, start: bool) -> Result<()> {
     }
     sync_links()?;
     write_unit()?;
+    crate::harden::secure_state();
     if start {
         ui::step("Starting TPCloud");
         systemctl(&["enable", "tpcloud"])?;
@@ -113,7 +114,9 @@ fn write_unit() -> Result<()> {
         "[Unit]\nDescription=TPCloud\nAfter=network-online.target\nWants=network-online.target\n\n\
          [Service]\nExecStart={} serve\nRestart=always\nRestartSec=3\n\
          # SIGTERM to tpcloud, which stops its processes in order; anything left is killed after the timeout.\n\
-         KillMode=mixed\nTimeoutStopSec=30\nLimitNOFILE=65536\n\n\
+         KillMode=mixed\nTimeoutStopSec=30\nLimitNOFILE=65536\n\
+         NoNewPrivileges=yes\nPrivateTmp=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\n\
+         ProtectControlGroups=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\n\n\
          [Install]\nWantedBy=multi-user.target\n",
         paths::bin_dir().join("tpcloud").display()
     );
@@ -202,13 +205,15 @@ fn copy_dir_contents(from: &Path, to: &Path) -> Result<()> {
 pub fn restrict(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o640))?;
-    let _ = Command::new("chgrp").args(["tpcloud", &path.to_string_lossy()]).status();
+    // root's, whoever made it (an adopted file kept its clone's owner, who could then edit what
+    // root runs with).
+    let _ = Command::new("chown").args(["root:tpcloud", &path.to_string_lossy()]).status();
     Ok(())
 }
 
 /// The `tpcloud` group, with whoever ran the install through sudo in it (from their next login).
 fn ensure_group() {
-    let _ = Command::new("groupadd").args(["-f", "tpcloud"]).status();
+    crate::harden::ensure_accounts();
     if let Ok(user) = std::env::var("SUDO_USER") {
         if !user.is_empty() && user != "root" {
             let _ = Command::new("usermod").args(["-aG", "tpcloud", &user]).status();

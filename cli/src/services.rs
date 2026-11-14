@@ -1,7 +1,7 @@
 //! What runs, read from the settings: the same pieces the compose files ran, as plain processes on
 //! local ports. Each one gets only the settings it used to get from its container.
 
-use crate::{envfile, paths};
+use crate::{envfile, harden, paths};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -15,6 +15,8 @@ pub struct Service {
     pub args: Vec<String>,
     pub env: BTreeMap<String, String>,
     pub cwd: PathBuf,
+    /// Who it runs as (uid, gid); None = root.
+    pub user: Option<(u32, u32)>,
 }
 
 pub struct Settings {
@@ -132,12 +134,13 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
             args: vec!["-c".into(), state.join("run/mosquitto.conf").display().to_string()],
             env: BTreeMap::new(),
             cwd: state.join("home/mosquitto"),
+            user: None,
         });
     }
 
     // auth got the whole settings file in its container; it still does.
     let mut env = base(rt.join("py/auth"));
-    for (k, v) in &settings.cloud {
+    for (k, v) in harden::filtered(&settings.cloud) {
         env.entry(k.clone()).or_insert_with(|| v.clone());
     }
     env.insert("DATABASE_URL".into(), format!("sqlite:///{}", state.join("data/auth/tpauth.db").display()));
@@ -147,6 +150,7 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
         args: uvicorn("main:app", AUTH_PORT, &rt.join("code/auth")),
         env,
         cwd: state.join("data/auth"),
+        user: harden::service_ids(),
     });
 
     if settings.has_module("store") {
@@ -175,12 +179,13 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
             args: uvicorn("app.main:app", STORE_PORT, &rt.join("code/store")),
             env,
             cwd: state.join("data/store"),
+            user: None,
         });
     }
 
     if home_on {
         let mut env = base(rt.join("py/home"));
-        for (k, v) in &settings.home {
+        for (k, v) in harden::filtered(&settings.home) {
             env.entry(k.clone()).or_insert_with(|| v.clone());
         }
         env.insert("DATABASE_URL".into(), format!("sqlite:///{}", state.join("home/db/tphome.db").display()));
@@ -193,6 +198,7 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
             args: uvicorn("main:app", HOME_PORT, &rt.join("code/home")),
             env,
             cwd: state.join("home/db"),
+            user: harden::service_ids(),
         });
     }
 
@@ -219,18 +225,20 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
         args: ["run", "--adapter", "caddyfile", "--config"].iter().map(|s| s.to_string()).chain([rt.join("Caddyfile").display().to_string()]).collect(),
         env,
         cwd: state.join("caddy"),
+        user: None,
     });
 
     if let Some(token) = settings.tunnel() {
         let mut env = BTreeMap::new();
         env.insert("TUNNEL_TOKEN".into(), token);
-        env.insert("HOME".into(), state.join("caddy").display().to_string());
+        env.insert("HOME".into(), state.join("cloudflared").display().to_string());
         services.push(Service {
             name: "cloudflared",
             program: rt.join("bin/cloudflared"),
             args: ["tunnel", "--no-autoupdate", "run"].iter().map(|s| s.to_string()).collect(),
             env,
-            cwd: state.clone(),
+            cwd: state.join("cloudflared"),
+            user: harden::service_ids(),
         });
     }
     services

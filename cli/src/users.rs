@@ -22,6 +22,16 @@ fn python(script: &str, args: &[&str], extra_env: &[(&str, &str)]) -> Result<Out
     for (k, v) in extra_env {
         cmd.env(k, v);
     }
+    // As the user auth runs as, so the database and its side files stay auth's.
+    if unsafe { libc::geteuid() } == 0 {
+        if let Some(owner) = crate::harden::service_ids() {
+            crate::harden::chown_tree(db.parent().unwrap(), owner);
+            unsafe {
+                use std::os::unix::process::CommandExt;
+                cmd.pre_exec(move || crate::harden::drop_to(owner));
+            }
+        }
+    }
     cmd.output().context("couldn't run the bundled Python (is TPCloud installed?)")
 }
 

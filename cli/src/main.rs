@@ -4,6 +4,7 @@
 
 mod backup;
 mod envfile;
+mod harden;
 mod home;
 mod install;
 mod logs;
