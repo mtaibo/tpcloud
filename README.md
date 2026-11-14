@@ -58,7 +58,7 @@ My replacement for Google Drive and iCloud Photos, on my own disk: file operatio
 <td width="50%" valign="top">
 
 ### 🔑 [`web/`](web/)
-Every web app, drawn after iOS (grouped lists, large titles, sheets, light and dark) from one shared [`web/ui`](web/ui/): `login`, `accounts` (profile, passkeys, 2FA, devices, activity, users for admins), `cloud` (the dashboard), `store` (a Finder-like file browser), `photos` (the gallery) and `share` (public share links).
+Every web app, drawn after iOS (grouped lists, large titles, sheets, light and dark) from one shared [`web/ui`](web/ui/): `login`, `accounts` (profile, passkeys, 2FA, devices, activity, users for admins), `cloud` (the dashboard), `store` (a Finder-like file browser), `photos` (the gallery), `share` (public share links) and `home` (the house's control panel, with a live floor plan).
 
 **Vue 3 · Vite · Nginx**
 
@@ -76,7 +76,7 @@ The native iOS and macOS app, installed as **TPCloud**: files, photos with backg
 <td width="50%" valign="top">
 
 ### 🏠 [tphome](https://github.com/mtaibo/tphome)
-Home automation with my own Wi-Fi switches for lights and blinds: firmware, MQTT broker, API and its control panel at `/home`. A separate repo that joins the gateway's network when it's installed.
+Home automation with my own Wi-Fi switches for lights and blinds: firmware, MQTT broker and the API behind `/home/api`. A separate repo that joins the gateway's network when it's installed; its control panel is [`web/home`](web/home/), here.
 
 **C++ · ESP8266 · MQTT · FastAPI · Vue 3**
 
@@ -96,7 +96,8 @@ tpcloud/
 ├── web/
 │   ├── ui/             shared design system for every web app
 │   ├── login/  accounts/  cloud/
-│   └── store/  photos/  share/
+│   ├── store/  photos/  share/
+│   └── home/           tphome's control panel
 ├── data/               what the services write while they run (not in git)
 │   ├── auth/           users and sessions
 │   └── store/          share links, photo index, thumbnails
@@ -220,7 +221,7 @@ docker compose up -d --build
 OWNER_EMAIL=you@example.com OWNER_PASSWORD=... docker compose run --rm -e OWNER_EMAIL -e OWNER_PASSWORD auth python scripts/bootstrap.py
 ```
 
-Store runs behind the `store` profile (`COMPOSE_PROFILES=store`, plus `tunnel` for a Cloudflare Tunnel). tphome, if you want it, is cloned next to this folder and started after it, since tpcloud creates the `tpcloud_gateway` network it joins.
+Store runs behind the `store` profile and Home's control panel behind `home` (`COMPOSE_PROFILES=store,home`, plus `tunnel` for a Cloudflare Tunnel). tphome, if you want it, is cloned next to this folder and started after it, since tpcloud creates the `tpcloud_gateway` network its API joins.
 
 Beyond localhost the gateway only publishes what `.env` asks for: port 443 for your own domain or the home network, and, where tphome is installed, port 80 on the local network for nothing but `/firmware`, so its switches can download OTA updates.
 
