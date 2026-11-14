@@ -13,7 +13,6 @@ data/
 # Web apps
 node_modules/
 dist/
-package-lock.json
 
 # Python
 __pycache__/
@@ -26,3 +25,6 @@ venv/
 
 # Site blocks for this one server only
 services/gateway/extra/*.caddy
+
+# Wrangler's local state (wrangler dev): carries the connection's location
+.wrangler/

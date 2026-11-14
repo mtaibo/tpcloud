@@ -6,7 +6,7 @@ FROM node:20-alpine AS login
 WORKDIR /app
 COPY ui ./ui
 COPY login/package*.json ./login/
-RUN cd login && npm install
+RUN cd login && npm ci --no-audit --no-fund
 COPY login ./login
 RUN cd login && npm run build
 
@@ -14,7 +14,7 @@ FROM node:20-alpine AS accounts
 WORKDIR /app
 COPY ui ./ui
 COPY accounts/package*.json ./accounts/
-RUN cd accounts && npm install
+RUN cd accounts && npm ci --no-audit --no-fund
 COPY accounts ./accounts
 RUN cd accounts && npm run build
 
@@ -22,7 +22,7 @@ FROM node:20-alpine AS cloud
 WORKDIR /app
 COPY ui ./ui
 COPY cloud/package*.json ./cloud/
-RUN cd cloud && npm install
+RUN cd cloud && npm ci --no-audit --no-fund
 COPY cloud ./cloud
 RUN cd cloud && npm run build
 
@@ -30,7 +30,7 @@ FROM node:20-alpine AS home
 WORKDIR /app
 COPY ui ./ui
 COPY home/package*.json ./home/
-RUN cd home && npm install
+RUN cd home && npm ci --no-audit --no-fund
 COPY home ./home
 RUN cd home && npm run build
 
@@ -38,7 +38,7 @@ FROM node:20-alpine AS store
 WORKDIR /app
 COPY ui ./ui
 COPY store/package*.json ./store/
-RUN cd store && npm install
+RUN cd store && npm ci --no-audit --no-fund
 COPY store ./store
 RUN cd store && npm run build
 
@@ -46,7 +46,7 @@ FROM node:20-alpine AS photos
 WORKDIR /app
 COPY ui ./ui
 COPY photos/package*.json ./photos/
-RUN cd photos && npm install
+RUN cd photos && npm ci --no-audit --no-fund
 COPY photos ./photos
 RUN cd photos && npm run build
 
@@ -54,7 +54,7 @@ FROM node:20-alpine AS share
 WORKDIR /app
 COPY ui ./ui
 COPY share/package*.json ./share/
-RUN cd share && npm install
+RUN cd share && npm ci --no-audit --no-fund
 COPY share ./share
 RUN cd share && npm run build
 
