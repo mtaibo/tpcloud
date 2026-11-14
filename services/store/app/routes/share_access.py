@@ -1,0 +1,578 @@
+import io
+import os
+import queue
+import secrets
+import shutil
+import threading
+import time
+import zipfile
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import List, Optional
+
+import aiofiles
+import bcrypt
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+from sqlmodel import Session, select
+
+from app import media
+from app.database import get_session
+from app.models import ShareLink, ShareSession, ShareFileToken, FolderIcon
+from app.utils import get_base, resolve_path, list_directory_entries as _list_entries, guess_media_type as _guess_media_type, inline_response, file_headers, PUBLIC_URL
+
+router = APIRouter(prefix="/api/share", tags=["share-access"])
+
+
+
+SESSION_TTL_HOURS = 24
+
+_share_cache: dict[str, tuple[ShareLink, float]] = {}
+_SHARE_CACHE_TTL = 60.0
+
+
+def _get_share(token: str, db: Session) -> ShareLink:
+    now = time.monotonic()
+    cached = _share_cache.get(token)
+    if cached and cached[1] > now:
+        return cached[0]
+    share = db.exec(select(ShareLink).where(ShareLink.token == token)).first()
+    if not share:
+        raise HTTPException(404, "Share not found")
+    db.expunge(share)
+    _share_cache[token] = (share, now + _SHARE_CACHE_TTL)
+    return share
+
+
+def _invalidate_share_cache(token: str):
+    _share_cache.pop(token, None)
+
+
+def _verify_session(share: ShareLink, request: Request, db: Session):
+    if not share.password_hash:
+        return
+    session_token = (
+        request.headers.get("X-Share-Session")
+        or request.query_params.get("session")
+    )
+    if not session_token:
+        raise HTTPException(401, "Password required")
+    sess = db.exec(
+        select(ShareSession)
+        .where(ShareSession.session_token == session_token)
+        .where(ShareSession.share_token == share.token)
+    ).first()
+    if not sess:
+        raise HTTPException(401, "Session expired or invalid")
+    expires = sess.expires_at if sess.expires_at.tzinfo is not None else sess.expires_at.replace(tzinfo=timezone.utc)
+    if expires < datetime.now(timezone.utc):
+        raise HTTPException(401, "Session expired or invalid")
+
+
+def _require_editable(share: ShareLink):
+    if not share.editable:
+        raise HTTPException(403, "This share is read-only")
+
+
+def _share_resolve(share: ShareLink, subpath: str) -> Path:
+    base = get_base(share.location)
+    share_root = (base / share.path).resolve()
+    if not str(share_root).startswith(str(base.resolve())):
+        raise HTTPException(400, "Invalid share path")
+    return resolve_path(share_root, subpath)
+
+
+def _share_is_file(share: ShareLink) -> bool:
+    try:
+        return _share_resolve(share, "").is_file()
+    except HTTPException:
+        return False
+
+
+def _file_facts(share: ShareLink) -> dict:
+    """Whether the share is a single file and, if so, its type, size and modification time."""
+    facts = {"is_file": False, "content_type": None, "size": None, "modified": None}
+    try:
+        target = _share_resolve(share, "")
+        if target.is_file():
+            stat = target.stat()
+            facts.update(
+                is_file=True,
+                content_type=_guess_media_type(target),
+                size=stat.st_size,
+                modified=int(stat.st_mtime),
+            )
+    except (HTTPException, OSError):
+        pass
+    return facts
+
+
+# ── Metadata & auth ──────────────────────────────────────────────────────────
+
+@router.get("")
+def list_public_shares(db: Session = Depends(get_session)):
+    shares = db.exec(select(ShareLink).where(ShareLink.public == True)).all()
+    return [
+        {
+            "token": s.token,
+            "label": s.path.split("/")[-1] or s.token,
+            "has_password": s.password_hash is not None,
+            "url": f"{PUBLIC_URL}/share/{s.token}",
+            **_file_facts(s),
+        }
+        for s in shares
+    ]
+
+
+@router.get("/{token}")
+def get_share_info(token: str, db: Session = Depends(get_session)):
+    share = _get_share(token, db)
+    return {
+        "token": share.token,
+        "label": share.path.split("/")[-1] or share.token,
+        "has_password": share.password_hash is not None,
+        "editable": share.editable,
+        **_file_facts(share),
+    }
+
+
+class AuthBody(BaseModel):
+    password: str
+
+
+@router.post("/{token}/auth")
+def authenticate_share(token: str, body: AuthBody, db: Session = Depends(get_session)):
+    share = _get_share(token, db)
+    if not share.password_hash:
+        raise HTTPException(400, "Share has no password")
+    if not bcrypt.checkpw(body.password.encode(), share.password_hash.encode()):
+        raise HTTPException(401, "Incorrect password")
+
+    session_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=SESSION_TTL_HOURS)
+    sess = ShareSession(session_token=session_token, share_token=token, expires_at=expires_at)
+    db.add(sess)
+    db.commit()
+    return {"session_token": session_token}
+
+
+# ── Share file token ─────────────────────────────────────────────────────────
+
+class ShareFileTokenBody(BaseModel):
+    path: str
+
+
+@router.post("/{token}/files/token")
+def create_share_file_token(
+    token: str,
+    request: Request,
+    body: ShareFileTokenBody,
+    db: Session = Depends(get_session),
+):
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    base = get_base(share.location)
+    share_root = (base / share.path).resolve()
+    file_path = resolve_path(share_root, body.path)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+    session_tok = (
+        request.headers.get("X-Share-Session")
+        or request.query_params.get("session")
+    )
+    while True:
+        file_token = secrets.token_urlsafe(8)
+        if not db.exec(select(ShareFileToken).where(ShareFileToken.token == file_token)).first():
+            break
+    db.add(ShareFileToken(
+        token=file_token,
+        share_token=token,
+        path=body.path,
+        session_token=session_tok,
+    ))
+    db.commit()
+    return {"token": file_token}
+
+
+# ── File access ───────────────────────────────────────────────────────────────
+
+# The gallery's tile sizes, warmed up ahead of the requests for them.
+_GALLERY_THUMB_SIZES = [320]
+
+
+@router.get("/{token}/files/list")
+async def list_files(
+    token: str,
+    request: Request,
+    path: str = Query(default=""),
+    db: Session = Depends(get_session),
+):
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    dir_path = _share_resolve(share, path)
+
+    if not dir_path.exists() or not dir_path.is_dir():
+        raise HTTPException(404, "Directory not found")
+
+    entries = _list_entries(dir_path)
+
+    dir_names = [e["name"] for e in entries if e["type"] == "directory"]
+    if dir_names:
+        share_base = share.path.rstrip("/")
+        sub = path.strip("/")
+        prefix = f"{share_base}/{sub}/" if sub else f"{share_base}/"
+        paths_to_check = [f"{prefix}{name}" for name in dir_names]
+        icons = db.exec(
+            select(FolderIcon).where(
+                FolderIcon.owner_email == share.owner_email,
+                FolderIcon.location == share.location,
+                FolderIcon.path.in_(paths_to_check),
+            )
+        ).all()
+        icon_map = {i.path: i.icon_name for i in icons}
+        for e in entries:
+            if e["type"] == "directory":
+                full_path = f"{prefix}{e['name']}"
+                if full_path in icon_map:
+                    e["icon_name"] = icon_map[full_path]
+
+    media_files = []
+    for e in entries:
+        if e["type"] != "file":
+            continue
+        file_path = dir_path / e["name"]
+        if media.is_video(file_path):
+            media_files.append(file_path)
+            info = media.cached_video_info(file_path)
+            if info:
+                e["duration"] = info["duration"]
+        elif media.is_image(file_path):
+            media_files.append(file_path)
+    # Thumbnails, posters, photo previews and the 720p videos start being made now, so they're
+    # ready (or close) by the time the page asks for them.
+    media.warm_up(media_files, _GALLERY_THUMB_SIZES)
+
+    return {"path": path, "entries": entries}
+
+
+@router.get("/{token}/files/view")
+def view_file(
+    token: str,
+    request: Request,
+    path: str = Query(default=""),
+    db: Session = Depends(get_session),
+):
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    file_path = _share_resolve(share, path)
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+
+    media_type = _guess_media_type(file_path)
+    return inline_response(file_path, media_type)
+
+
+@router.get("/{token}/files/thumbnail")
+async def share_thumbnail(
+    token: str,
+    request: Request,
+    path: str = Query(default=""),
+    size: int = Query(default=160),
+    db: Session = Depends(get_session),
+):
+    from app.routes.files import _THUMB_DIR, _thumb_cache_path, _ensure_thumbnail
+
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    file_path = _share_resolve(share, path)
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+
+    media_type = _guess_media_type(file_path)
+    is_video = media.is_video(file_path)
+    if not media_type.startswith("image/") and not is_video:
+        return inline_response(file_path, media_type)
+
+    size = max(40, min(size, 400))
+    _THUMB_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        # A video's thumbnail is cut from its poster frame, rather than the page loading the
+        # video itself into every tile.
+        source = await media.ensure_video_poster(file_path) if is_video else file_path
+        cache_path = _thumb_cache_path(source, size)
+        await _ensure_thumbnail(source, cache_path, size)
+        return FileResponse(
+            path=str(cache_path),
+            media_type="image/jpeg",
+            headers={**media.cache_headers(share.password_hash is not None), "Content-Disposition": "inline"},
+        )
+    except Exception:
+        raise HTTPException(500, "Failed to build thumbnail")
+
+
+@router.get("/{token}/files/poster")
+async def share_poster(
+    token: str,
+    request: Request,
+    path: str = Query(default=""),
+    db: Session = Depends(get_session),
+):
+    """A video's poster frame, shown while it starts playing."""
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    file_path = _share_resolve(share, path)
+    if not file_path.is_file() or not media.is_video(file_path):
+        raise HTTPException(404, "Video not found")
+    try:
+        poster = await media.ensure_video_poster(file_path)
+    except Exception:
+        raise HTTPException(500, "Failed to build poster")
+    return FileResponse(path=str(poster), media_type="image/jpeg", headers=media.cache_headers(share.password_hash is not None))
+
+
+@router.get("/{token}/files/preview")
+async def share_preview(
+    token: str,
+    request: Request,
+    path: str = Query(default=""),
+    db: Session = Depends(get_session),
+):
+    """What the viewer shows: a 2048 px JPEG of a photo, or a 720p MP4 of a video.
+
+    A video whose 720p version isn't ready yet gets the original, moved to the front of the
+    queue, and is sent without caching so the next visit picks up the light version.
+    """
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    file_path = _share_resolve(share, path)
+    if not file_path.is_file():
+        raise HTTPException(404, "File not found")
+    private = share.password_hash is not None
+
+    if media.is_video(file_path):
+        preview = media.ready_video_preview(file_path)
+        if preview:
+            return FileResponse(path=str(preview), media_type="video/mp4", headers=media.cache_headers(private))
+        media.queue_video_preview(file_path, first=True)
+        media_type = _guess_media_type(file_path)
+        return FileResponse(
+            path=str(file_path),
+            media_type=media_type,
+            headers={**file_headers(media_type), "Cache-Control": "no-store"},
+        )
+    if media.is_image(file_path):
+        try:
+            preview = await media.ensure_image_preview(file_path)
+        except Exception:
+            raise HTTPException(500, "Failed to build preview")
+        return FileResponse(path=str(preview), media_type="image/jpeg", headers=media.cache_headers(private))
+    return inline_response(file_path, _guess_media_type(file_path))
+
+
+@router.get("/{token}/files/download")
+def download_file(
+    token: str,
+    request: Request,
+    path: str = Query(default=""),
+    db: Session = Depends(get_session),
+):
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    file_path = _share_resolve(share, path)
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+
+    return FileResponse(path=file_path, filename=file_path.name, media_type="application/octet-stream")
+
+
+@router.get("/{token}/files/download-zip")
+def download_folder_zip(
+    token: str,
+    request: Request,
+    path: str = Query(...),
+    db: Session = Depends(get_session),
+):
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    dir_path = _share_resolve(share, path)
+
+    if not dir_path.exists() or not dir_path.is_dir():
+        raise HTTPException(400, "Path is not a directory")
+
+    return StreamingResponse(
+        _stream_zip(dir_path),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{dir_path.name}.zip"'},
+    )
+
+
+class _QueueWriter(io.RawIOBase):
+    """A write-only, unseekable file that hands every write to a queue (zipfile copes with that).
+    Gives up once `cancelled` is set, so a download dropped halfway doesn't leave it blocked."""
+
+    def __init__(self, chunks: queue.Queue, cancelled: threading.Event):
+        self._chunks = chunks
+        self._cancelled = cancelled
+
+    def writable(self):
+        return True
+
+    def write(self, data):
+        while True:
+            if self._cancelled.is_set():
+                raise OSError("Download cancelled")
+            try:
+                self._chunks.put(bytes(data), timeout=1)
+                return len(data)
+            except queue.Full:
+                continue
+
+
+def _stream_zip(dir_path: Path):
+    """Zips the folder as it's sent instead of in memory first, which for a folder of phone
+    videos meant gigabytes of RAM and nothing reaching the browser until the whole zip was done.
+    Stored, not deflated: photos and videos don't shrink, and deflating them only costs CPU."""
+    chunks: queue.Queue = queue.Queue(maxsize=16)
+    cancelled = threading.Event()
+    done = object()
+
+    def write():
+        try:
+            with zipfile.ZipFile(_QueueWriter(chunks, cancelled), "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
+                for f in sorted(dir_path.rglob("*")):
+                    if f.is_file() and not f.name.startswith("."):
+                        zf.write(f, Path(dir_path.name) / f.relative_to(dir_path))
+        except OSError:
+            pass
+        finally:
+            # Unblocks the reader even when the queue is full and nobody is reading any more.
+            while not cancelled.is_set():
+                try:
+                    chunks.put(done, timeout=1)
+                    break
+                except queue.Full:
+                    continue
+
+    threading.Thread(target=write, daemon=True).start()
+    try:
+        while (chunk := chunks.get()) is not done:
+            yield chunk
+    finally:
+        cancelled.set()
+
+
+# ── Write operations (editable shares only) ───────────────────────────────────
+
+@router.post("/{token}/files/upload")
+async def upload_files(
+    token: str,
+    request: Request,
+    path: str = Query(default=""),
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_session),
+):
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    _require_editable(share)
+    dir_path = _share_resolve(share, path)
+
+    if not dir_path.exists() or not dir_path.is_dir():
+        raise HTTPException(404, "Directory not found")
+
+    uploaded = []
+    for file in files:
+        filename = Path(file.filename).name
+        if not filename:
+            continue
+        dest = (dir_path / filename).resolve()
+        if not str(dest).startswith(str(dir_path.resolve())):
+            continue
+        async with aiofiles.open(dest, "wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                await f.write(chunk)
+        uploaded.append(filename)
+
+    return {"uploaded": uploaded}
+
+
+class MkdirBody(BaseModel):
+    path: str
+
+
+@router.post("/{token}/files/mkdir")
+def create_directory(
+    token: str,
+    request: Request,
+    body: MkdirBody,
+    db: Session = Depends(get_session),
+):
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    _require_editable(share)
+    new_dir = _share_resolve(share, body.path)
+
+    if new_dir.exists():
+        raise HTTPException(400, "Already exists")
+    try:
+        new_dir.mkdir(parents=True)
+    except PermissionError:
+        raise HTTPException(403, "Permission denied")
+    return {"created": body.path}
+
+
+class RenameBody(BaseModel):
+    path: str
+    new_name: str
+
+
+@router.post("/{token}/files/rename")
+def rename_item(
+    token: str,
+    request: Request,
+    body: RenameBody,
+    db: Session = Depends(get_session),
+):
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    _require_editable(share)
+    item = _share_resolve(share, body.path)
+
+    if not item.exists():
+        raise HTTPException(404, "Not found")
+    new_name = Path(body.new_name).name
+    if not new_name:
+        raise HTTPException(400, "Invalid name")
+    dest = item.parent / new_name
+    if dest.exists():
+        raise HTTPException(400, "Already exists")
+    try:
+        item.rename(dest)
+    except OSError as e:
+        raise HTTPException(500, str(e))
+    return {"renamed": body.path}
+
+
+@router.delete("/{token}/files")
+def delete_item(
+    token: str,
+    request: Request,
+    path: str = Query(...),
+    db: Session = Depends(get_session),
+):
+    share = _get_share(token, db)
+    _verify_session(share, request, db)
+    _require_editable(share)
+    item = _share_resolve(share, path)
+
+    if not item.exists():
+        raise HTTPException(404, "Not found")
+    if item.is_file() or item.is_symlink():
+        item.unlink()
+    else:
+        shutil.rmtree(item)
+    return {"deleted": path}

@@ -1,0 +1,55 @@
+services:
+
+  store-api:
+    build: ./api
+    container_name: tpstore-api
+    environment:
+      - EXTERNAL_DISK_PATH=/mnt/external
+      - AUTH_SERVICE_URL=${AUTH_SERVICE_URL:-http://auth:8000}
+      - TPCLOUD_URL=${TPCLOUD_URL}
+    volumes:
+      - ${EXTERNAL_DISK_PATH:-/mnt/external}:/mnt/external
+      # The host's disks, only for the admin backup (rsync of /mnt/storage to /mnt/backup). Off
+      # unless TPSTORE_BACKUP_MOUNT=/mnt is set.
+      - ${TPSTORE_BACKUP_MOUNT:-./data/no-backup}:/mnt/server/mnt
+      - ./data:/app/data
+    networks:
+      - gateway
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  store-frontend:
+    build: ./frontend
+    container_name: tpstore-frontend
+    depends_on:
+      - store-api
+    networks:
+      - gateway
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  share-frontend:
+    build: ./share-frontend
+    container_name: tpshare-frontend
+    networks:
+      - gateway
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  # The gallery, a section of its own at /photos; its data comes from store-api.
+  photos-frontend:
+    build: ./photos-frontend
+    container_name: tpphotos-frontend
+    networks:
+      - gateway
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+networks:
+  gateway:
+    external: true
+    name: tpcloud_gateway
