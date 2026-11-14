@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { t as tr } from './ui/i18n.js'
+import { t as tr } from '@ui/i18n.js'
 import { apiError } from './apiErrors.js'
 
 const CHUNK_SIZE = 32 * 1024 * 1024

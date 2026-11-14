@@ -1,4 +1,4 @@
-import { locale, t } from '../ui/i18n.js'
+import { locale, t } from '@ui/i18n.js'
 export function formatSize(bytes) {
   if (bytes === null || bytes === undefined) return '—'
   if (bytes < 1000) return `${bytes} bytes`

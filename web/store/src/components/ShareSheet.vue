@@ -1,15 +1,15 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { Copy, Share } from 'lucide-vue-next'
-import Sheet from '../ui/Sheet.vue'
-import Spinner from '../ui/Spinner.vue'
-import Toggle from '../ui/Toggle.vue'
-import Segmented from '../ui/Segmented.vue'
-import ListSection from '../ui/ListSection.vue'
-import ListRow from '../ui/ListRow.vue'
-import { confirmDestructive, toast } from '../ui/dialog.js'
+import Sheet from '@ui/Sheet.vue'
+import Spinner from '@ui/Spinner.vue'
+import Toggle from '@ui/Toggle.vue'
+import Segmented from '@ui/Segmented.vue'
+import ListSection from '@ui/ListSection.vue'
+import ListRow from '@ui/ListRow.vue'
+import { confirmDestructive, toast } from '@ui/dialog.js'
 import FileIcon from './FileIcon.vue'
-import { t } from '../ui/i18n.js'
+import { t } from '@ui/i18n.js'
 import { apiError } from '../apiErrors.js'
 
 // Sharing an item: a new link (name, password, editing, public page), or the options of the link

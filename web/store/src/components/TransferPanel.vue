@@ -3,7 +3,7 @@ import { watch } from 'vue'
 import { Archive, ArrowDown, ArrowUp, Check, Play, Square, X } from 'lucide-vue-next'
 import { useTransfers, formatBytes, formatEta } from '../useTransfers.js'
 import { useCompression } from '../useCompression.js'
-import { t as tr } from '../ui/i18n.js'
+import { t as tr } from '@ui/i18n.js'
 
 // Every upload, download and extraction with its progress. A popover by the sidebar, or inside
 // a sheet on the phone (`inline`).

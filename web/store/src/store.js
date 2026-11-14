@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import { t } from './ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // Where the browser is and how it shows things, shared by the sidebar, the browser and the
 // phone's tabs. Folders are addressed as (location, path) like the API.

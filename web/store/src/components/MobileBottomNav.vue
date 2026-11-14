@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { Compass, House, Images, Users } from 'lucide-vue-next'
 import { homePath, navigate, store } from '../store.js'
 import { transferSummary } from '../transferSummary.js'
-import { t as tr } from '../ui/i18n.js'
+import { t as tr } from '@ui/i18n.js'
 
 // The phone's floating tab bar (iOS 26), and the pill above it while something is uploading.
 const emit = defineEmits(['transfers'])

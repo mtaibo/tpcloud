@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ChevronLeft, ChevronRight, Download, ExternalLink, Eye, FolderDown, ImageDown, LayoutGrid, List, MoreHorizontal } from 'lucide-vue-next'
-import Spinner from '../ui/Spinner.vue'
+import Spinner from '@ui/Spinner.vue'
 import { openMenu } from '../menu.js'
 import { kindName } from '../fileTypes.js'
 import { formatDate, formatSize } from '../utils/formatSize.js'

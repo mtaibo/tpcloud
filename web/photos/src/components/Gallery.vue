@@ -1,15 +1,15 @@
 <script setup>
 import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { ChevronLeft, Download, Heart, HeartOff, Images, Minus, Plus, Trash2 } from 'lucide-vue-next'
-import Spinner from '../ui/Spinner.vue'
-import Segmented from '../ui/Segmented.vue'
+import Spinner from '@ui/Spinner.vue'
+import Segmented from '@ui/Segmented.vue'
 import { openMenu } from '../menu.js'
-import { confirmDestructive, toast } from '../ui/dialog.js'
+import { confirmDestructive, toast } from '@ui/dialog.js'
 import { vLongPress } from '../longPress.js'
 import { downloadLink, photoMediaUrls } from '../mediaUrls.js'
 import { LEVELS, PhotoGrid, maxLevelFor } from '../grid/PhotoGrid.js'
 import QuickLook from './QuickLook.vue'
-import { locale, t } from '../ui/i18n.js'
+import { locale, t } from '@ui/i18n.js'
 
 // The photos backed up from the phone, laid out like the iPhone app's Photos tab: one grid with
 // the newest photo at the bottom, where the view starts, at 3, 5, 9, 15, 31 or 61 columns (pinch,

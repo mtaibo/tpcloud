@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChevronLeft, ChevronRight, Download, Heart, Trash2, X } from 'lucide-vue-next'
 import { kindOf } from '../fileTypes.js'
-import { t } from '../ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // Quick Look for photos and videos: the file over a dark blur, its name on top, arrows (and the
 // keyboard, and swipes) to move through the folder's media. It shows the light versions (a

@@ -1,7 +1,7 @@
 import { computed, reactive } from 'vue'
 import { useTransfers } from './useTransfers.js'
 import { useCompression } from './useCompression.js'
-import { t as tr } from './ui/i18n.js'
+import { t as tr } from '@ui/i18n.js'
 
 // One line for everything moving: how many transfers, what they are and how far along, for the
 // sidebar row and the phone's floating pill.

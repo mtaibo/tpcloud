@@ -8,11 +8,11 @@ import { FOLDER_ICONS_MAP } from '../folderIcons.js'
 import { openMenu } from '../menu.js'
 import { folderTitle, homePath, navigate, store } from '../store.js'
 import { formatSize } from '../utils/formatSize.js'
-import { toast } from '../ui/dialog.js'
+import { toast } from '@ui/dialog.js'
 import { transferSummary } from '../transferSummary.js'
 import TransferPanel from './TransferPanel.vue'
 import BackupSheet from './BackupSheet.vue'
-import { t } from '../ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 const favouritesOpen = ref(true)
 const transfersOpen = ref(false)

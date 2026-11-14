@@ -1,11 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { BookImage, Camera, ChevronRight, Cloud, Folder, Heart, Images, LogOut, Smartphone, User } from 'lucide-vue-next'
-import AlertHost from './ui/AlertHost.vue'
-import Spinner from './ui/Spinner.vue'
+import AlertHost from '@ui/AlertHost.vue'
+import Spinner from '@ui/Spinner.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import Gallery from './components/Gallery.vue'
-import { syncLang, t } from './ui/i18n.js'
+import { syncLang, t } from '@ui/i18n.js'
 import { openMenu } from './menu.js'
 import { formatSize } from './utils/formatSize.js'
 

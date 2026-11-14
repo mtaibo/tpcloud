@@ -8,7 +8,7 @@ import MediaViewer from './components/MediaViewer.vue'
 import SaveToPhotos from './components/SaveToPhotos.vue'
 import { downloadLink } from './media.js'
 import ContextMenu from './components/ContextMenu.vue'
-import Spinner from './ui/Spinner.vue'
+import Spinner from '@ui/Spinner.vue'
 import FileIcon from './components/FileIcon.vue'
 
 const token = window.location.pathname.replace(/^\/share\/?/, '').split('/')[0]

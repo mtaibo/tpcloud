@@ -1,14 +1,14 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { ChevronLeft } from 'lucide-vue-next'
-import Sheet from '../ui/Sheet.vue'
-import Spinner from '../ui/Spinner.vue'
-import ListSection from '../ui/ListSection.vue'
-import ListRow from '../ui/ListRow.vue'
-import { toast } from '../ui/dialog.js'
+import Sheet from '@ui/Sheet.vue'
+import Spinner from '@ui/Spinner.vue'
+import ListSection from '@ui/ListSection.vue'
+import ListRow from '@ui/ListRow.vue'
+import { toast } from '@ui/dialog.js'
 import { folderTitle, rootOf } from '../store.js'
 import FileIcon from './FileIcon.vue'
-import { t } from '../ui/i18n.js'
+import { t } from '@ui/i18n.js'
 import { apiError } from '../apiErrors.js'
 
 // Pick a folder to move or copy an item into, browsing down from where it is.

@@ -1,10 +1,10 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { Search, X } from 'lucide-vue-next'
-import Sheet from '../ui/Sheet.vue'
+import Sheet from '@ui/Sheet.vue'
 import { FOLDER_ICONS_MAP, FOLDER_ICON_CATEGORIES } from '../folderIcons.js'
 import FileIcon from './FileIcon.vue'
-import { t } from '../ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // The symbol pressed into a folder's front. tpapp shows the same names as SF Symbols.
 const props = defineProps({ entry: Object })

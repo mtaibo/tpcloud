@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { t } from './ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 const STORAGE_KEY = 'tpcloud-favourites'
 const favourites = ref([])

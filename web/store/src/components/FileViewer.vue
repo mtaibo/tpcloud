@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted } from 'vue'
-import { t } from '../ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 const props = defineProps({
   filename: String,

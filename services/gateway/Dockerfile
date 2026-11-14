@@ -34,27 +34,29 @@ RUN cd home && npm install
 COPY home ./home
 RUN cd home && npm run build
 
-# Store's apps still carry their own copy of ui/ in src/ui.
 FROM node:20-alpine AS store
-WORKDIR /app/store
-COPY store/package*.json ./
-RUN npm install
-COPY store ./
-RUN npm run build
+WORKDIR /app
+COPY ui ./ui
+COPY store/package*.json ./store/
+RUN cd store && npm install
+COPY store ./store
+RUN cd store && npm run build
 
 FROM node:20-alpine AS photos
-WORKDIR /app/photos
-COPY photos/package*.json ./
-RUN npm install
-COPY photos ./
-RUN npm run build
+WORKDIR /app
+COPY ui ./ui
+COPY photos/package*.json ./photos/
+RUN cd photos && npm install
+COPY photos ./photos
+RUN cd photos && npm run build
 
 FROM node:20-alpine AS share
-WORKDIR /app/share
-COPY share/package*.json ./
-RUN npm install
-COPY share ./
-RUN npm run build
+WORKDIR /app
+COPY ui ./ui
+COPY share/package*.json ./share/
+RUN cd share && npm install
+COPY share ./share
+RUN cd share && npm run build
 
 FROM caddy:2
 COPY --from=login /app/login/dist /srv/login

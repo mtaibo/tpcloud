@@ -1,8 +1,8 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import AlertHost from './ui/AlertHost.vue'
-import Sheet from './ui/Sheet.vue'
-import Spinner from './ui/Spinner.vue'
+import AlertHost from '@ui/AlertHost.vue'
+import Sheet from '@ui/Sheet.vue'
+import Spinner from '@ui/Spinner.vue'
 import Sidebar from './components/Sidebar.vue'
 import FileBrowser from './components/FileBrowser.vue'
 import SharesPanel from './components/SharesPanel.vue'
@@ -13,7 +13,7 @@ import ContextMenu from './components/ContextMenu.vue'
 import TransferPanel from './components/TransferPanel.vue'
 import BackupSheet from './components/BackupSheet.vue'
 import { loadDisk, navigate, store } from './store.js'
-import { syncLang, t } from './ui/i18n.js'
+import { syncLang, t } from '@ui/i18n.js'
 
 const ready = ref(false)
 const viewer = ref(null) // { token, info } for /store/<token>, a file opened in its own tab

@@ -1,14 +1,14 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { Copy, FolderOpen, Link, Lock, MoreHorizontal, Pencil, Trash2 } from 'lucide-vue-next'
-import Spinner from '../ui/Spinner.vue'
-import ListSection from '../ui/ListSection.vue'
-import { confirmDestructive, toast } from '../ui/dialog.js'
+import Spinner from '@ui/Spinner.vue'
+import ListSection from '@ui/ListSection.vue'
+import { confirmDestructive, toast } from '@ui/dialog.js'
 import { openMenu } from '../menu.js'
 import { navigate } from '../store.js'
 import FileIcon from './FileIcon.vue'
 import ShareSheet from './ShareSheet.vue'
-import { t } from '../ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // Every link you've shared, with what it allows, and a way to copy, change or delete it.
 const shares = ref(null)

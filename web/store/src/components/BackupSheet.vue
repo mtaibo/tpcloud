@@ -1,11 +1,11 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
 import { AlertCircle, CheckCircle2, DatabaseBackup } from 'lucide-vue-next'
-import Sheet from '../ui/Sheet.vue'
-import Spinner from '../ui/Spinner.vue'
-import ListSection from '../ui/ListSection.vue'
-import ListRow from '../ui/ListRow.vue'
-import { locale, t } from '../ui/i18n.js'
+import Sheet from '@ui/Sheet.vue'
+import Spinner from '@ui/Spinner.vue'
+import ListSection from '@ui/ListSection.vue'
+import ListRow from '@ui/ListRow.vue'
+import { locale, t } from '@ui/i18n.js'
 import { apiError } from '../apiErrors.js'
 
 // The storage drive's copy onto the backup drive (admins only).

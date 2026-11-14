@@ -1,12 +1,12 @@
 <script setup>
 import { computed, onMounted } from 'vue'
 import { Cloud, DatabaseBackup, Folder, House, Link, LogOut, User, Users } from 'lucide-vue-next'
-import ListSection from '../ui/ListSection.vue'
+import ListSection from '@ui/ListSection.vue'
 import { useFavourites } from '../useFavourites.js'
 import { FOLDER_ICONS_MAP } from '../folderIcons.js'
 import { folderTitle, homePath, navigate, store } from '../store.js'
 import { formatSize } from '../utils/formatSize.js'
-import { t } from '../ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // The phone's "{{ t('Browse', 'Explorar') }}" tab, like Files' Browse: places, favourites, links and storage.
 const emit = defineEmits(['backup'])

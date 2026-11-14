@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { Lock } from 'lucide-vue-next'
-import Spinner from '../ui/Spinner.vue'
+import Spinner from '@ui/Spinner.vue'
 
 const props = defineProps({ token: String, label: String })
 const emit = defineEmits(['authenticated'])

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ChevronRight, Lock } from 'lucide-vue-next'
-import Spinner from '../ui/Spinner.vue'
+import Spinner from '@ui/Spinner.vue'
 import FileIcon from './FileIcon.vue'
 
 const shares = ref([])

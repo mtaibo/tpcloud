@@ -5,8 +5,8 @@ import {
   Eye, FilePlus, FolderInput, FolderPlus, LayoutGrid, Link, List, MoreHorizontal, Palette, Pencil, Plus,
   Search, Share, Star, Trash2, Upload, X,
 } from 'lucide-vue-next'
-import Spinner from '../ui/Spinner.vue'
-import { confirmDestructive, prompt, toast } from '../ui/dialog.js'
+import Spinner from '@ui/Spinner.vue'
+import { confirmDestructive, prompt, toast } from '@ui/dialog.js'
 import { openMenu } from '../menu.js'
 import { useFavourites } from '../useFavourites.js'
 import { useTransfers } from '../useTransfers.js'
@@ -24,7 +24,7 @@ import { shareMediaUrls, storeMediaUrls } from '../mediaUrls.js'
 import MoveSheet from './MoveSheet.vue'
 import ShareSheet from './ShareSheet.vue'
 import IconSheet from './IconSheet.vue'
-import { t as tr } from '../ui/i18n.js'
+import { t as tr } from '@ui/i18n.js'
 import { apiError } from '../apiErrors.js'
 
 const phoneQuery = window.matchMedia('(max-width: 767px)')

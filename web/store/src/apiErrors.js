@@ -1,4 +1,4 @@
-import { lang } from './ui/i18n.js'
+import { lang } from '@ui/i18n.js'
 
 // store-api answers in English; the messages people actually run into, in Spanish too.
 const ES = {
