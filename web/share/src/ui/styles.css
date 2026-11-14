@@ -1,4 +1,4 @@
-/* Copied from tpcloud/ui (via tpstore/frontend) so shared pages look like the rest of TPCloud. Keep them in step. */
+/* Copied from web/ui (via web/store) so shared pages look like the rest of TPCloud. Keep them in step. */
 /*
  * TPCloud's web UI, drawn after iOS: the system's colours, type scale, grouped lists, bars and
  * controls, in light and dark. Every web app in the repo imports this one file.
