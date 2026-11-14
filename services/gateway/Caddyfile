@@ -1,12 +1,13 @@
 # Every module is served from one host, each under its own path:
 #
-#   /login  /accounts  /           tpcloud (sign-in, account, dashboard)
-#   /store  /share  /photos        tpstore (files, public share links, gallery)
-#   /home                          tphome
+#   /login  /accounts  /           sign-in, account, dashboard
+#   /store  /share  /photos        Store (files, public share links, gallery)
+#   /home                          Home (tphome's control panel)
 #   /auth                          the auth API every client signs in against
 #
-# Each module's API lives under its own path too (/store/api, /home/api…). The prefix is stripped
-# here, so the services behind it still see the /api/... paths they always had.
+# Every web app's files are built into this image and served from here; each module's API lives
+# under its own path too (/store/api, /home/api…). The prefix is stripped here, so the services
+# behind it still see the /api/... paths they always had.
 {
 	admin off
 	servers {
@@ -29,7 +30,7 @@
 }
 
 # Deferred (the `-Server` delete makes Caddy apply these as the response goes out), so the CSP
-# and frame policy are only defaults: tpstore sends its own sandbox CSP for users' files, and
+# and frame policy are only defaults: store-api sends its own sandbox CSP for users' files, and
 # overwriting it would let an uploaded HTML file run scripts on this origin.
 (security_headers) {
 	header {
@@ -50,6 +51,15 @@
 	@assets path /assets/*
 	header @assets Cache-Control "public, max-age=31536000, immutable"
 	header ?Cache-Control "no-store"
+}
+
+# A web app's built files, baked into the gateway image at /srv/<app>. A path that isn't a file
+# gets the app's index.html, and the app routes it itself.
+(app) {
+	root * /srv/{args[0]}
+	import caching
+	try_files {path} {path}/ /index.html
+	file_server
 }
 
 (tls_none) {
@@ -79,8 +89,7 @@
 		route {
 			rewrite /login /login/?{query}
 			uri strip_prefix /login
-			import caching
-			reverse_proxy login:80
+			import app login
 		}
 	}
 
@@ -90,8 +99,7 @@
 			import protected
 			rewrite /accounts /accounts/?{query}
 			uri strip_prefix /accounts
-			import caching
-			reverse_proxy accounts:80
+			import app accounts
 		}
 	}
 
@@ -111,24 +119,22 @@
 			# Thumbnails set their own long caching; other API answers are never cached.
 			header /api/* ?Cache-Control "no-store"
 			reverse_proxy /api/* store-api:8000
-			import caching
-			reverse_proxy store-frontend:80
+			import app store
 		}
 	}
 
-	# tpstore's gallery, a section of its own. Only the page is served here: its data comes from
-	# tpstore's API under /store/api, like the store's.
+	# Store's gallery, a section of its own. Only the page is served here: its data comes from
+	# store-api under /store/api, like the store's.
 	redir /photos /photos/ 308
 	handle /photos/* {
 		route {
 			import protected
 			uri strip_prefix /photos
-			import caching
-			reverse_proxy photos-frontend:80
+			import app photos
 		}
 	}
 
-	# Public share links. Only the share endpoints of tpstore's API are reachable from here,
+	# Public share links. Only the share endpoints of store-api are reachable from here,
 	# never the rest of it.
 	redir /share /share/ 308
 	handle /share/* {
@@ -141,8 +147,7 @@
 			header @share_api ?Cache-Control "no-store"
 			reverse_proxy @share_api store-api:8000
 			respond /api/* 404
-			import caching
-			reverse_proxy share-frontend:80
+			import app share
 		}
 	}
 
@@ -153,17 +158,15 @@
 			uri strip_prefix /home
 			@home_api path /api/* /openapi.json /firmware
 			header @home_api Cache-Control "no-store"
-			reverse_proxy @home_api tphome-api:8000
-			import caching
-			reverse_proxy tphome-frontend:80
+			reverse_proxy @home_api home-api:8000
+			import app home
 		}
 	}
 
 	handle {
 		route {
 			import protected
-			import caching
-			reverse_proxy cloud:80
+			import app cloud
 		}
 	}
 }
@@ -173,7 +176,7 @@
 # serves that one path only.
 :8081 {
 	handle /firmware {
-		reverse_proxy tphome-api:8000
+		reverse_proxy home-api:8000
 	}
 	handle {
 		respond 404

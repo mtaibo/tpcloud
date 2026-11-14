@@ -543,7 +543,6 @@ configure() {
   esac
   (( WANT_HOME )) && ota_publish="80"
   (( WANT_STORE )) && profiles+=(store)
-  (( WANT_HOME )) && profiles+=(home)
 
   [[ -f "$env" ]] || { (( DRY_RUN )) || printf '# Written by install.sh. Run it again to change these.\n' > "$env"; }
   [[ -n "$(env_get "$env" DATABASE_URL)" ]] || env_set "$env" DATABASE_URL "sqlite:///data/tpauth.db"
@@ -584,17 +583,17 @@ start() {
       unset OWNER_PASSWORD
     fi
   fi
-  # Store is part of tpcloud, behind the `store` profile: left out this time, it's stopped and its
-  # data kept. (Naming its services turns the profile on just for this command.)
+  # Store's API is part of tpcloud, behind the `store` profile: left out this time, it's stopped
+  # and its data kept. (Naming the service turns the profile on just for this command.)
   if (( ! WANT_STORE )); then
-    run "Stopping Store" compose "$CORE" rm --stop --force store-api store-frontend share-frontend photos-frontend
+    run "Stopping Store" compose "$CORE" rm --stop --force store-api
   fi
-  # Home's panel is tpcloud's too (profile `home`); its API, broker and firmware are tphome's.
+  # Home's panel is in the gateway with every other web app; its API, broker and firmware are
+  # tphome's.
   if (( WANT_HOME )); then
     run "Starting tphome" compose "$BASE/tphome" up -d --build --remove-orphans
-  else
-    run "Stopping Home" compose "$CORE" rm --stop --force home-frontend
-    [[ -f "$BASE/tphome/docker-compose.yml" ]] && run "Stopping tphome" compose "$BASE/tphome" down
+  elif [[ -f "$BASE/tphome/docker-compose.yml" ]]; then
+    run "Stopping tphome" compose "$BASE/tphome" down
   fi
   return 0
 }
@@ -610,8 +609,8 @@ update() {
     [[ -d "$BASE/$name/.git" ]] || continue
     fetch_repo "$name"
   done
-  # tphome first: the network already exists by now, and an older tphome still runs its own
-  # tphome-frontend, which --remove-orphans takes away before tpcloud starts the one it now owns.
+  # tphome first: the network already exists by now, and --remove-orphans clears out containers
+  # of services it no longer has (its old frontend, its old api/mosquitto names).
   if [[ -f "$BASE/tphome/.env" ]]; then
     run "Restarting tphome" compose "$BASE/tphome" up -d --build --remove-orphans
   fi

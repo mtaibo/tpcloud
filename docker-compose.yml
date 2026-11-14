@@ -1,5 +1,6 @@
 # Everything TPCloud runs, from one place: `docker compose up -d --build` here. tphome, if it's
-# installed, has its own compose file in its own repo and joins the `tpcloud_gateway` network.
+# installed, has its own compose file in its own repo (home-api, mqtt-broker) and joins the
+# `tpcloud_gateway` network. Every container is named after its service.
 #
 # The project name is fixed so the volumes, network and containers keep their names whatever this
 # folder is called.
@@ -9,8 +10,11 @@ services:
 
   # ── Core ────────────────────────────────────────────────────────────────────────────────────
 
+  # Caddy, with every web app (web/) built into its image and served by it.
   gateway:
-    image: caddy:2
+    build:
+      context: ./web
+      dockerfile: ../services/gateway/Dockerfile
     container_name: gateway
     environment:
       - TPCLOUD_SITE=${TPCLOUD_SITE:-:80}
@@ -38,50 +42,10 @@ services:
 
   auth:
     build: ./services/auth
-    container_name: tpcloud-auth
+    container_name: auth
     env_file: .env
     volumes:
       - ./data/auth:/app/data
-    networks:
-      - gateway
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-
-  # The web apps build from web/ so the shared ui/ is in reach.
-  login:
-    build:
-      context: ./web
-      dockerfile: login/Dockerfile
-    container_name: tpcloud-login
-    depends_on:
-      - auth
-    networks:
-      - gateway
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-
-  cloud:
-    build:
-      context: ./web
-      dockerfile: cloud/Dockerfile
-    container_name: tpcloud-frontend
-    depends_on:
-      - auth
-    networks:
-      - gateway
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-
-  accounts:
-    build:
-      context: ./web
-      dockerfile: accounts/Dockerfile
-    container_name: tpcloud-accounts
-    depends_on:
-      - auth
     networks:
       - gateway
     security_opt:
@@ -102,11 +66,12 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
-  # ── Store: files, photo backup, share links (COMPOSE_PROFILES=store) ───────────────────────────
+  # ── Store's API: files, photo backup, share links (COMPOSE_PROFILES=store) ────────────────────
+  # Its web apps (store, photos, share) are in the gateway like every other one.
 
   store-api:
     build: ./services/store
-    container_name: tpstore-api
+    container_name: store-api
     profiles: ["store"]
     environment:
       - EXTERNAL_DISK_PATH=/mnt/external
@@ -118,55 +83,6 @@ services:
       # unless TPSTORE_BACKUP_MOUNT=/mnt is set.
       - ${TPSTORE_BACKUP_MOUNT:-./data/store/no-backup}:/mnt/server/mnt
       - ./data/store:/app/data
-    networks:
-      - gateway
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-
-  store-frontend:
-    build: ./web/store
-    container_name: tpstore-frontend
-    profiles: ["store"]
-    depends_on:
-      - store-api
-    networks:
-      - gateway
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-
-  share-frontend:
-    build: ./web/share
-    container_name: tpshare-frontend
-    profiles: ["store"]
-    networks:
-      - gateway
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-
-  # The gallery, a section of its own at /photos; its data comes from store-api.
-  photos-frontend:
-    build: ./web/photos
-    container_name: tpphotos-frontend
-    profiles: ["store"]
-    networks:
-      - gateway
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-
-  # ── Home: tphome's control panel (COMPOSE_PROFILES=home) ─────────────────────────────────────
-  # Its API, broker and firmware live in the tphome repo, next to this one; the gateway sends
-  # /home/api there and /home here.
-
-  home-frontend:
-    build:
-      context: ./web
-      dockerfile: home/Dockerfile
-    container_name: tphome-frontend
-    profiles: ["home"]
     networks:
       - gateway
     security_opt:
