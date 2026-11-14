@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import BackgroundTasks, Request, Response
-from sqlmodel import Session as DBSession
+from sqlmodel import Session as DBSession, delete
 
 from models import Session as SessionModel, User
 from security import set_session_cookie
@@ -17,6 +17,15 @@ from utils import (
     session_duration_for,
     update_session_location,
 )
+
+
+def delete_expired_sessions(db: DBSession) -> int:
+    """Deletes every session past its expiry. An expired one is already refused everywhere and
+    shown nowhere; its row only kept an old IP, device and place around. What happened stays in
+    the account's activity (login_events), which keeps six months."""
+    result = db.exec(delete(SessionModel).where(SessionModel.expires_at < datetime.now(timezone.utc)))
+    db.commit()
+    return result.rowcount or 0
 
 
 def start_session(
