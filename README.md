@@ -135,7 +135,7 @@ tpcloud/
 | `/store` | [Store](web/store/) file browser, API at `/store/api` | ✅ |
 | `/share` | [Public share links](web/share/) (only the share endpoints of the Store API) | — |
 | `/photos` | [Gallery](web/photos/) of the photos backed up from the iPhone (data from `/store/api`) | ✅ |
-| `/home` | [tphome](https://github.com/mtaibo/tphome) control panel, API at `/home/api` | ✅ |
+| `/home` | [Home control panel](web/home/), API at `/home/api` from [tphome](https://github.com/mtaibo/tphome) | ✅ |
 | `/auth` | The auth API every client signs in against | — |
 
 The gateway strips each module's prefix, so the services behind it still see the `/api/...` paths they always had.
