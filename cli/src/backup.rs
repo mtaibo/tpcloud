@@ -168,7 +168,7 @@ fn copy_tree(src: &Path, rel: &Path, dst: &Path, databases: &mut Vec<(PathBuf, P
             if name.ends_with("-wal") || name.ends_with("-shm") || name.ends_with("-journal") {
                 continue;
             }
-            if name.ends_with(".db") {
+            if is_sqlite(&src.join(&child)) {
                 databases.push((src.join(&child), dst.join(&child)));
             } else {
                 std::fs::copy(src.join(&child), dst.join(&child)).with_context(|| format!("copying {}", child.display()))?;
@@ -176,6 +176,13 @@ fn copy_tree(src: &Path, rel: &Path, dst: &Path, databases: &mut Vec<(PathBuf, P
         }
     }
     Ok(())
+}
+
+/// By its header, not its name: Mosquitto keeps its state in a `mosquitto.db` of its own format.
+fn is_sqlite(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 16];
+    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut head)).is_ok() && &head == b"SQLite format 3\0"
 }
 
 /// SQLite's online backup, with the bundled Python, then a quick check of each copy.
@@ -333,5 +340,28 @@ pub fn human(bytes: u64) -> String {
         0..=1023 => format!("{bytes} B"),
         1024..=1_048_575 => format!("{:.0} KB", bytes as f64 / 1024.0),
         _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_sqlite;
+
+    #[test]
+    fn tells_sqlite_from_other_db_files() {
+        let dir = std::env::temp_dir().join(format!("tpcloud-backup-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sqlite = dir.join("a.db");
+        let mut bytes = b"SQLite format 3\0".to_vec();
+        bytes.extend([0u8; 84]);
+        std::fs::write(&sqlite, bytes).unwrap();
+        let mosquitto = dir.join("mosquitto.db");
+        std::fs::write(&mosquitto, [0x00, 0xb5, 0x00, 0x6d, 0x6f, 0x73, 0x71, 0x75, 0x69, 0x74, 0x74, 0x6f, 0x20, 0x64, 0x62, 0x00, 0x01]).unwrap();
+        let short = dir.join("empty.db");
+        std::fs::write(&short, b"").unwrap();
+        assert!(is_sqlite(&sqlite));
+        assert!(!is_sqlite(&mosquitto));
+        assert!(!is_sqlite(&short));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
