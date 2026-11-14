@@ -15,8 +15,9 @@ _lock = threading.Lock()
 _running = False
 
 _STATUS_FILE = Path(os.getenv("EXTERNAL_DISK_PATH", "/mnt/external")) / ".backup_status.json"
-_SOURCE = "/mnt/server/mnt/storage/"
-_DEST = "/mnt/server/mnt/backup/"
+# The host's disks: mounted at /mnt/server/mnt in Docker, the real paths when run without it.
+_SOURCE = os.getenv("BACKUP_SOURCE", "/mnt/server/mnt/storage/")
+_DEST = os.getenv("BACKUP_DEST", "/mnt/server/mnt/backup/")
 
 
 def _read_status() -> dict:

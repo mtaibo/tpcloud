@@ -8,6 +8,10 @@
 # Every web app's files are built into this image and served from here; each module's API lives
 # under its own path too (/store/api, /home/api…). The prefix is stripped here, so the services
 # behind it still see the /api/... paths they always had.
+#
+# The defaults are Docker's (service names, files in /srv). Run by the `tpcloud` command without
+# Docker, the TPCLOUD_*_UPSTREAM, TPCLOUD_WEB_ROOT, TPCLOUD_BIND, TPCLOUD_OTA_* and
+# TPCLOUD_CADDY_EXTRA variables point it at local ports and folders instead.
 {
 	admin off
 	servers {
@@ -19,7 +23,7 @@
 }
 
 (protected) {
-	forward_auth auth:8000 {
+	forward_auth {$TPCLOUD_AUTH_UPSTREAM:auth:8000} {
 		uri /auth/passkey/validate
 		copy_headers Set-Cookie
 		# The check itself is a plain GET: passing on a WebSocket's Upgrade made auth refuse it
@@ -56,7 +60,7 @@
 # A web app's built files, baked into the gateway image at /srv/<app>. A path that isn't a file
 # gets the app's index.html, and the app routes it itself.
 (app) {
-	root * /srv/{args[0]}
+	root * {$TPCLOUD_WEB_ROOT:/srv}/{args[0]}
 	import caching
 	try_files {path} {path}/ /index.html
 	file_server
@@ -71,13 +75,14 @@
 }
 
 {$TPCLOUD_SITE} {
+	bind {$TPCLOUD_BIND:0.0.0.0}
 	import tls_{$TPCLOUD_TLS}
 	import security_headers
 	encode zstd gzip
 
 	handle /auth/* {
 		header Cache-Control "no-store"
-		reverse_proxy auth:8000 {
+		reverse_proxy {$TPCLOUD_AUTH_UPSTREAM:auth:8000} {
 			header_up X-Real-IP {client_ip}
 		}
 	}
@@ -112,13 +117,13 @@
 			@store_media path /store/api/files/thumbnail /store/api/files/poster /store/api/files/preview
 			handle @store_media {
 				uri strip_prefix /store
-				reverse_proxy store-api:8000
+				reverse_proxy {$TPCLOUD_STORE_UPSTREAM:store-api:8000}
 			}
 			import protected
 			uri strip_prefix /store
 			# Thumbnails set their own long caching; other API answers are never cached.
 			header /api/* ?Cache-Control "no-store"
-			reverse_proxy /api/* store-api:8000
+			reverse_proxy /api/* {$TPCLOUD_STORE_UPSTREAM:store-api:8000}
 			import app store
 		}
 	}
@@ -145,7 +150,7 @@
 			# carry the file's version), and forcing no-store on them made every visit download each
 			# photo and video again.
 			header @share_api ?Cache-Control "no-store"
-			reverse_proxy @share_api store-api:8000
+			reverse_proxy @share_api {$TPCLOUD_STORE_UPSTREAM:store-api:8000}
 			respond /api/* 404
 			import app share
 		}
@@ -158,7 +163,7 @@
 			uri strip_prefix /home
 			@home_api path /api/* /openapi.json /firmware
 			header @home_api Cache-Control "no-store"
-			reverse_proxy @home_api home-api:8000
+			reverse_proxy @home_api {$TPCLOUD_HOME_UPSTREAM:home-api:8000}
 			import app home
 		}
 	}
@@ -174,9 +179,10 @@
 # OTA downloads for tphome's switches. They fetch http://<server LAN IP>/firmware with no session,
 # so this listener sits on its own port (published on the LAN only, never through the tunnel) and
 # serves that one path only.
-:8081 {
+{$TPCLOUD_OTA_SITE::8081} {
+	bind {$TPCLOUD_OTA_BIND:0.0.0.0}
 	handle /firmware {
-		reverse_proxy home-api:8000
+		reverse_proxy {$TPCLOUD_HOME_UPSTREAM:home-api:8000}
 	}
 	handle {
 		respond 404
@@ -184,4 +190,4 @@
 }
 
 # Site blocks for this one server only (gitignored), e.g. old addresses that now redirect here.
-import extra/*.caddy
+import {$TPCLOUD_CADDY_EXTRA:extra}/*.caddy
