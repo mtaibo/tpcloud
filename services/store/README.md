@@ -14,7 +14,7 @@
 
 ---
 
-TPStore is the storage module of my personal cloud, [tpcloud](https://github.com/mtaibo/tpcloud). It's my replacement for Google Drive and iCloud Photos: a file browser at `/store`, a gallery of my iPhone photos at `/photos`, public share links at `/share`, and the backend that my native app, [tpapp](https://github.com/mtaibo/tpapp), backs up my iPhone photos to. Everything lives on an external disk plugged into my home server.
+TPStore is the storage module of my personal cloud, [tpcloud](../../). It's my replacement for Google Drive and iCloud Photos: a file browser at `/store`, a gallery of my iPhone photos at `/photos`, public share links at `/share`, and the backend that my native app, [tpapp](../../apple/), backs up my iPhone photos to. Everything lives on an external disk plugged into my home server.
 
 ## Why I built it
 
@@ -31,7 +31,7 @@ I wanted my files and photos on hardware I own, without monthly storage plans or
 <tr>
 <td width="33%" valign="top">
 
-### ⚙️ [`api`](api/)
+### ⚙️ [`services/store`](./)
 FastAPI backend for everything: file operations, resumable uploads, thumbnails, light versions of photos and videos for share pages, ZIP compression and extraction, share links, photo backup and server backups. Validates every request against tpcloud's auth service.
 
 **Python · FastAPI · SQLModel · Pillow · ffmpeg**
@@ -39,7 +39,7 @@ FastAPI backend for everything: file operations, resumable uploads, thumbnails, 
 </td>
 <td width="33%" valign="top">
 
-### 🗂️ [`frontend`](frontend/)
+### 🗂️ [`web/store`](../../web/store/)
 The storage browser at `/store`, drawn after Finder on the desktop and Files on the phone, in light and dark: icon and list views with sortable columns, keyboard selection, Quick Look for photos and videos, folders with custom symbols, favourites, drag-and-drop uploads with a transfer panel, and share links managed from sheets. Its look comes from tpcloud's shared `ui/`.
 
 **Vue 3 · Vite · Nginx**
@@ -47,10 +47,10 @@ The storage browser at `/store`, drawn after Finder on the desktop and Files on 
 </td>
 <td width="33%" valign="top">
 
-### 🔗 [`share-frontend`](share-frontend/)
+### 🔗 [`web/share`](../../web/share/)
 The public viewer at `/share`, in the same look as the browser: the shared folder up top with Download all and Save to Photos, photos and videos in a grid like Photos, other files in a list like Files. It asks for the link's password if it has one, steps through photos and videos full screen, saves them straight to the phone's gallery and downloads them.
 
-### 🖼️ [`photos-frontend`](photos-frontend/)
+### 🖼️ [`web/photos`](../../web/photos/)
 The gallery at `/photos`, a section of its own next to the store: every photo backed up from the iPhone, newest first and grouped by month, filtered to the camera's or screenshots, full screen with download and delete. Its tiles and previews are the same light versions as a share page, and the API makes every photo's thumbnail ahead of time so scrolling back years doesn't wait for them.
 
 **Vue 3 · Vite · Nginx**
@@ -153,13 +153,6 @@ Each photo is unique per user by checksum, so the same picture is never stored t
 
 ## How to run
 
-The easiest way is [tpcloud](https://github.com/mtaibo/tpcloud)'s installer, which sets tpstore up too. By hand, tpcloud has to be running on the same host first, since it creates the `tpcloud_gateway` network and the `auth` service that tpstore depends on.
-
-```bash
-git clone https://github.com/mtaibo/tpstore
-cd tpstore
-cp .env.example .env    # EXTERNAL_DISK_PATH (the disk that holds the files) and TPCLOUD_URL
-docker compose up --build -d
-```
+Store is part of tpcloud: it runs from the [compose file at the root](../../docker-compose.yml), behind the `store` profile (`COMPOSE_PROFILES=store` in `.env`, which the installer sets), with its database and thumbnails in `data/store/` and users' files in `EXTERNAL_DISK_PATH`. See tpcloud's [How to run](../../README.md#how-to-run).
 
 No routing to configure here: the tpcloud gateway reaches `store-api`, `store-frontend`, `share-frontend` and `photos-frontend` by their service names on the shared network.

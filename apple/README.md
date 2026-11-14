@@ -16,7 +16,7 @@
 
 ---
 
-tpapp is the native iOS and macOS client for everything I self-host with [tpcloud](https://github.com/mtaibo/tpcloud). It replaces the Vue web frontends of [tpcloud](https://github.com/mtaibo/tpcloud), [tpstore](https://github.com/mtaibo/tpstore) and [tphome](https://github.com/mtaibo/tphome) with a single SwiftUI app (installed as **TPCloud**), talking to the same FastAPI backends without changing a line on the server.
+tpapp is the native iOS and macOS client for everything I self-host with [tpcloud](../). It replaces the Vue web apps under [`web/`](../web/) and [tphome](https://github.com/mtaibo/tphome)'s with a single SwiftUI app (installed as **TPCloud**), talking to the same FastAPI backends without changing a line on the server.
 
 ## Why a native app
 
@@ -36,7 +36,7 @@ Four tabs, each backed by one of my services:
 <td width="50%" valign="top">
 
 ### 🗂️ Store
-Files-style browser for my storage on [tpstore](https://github.com/mtaibo/tpstore): my Home and Shared folders, uploads from Files or the photo library with a progress bar that survives leaving the app, photo and video thumbnails, rename, delete, ZIP download, favorites, custom folder icons and public share links. Folders load ahead of time so they open instantly, and anything can be dragged into another folder or out to another app.
+Files-style browser for my storage on [Store](../services/store/): my Home and Shared folders, uploads from Files or the photo library with a progress bar that survives leaving the app, photo and video thumbnails, rename, delete, ZIP download, favorites, custom folder icons and public share links. Folders load ahead of time so they open instantly, and anything can be dragged into another folder or out to another app.
 
 **`TPStoreFeature`**
 
@@ -62,9 +62,9 @@ Interactive floor plan of my house from [tphome](https://github.com/mtaibo/tphom
 <td width="50%" valign="top">
 
 ### ⚙️ More
-Account management against [tpcloud](https://github.com/mtaibo/tpcloud)'s auth service (profile, password, TOTP setup with QR code, active sessions) and, for admins, a panel to watch the server's health, redeploy module containers, read their logs and manage Claude Code sessions.
+Account management against tpcloud's [auth service](../services/auth/) (profile, password, TOTP setup with QR code, active sessions).
 
-**`TPCloudFeature` · `TPAdminFeature`**
+**`TPCloudFeature`**
 
 </td>
 </tr>
@@ -81,7 +81,7 @@ Account management against [tpcloud](https://github.com/mtaibo/tpcloud)'s auth s
 ┌────────────────────────────▼─────────────────────────────┐
 │                   Feature modules                        │
 │   TPStoreFeature · TPPhotosFeature · TPHomeFeature       │
-│           TPCloudFeature · TPAdminFeature                │
+│                     TPCloudFeature                       │
 └──────────────┬──────────────────────────────┬────────────┘
                │                              │
 ┌──────────────▼──────────────┐ ┌─────────────▼────────────┐
@@ -102,13 +102,12 @@ The whole thing is a Swift package first. Every module builds and tests with `sw
 
 | Module | Description |
 |---|---|
-| [`TPCore`](Sources/TPCore/) | Networking, password + TOTP authentication, cookie session persistence, Keychain credentials, and typed clients and models for every backend (Cloud, Store, Photos, Home, Admin) |
+| [`TPCore`](Sources/TPCore/) | Networking, password + TOTP authentication, cookie session persistence, Keychain credentials, and typed clients and models for every backend (Cloud, Store, Photos, Home) |
 | [`TPUI`](Sources/TPUI/) | Shared SwiftUI building blocks: status badges, error alerts, cached remote images |
 | [`TPStoreFeature`](Sources/TPStoreFeature/) | File browser, favorites and share-link management |
 | [`TPPhotosFeature`](Sources/TPPhotosFeature/) | Gallery, thumbnail cache, photo backup and the background upload engine |
 | [`TPHomeFeature`](Sources/TPHomeFeature/) | Floor-plan rendering (walls, lights, blinds) and live device control |
 | [`TPCloudFeature`](Sources/TPCloudFeature/) | Account, password, TOTP and sessions |
-| [`TPAdminFeature`](Sources/TPAdminFeature/) | Server status, module deploys, container logs, Claude Code sessions |
 | [`App/`](App/) | XcodeGen project with the iOS and macOS targets, login screen and tab root |
 
 ## How photo backup works
@@ -153,8 +152,8 @@ Thumbnails are kept as ready-to-draw bitmaps in memory-mapped tables, so even th
 You need Xcode with the iOS 27 / macOS 27 SDKs, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) for the app targets.
 
 ```bash
-git clone https://github.com/mtaibo/tpapp
-cd tpapp
+git clone https://github.com/mtaibo/tpcloud
+cd tpcloud/apple
 make build    # swift build, all modules
 make test     # swift test
 ```
@@ -168,4 +167,4 @@ make app      # or: build the macOS app, install it to /Applications and launch 
 make device   # or: build the iOS app, install it on the connected iPhone and launch it
 ```
 
-Every module is a path under one server address (`TPServer`, in TPCore), for now my own, so it needs an account on [tpcloud](https://github.com/mtaibo/tpcloud) to sign in. `make testflight` archives the iOS app and uploads it to App Store Connect.
+Every module is a path under one server address (`TPServer`, in TPCore), for now my own, so it needs an account on [tpcloud](../) to sign in. `make testflight` archives the iOS app and uploads it to App Store Connect.
