@@ -1,4 +1,4 @@
-# Built from the repo root (see docker-compose.yml) so the shared ui/ is in reach.
+# Built from web/ (see docker-compose.yml) so the shared ui/ is in reach.
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY ui ./ui

@@ -4,7 +4,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/mtaibo/tpcloud/main/install.sh | bash
 #
 # Run it again to update, or to change modules or how TPCloud is reached.
-# Options: --dry-run (ask everything, change nothing, print what it would do).
+# Options: --dry-run (ask everything, change nothing, print what it would do),
+#          --update  (no questions: get the latest version of everything and restart it).
 
 set -Eeuo pipefail
 
@@ -12,12 +13,19 @@ REPO_BASE="${TPCLOUD_REPO_BASE:-https://github.com/mtaibo}"
 BRANCH="${TPCLOUD_BRANCH:-main}"
 LOG="${TMPDIR:-/tmp}/tpcloud-install.log"
 DRY_RUN=0
-[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
+ONLY_UPDATE=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --update) ONLY_UPDATE=1 ;;
+    *) echo "Unknown option: $arg (use --dry-run or --update)" >&2; exit 1 ;;
+  esac
+done
 
-# The clones sit side by side (tpcloud, tpstore, tphome): next to this script when it's run from a
-# clone, otherwise in TPCLOUD_BASE or the home folder.
+# tpcloud holds everything but Home; tphome, when it's installed, is a clone next to it. Both sit
+# next to this script when it's run from a clone, otherwise in TPCLOUD_BASE or the home folder.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
-if [[ -n "$script_dir" && -f "$script_dir/docker-compose.yml" && -d "$script_dir/gateway" ]]; then
+if [[ -n "$script_dir" && -f "$script_dir/docker-compose.yml" && -d "$script_dir/services/gateway" ]]; then
   BASE="$(dirname "$script_dir")"
 else
   BASE="${TPCLOUD_BASE:-$HOME}"
@@ -27,7 +35,11 @@ CORE="$BASE/tpcloud"
 # ── Terminal ────────────────────────────────────────────────────────────────────────────────────
 
 # Piped from curl, stdin is the script itself: answers are read from the terminal instead.
-exec 3</dev/tty || { echo "This installer needs a terminal to ask its questions." >&2; exit 1; }
+# An update asks nothing, so it also runs without one (from cron or over ssh without -t).
+if ! { exec 3</dev/tty; } 2>/dev/null; then
+  (( ONLY_UPDATE )) || { echo "This installer needs a terminal to ask its questions." >&2; exit 1; }
+  exec 3</dev/null
+fi
 
 if [[ -t 1 ]] && [[ "$(tput colors 2>/dev/null || echo 0)" -ge 8 ]]; then
   B=$'\e[1m'; D=$'\e[2m'; R=$'\e[0m'; ACC=$'\e[38;5;75m'; OK=$'\e[38;5;114m'; WARN=$'\e[38;5;215m'; ERR=$'\e[38;5;203m'
@@ -262,7 +274,7 @@ ask_welcome() {
   say "Docker if it's missing and start everything. Nothing leaves this machine:"
   say "your files and accounts stay here, on storage you choose."
   gap
-  say "${D}Installing into ${BASE} (tpcloud, and one folder per module).${R}"
+  say "${D}Installing into ${BASE}/tpcloud (and ${BASE}/tphome for Home).${R}"
   pause
 }
 
@@ -297,7 +309,7 @@ ask_storage() {
   STEP=2
   (( WANT_STORE )) || return 0
   local current suggested
-  current="$(env_get "$BASE/tpstore/.env" EXTERNAL_DISK_PATH)"
+  current="$(env_get "$CORE/.env" EXTERNAL_DISK_PATH)"
   if [[ -n "$current" ]]; then
     suggested="$current"
   elif [[ -d /mnt/external ]]; then
@@ -396,7 +408,7 @@ ask_access() {
 
 ask_owner() {
   STEP=4
-  if [[ -f "$CORE/data/tpauth.db" ]]; then
+  if [[ -f "$CORE/data/auth/tpauth.db" ]]; then
     OWNER_EMAIL=""
     return 0
   fi
@@ -518,7 +530,7 @@ setup_tailscale() {
 }
 
 configure() {
-  local env="$CORE/.env" modules=() url site tls="none" https_publish="" ota_publish="" profiles="" host
+  local env="$CORE/.env" modules=() url site tls="none" https_publish="" ota_publish="" profiles=() host
   host="$(hostname -s 2>/dev/null || echo tpcloud)"
   (( WANT_STORE )) && modules+=(store)
   (( WANT_HOME )) && modules+=(home)
@@ -526,10 +538,11 @@ configure() {
   case "$ACCESS" in
     local) url="https://${host}.local"; site="https://${host}.local"; tls="internal"; https_publish="443" ;;
     tailscale) setup_tailscale; url="https://${DOMAIN}"; site=":80" ;;
-    tunnel) url="https://${DOMAIN}"; site=":80"; profiles="tunnel" ;;
+    tunnel) url="https://${DOMAIN}"; site=":80"; profiles+=(tunnel) ;;
     domain) url="https://${DOMAIN}"; site="${DOMAIN}"; https_publish="443" ;;
   esac
   (( WANT_HOME )) && ota_publish="80"
+  (( WANT_STORE )) && profiles+=(store)
 
   [[ -f "$env" ]] || { (( DRY_RUN )) || printf '# Written by install.sh. Run it again to change these.\n' > "$env"; }
   [[ -n "$(env_get "$env" DATABASE_URL)" ]] || env_set "$env" DATABASE_URL "sqlite:///data/tpauth.db"
@@ -539,16 +552,14 @@ configure() {
   env_set "$env" TPCLOUD_MODULES "$(IFS=,; echo "${modules[*]}")"
   env_set "$env" TPCLOUD_HTTPS_PUBLISH "$https_publish"
   env_set "$env" TPCLOUD_OTA_PUBLISH "$ota_publish"
-  env_set "$env" COMPOSE_PROFILES "$profiles"
+  env_set "$env" COMPOSE_PROFILES "$(IFS=,; echo "${profiles[*]}")"
   [[ "$ACCESS" == tunnel ]] && env_set "$env" TUNNEL_TOKEN "$TUNNEL_TOKEN"
   TPCLOUD_URL_FINAL="$url"
 
   if (( WANT_STORE )); then
-    local senv="$BASE/tpstore/.env"
     run "Creating ${STORAGE}" $SUDO mkdir -p "$STORAGE"
-    env_set "$senv" EXTERNAL_DISK_PATH "$STORAGE"
-    env_set "$senv" AUTH_SERVICE_URL "http://auth:8000"
-    env_set "$senv" TPCLOUD_URL "$url"
+    env_set "$env" EXTERNAL_DISK_PATH "$STORAGE"
+    env_set "$env" AUTH_SERVICE_URL "http://auth:8000"
   fi
   if (( WANT_HOME )); then
     local henv="$BASE/tphome/.env"
@@ -572,16 +583,16 @@ start() {
       unset OWNER_PASSWORD
     fi
   fi
-  local name module
-  for name in tpstore tphome; do
-    module="${name#tp}"
-    if [[ "$module" == store && "$WANT_STORE" == 1 ]] || [[ "$module" == home && "$WANT_HOME" == 1 ]]; then
-      run "Starting ${name}" compose "$BASE/$name" up -d --build --remove-orphans
-    elif [[ -f "$BASE/$name/docker-compose.yml" ]]; then
-      # Left out this time: stopped, its data kept.
-      run "Stopping ${name}" compose "$BASE/$name" down
-    fi
-  done
+  # Store is part of tpcloud, behind the `store` profile: left out this time, it's stopped and its
+  # data kept. (Naming its services turns the profile on just for this command.)
+  if (( ! WANT_STORE )); then
+    run "Stopping Store" compose "$CORE" rm --stop --force store-api store-frontend share-frontend photos-frontend
+  fi
+  if (( WANT_HOME )); then
+    run "Starting tphome" compose "$BASE/tphome" up -d --build --remove-orphans
+  elif [[ -f "$BASE/tphome/docker-compose.yml" ]]; then
+    run "Stopping tphome" compose "$BASE/tphome" down
+  fi
   return 0
 }
 
@@ -592,15 +603,14 @@ update() {
   say "${B}Updating${R}"
   gap
   ensure_tools
-  for name in tpcloud tpstore tphome; do
+  for name in tpcloud tphome; do
     [[ -d "$BASE/$name/.git" ]] || continue
     fetch_repo "$name"
   done
   run "Restarting TPCloud" compose "$CORE" up -d --build --remove-orphans
-  for name in tpstore tphome; do
-    [[ -f "$BASE/$name/.env" ]] || continue
-    run "Restarting ${name}" compose "$BASE/$name" up -d --build --remove-orphans
-  done
+  if [[ -f "$BASE/tphome/.env" ]]; then
+    run "Restarting tphome" compose "$BASE/tphome" up -d --build --remove-orphans
+  fi
   gap
   say "${OK}${B}Up to date.${R}"
   gap
@@ -644,6 +654,11 @@ finish() {
 main() {
   : > "$LOG" 2>/dev/null || LOG="/dev/null"
   MODE=install
+  if (( ONLY_UPDATE )); then
+    [[ -f "$CORE/.env" ]] || fail "TPCloud isn't installed in ${CORE} yet: run this without --update first."
+    update
+    exit 0
+  fi
   ask_existing
   if [[ "$MODE" == update ]]; then
     update
@@ -675,7 +690,6 @@ main() {
   gap
   ensure_tools
   fetch_repo tpcloud
-  (( WANT_STORE )) && fetch_repo tpstore
   (( WANT_HOME )) && fetch_repo tphome
   configure
   start

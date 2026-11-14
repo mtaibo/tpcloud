@@ -4,20 +4,25 @@ cloudflared/cert.pem
 
 docker-compose.override.yml
 
+# Databases, thumbnails and everything else the services write while they run
 data/
 
 .DS_Store
+*.log
 
-# frontend
-login/node_modules/
-login/dist/
-cloud/node_modules/
-cloud/dist/
-accounts/node_modules/
-accounts/dist/
+# Web apps
+node_modules/
+dist/
 package-lock.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
 
 .claude/
 
 # Site blocks for this one server only
-gateway/extra/*.caddy
+services/gateway/extra/*.caddy
