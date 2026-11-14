@@ -1,0 +1,147 @@
+import SwiftUI
+import TPCore
+import TPAdminFeature
+import TPCloudFeature
+import TPStoreFeature
+import TPHomeFeature
+import TPPhotosFeature
+
+private enum AppTab: Hashable {
+    case store, photos, home, more
+}
+
+struct RootView: View {
+    @ObservedObject var session: AuthSession
+    let accountClient: CloudAccountClient
+    let storeClient: StoreClient
+    // Plain references, not @ObservedObject: each feature view observes its own store. Observing
+    // them here re-rendered the whole app — every tab — on each photo page that loaded during the
+    // background drain and on every Home WebSocket event, which made launch and Photos crawl.
+    let homeStore: HomeStore
+    let photosClient: PhotosClient
+    let photoGalleryStore: PhotoGalleryStore
+    let photoSyncStore: PhotoSyncStore
+    let adminStore: AdminStore
+
+    @State private var selectedTab: AppTab = .store
+    @State private var moreResetSignal = 0
+    @State private var photosScrollSignal = 0
+
+    var body: some View {
+        Group {
+            switch session.state {
+            case .checkingSession:
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .signedOut, .totpRequired:
+                LoginView(session: session)
+            case .signedIn(let profile):
+                tabs(for: profile)
+            }
+        }
+        .task {
+            await session.restoreIfPossible()
+            await homeStore.start()
+        }
+        .onChange(of: session.state) { _, newState in
+            // The background upload engine has no SwiftUI view hierarchy to read `profile.email`
+            // from when iOS wakes it directly (BGProcessingTask, or a background URLSession
+            // completion) — this is the one place that keeps its persisted copy in sync with the
+            // signed-in user, as the only two events that matter (signing in, signing out) happen.
+            switch newState {
+            case .signedIn(let profile):
+                #if os(iOS)
+                PhotoBackgroundUploader.rememberSignedIn(ownerEmail: profile.email)
+                PhotoBackupScheduler.scheduleNext()
+                Task { await PhotoBackgroundUploader.shared.refill() }
+                #endif
+            case .signedOut:
+                selectedTab = .store
+                #if os(iOS)
+                PhotoBackgroundUploader.forgetSignedIn()
+                #endif
+            case .checkingSession, .totpRequired:
+                break
+            }
+        }
+    }
+
+    private func tabs(for profile: UserProfile) -> some View {
+        TabView(selection: tabSelection) {
+            Tab("Store", systemImage: "folder", value: AppTab.store) {
+                StoreRootView(
+                    storeClient: storeClient,
+                    rootPath: "users/\(profile.email)"
+                )
+            }
+            Tab("Photos", systemImage: "photo.on.rectangle", value: AppTab.photos) {
+                PhotoGalleryView(
+                    store: photoGalleryStore,
+                    syncStore: photoSyncStore,
+                    client: photosClient,
+                    ownerEmail: profile.email,
+                    isAdmin: profile.isAdmin,
+                    scrollToBottomSignal: photosScrollSignal
+                )
+            }
+            Tab("Home", systemImage: "house", value: AppTab.home) {
+                HomeRootView(store: homeStore)
+            }
+            Tab("More", systemImage: "ellipsis", value: AppTab.more) {
+                MoreView(
+                    session: session,
+                    profile: profile,
+                    accountClient: accountClient,
+                    adminStore: adminStore,
+                    resetSignal: moreResetSignal
+                )
+            }
+        }
+        // A sidebar on iPad and Mac, the bottom tab bar on iPhone.
+        .tabViewStyle(.sidebarAdaptable)
+        #if os(iOS)
+        // The tab bar stays as it is while scrolling: Miguel found the shrinking one odd.
+        .tabBarMinimizeBehavior(.never)
+        #endif
+    }
+
+    /// Re-selecting the current tab pops it back to its root, like every system app.
+    private var tabSelection: Binding<AppTab> {
+        Binding(
+            get: { selectedTab },
+            set: { newValue in
+                if newValue == selectedTab {
+                    switch newValue {
+                    case .more: moreResetSignal += 1
+                    // Photos keeps its newest photos at the bottom, so "back to the start" is down.
+                    case .photos: photosScrollSignal += 1
+                    // Store pops itself back to Browse; resetting it here too raced that pop.
+                    case .store, .home: break
+                    }
+                }
+                selectedTab = newValue
+            }
+        )
+    }
+}
+
+#Preview {
+    let server = TPServer.current
+    let authURL = server.authURL
+    let storeURL = server.storeURL
+    let homeURL = server.homeURL
+    let photosClient = PhotosClient(client: HTTPClient(baseURL: storeURL))
+    RootView(
+        session: AuthSession(baseURL: authURL),
+        accountClient: CloudAccountClient(client: HTTPClient(baseURL: authURL)),
+        storeClient: StoreClient(client: HTTPClient(baseURL: storeURL)),
+        homeStore: HomeStore(
+            client: HomeClient(client: HTTPClient(baseURL: homeURL)),
+            wsClient: HomeWebSocketClient(url: server.homeWebSocketURL)
+        ),
+        photosClient: photosClient,
+        photoGalleryStore: PhotoGalleryStore(client: photosClient),
+        photoSyncStore: PhotoSyncStore(client: photosClient),
+        adminStore: AdminStore(client: AdminClient(client: HTTPClient(baseURL: server.adminURL)))
+    )
+}
