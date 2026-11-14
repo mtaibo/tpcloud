@@ -3,7 +3,8 @@
 # `tpcloud_gateway` network. Every container is named after its service.
 #
 # The project name is fixed so the volumes, network and containers keep their names whatever this
-# folder is called.
+# folder is called. Data, settings and this server's own Caddy blocks default to ./data, .env and
+# services/gateway/extra; the `tpcloud` command points them at /var/lib/tpcloud instead.
 name: tpcloud
 
 services:
@@ -29,7 +30,7 @@ services:
       - "${TPCLOUD_OTA_PUBLISH:-127.0.0.1:8081}:8081"
     volumes:
       - ./services/gateway/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./services/gateway/extra:/etc/caddy/extra:ro
+      - ${TPCLOUD_GATEWAY_EXTRA:-./services/gateway/extra}:/etc/caddy/extra:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -43,9 +44,9 @@ services:
   auth:
     build: ./services/auth
     container_name: auth
-    env_file: .env
+    env_file: ${TPCLOUD_ENV_FILE:-.env}
     volumes:
-      - ./data/auth:/app/data
+      - ${TPCLOUD_DATA:-./data}/auth:/app/data
     networks:
       - gateway
     security_opt:
@@ -81,8 +82,8 @@ services:
       - ${EXTERNAL_DISK_PATH:-/mnt/external}:/mnt/external
       # The host's disks, only for the admin backup (rsync of /mnt/storage to /mnt/backup). Off
       # unless TPSTORE_BACKUP_MOUNT=/mnt is set.
-      - ${TPSTORE_BACKUP_MOUNT:-./data/store/no-backup}:/mnt/server/mnt
-      - ./data/store:/app/data
+      - ${TPSTORE_BACKUP_MOUNT:-${TPCLOUD_DATA:-./data}/store/no-backup}:/mnt/server/mnt
+      - ${TPCLOUD_DATA:-./data}/store:/app/data
     networks:
       - gateway
     security_opt:
