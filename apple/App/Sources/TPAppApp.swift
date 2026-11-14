@@ -1,5 +1,4 @@
 import SwiftUI
-import TPAdminFeature
 import TPCore
 import TPHomeFeature
 import TPPhotosFeature
@@ -11,7 +10,6 @@ struct TPAppApp: App {
     private static let storeBaseURL = server.storeURL
     private static let homeBaseURL = server.homeURL
     private static let homeWSURL = server.homeWebSocketURL
-    private static let adminBaseURL = server.adminURL
 
     @StateObject private var session = AuthSession(baseURL: authBaseURL)
     private let accountClient = CloudAccountClient(client: HTTPClient(baseURL: authBaseURL))
@@ -23,7 +21,6 @@ struct TPAppApp: App {
     )
     @StateObject private var photoGalleryStore = PhotoGalleryStore(client: photosClient)
     @StateObject private var photoSyncStore = PhotoSyncStore(client: photosClient)
-    @StateObject private var adminStore = AdminStore(client: AdminClient(client: HTTPClient(baseURL: adminBaseURL)))
 
     #if os(iOS)
     @UIApplicationDelegateAdaptor(PhotoBackupAppDelegate.self) private var appDelegate
@@ -47,8 +44,7 @@ struct TPAppApp: App {
                 homeStore: homeStore,
                 photosClient: Self.photosClient,
                 photoGalleryStore: photoGalleryStore,
-                photoSyncStore: photoSyncStore,
-                adminStore: adminStore
+                photoSyncStore: photoSyncStore
             )
         }
     }

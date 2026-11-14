@@ -3,10 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '@ui/Icon.vue'
 import { api } from '@ui/api.js'
 import { toast } from '@ui/dialog.js'
-import { lang, t } from '@ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
-// The desktop dashboard's quick access, under the services: the blinds used every day and how
-// the server is doing. Each card asks its own module and stays away if that module doesn't answer.
+// The desktop dashboard's quick access, under the services: the blinds used every day. The card
+// asks tphome itself and stays away if it doesn't answer.
 const props = defineProps({ user: { type: Object, required: true } })
 
 // The blinds worth a button here (tphome ids); any others are a click away in Casa. If none of
@@ -16,7 +16,6 @@ const PINNED_BLINDS = ['B0101', 'B0102', 'B0301']
 const has = module => props.user.modules?.includes(module)
 
 const blinds = ref(null)
-const server = ref(null)
 
 async function load(target, path) {
   try {
@@ -26,7 +25,6 @@ async function load(target, path) {
   }
 }
 const loadBlinds = () => load(blinds, '/home/api/devices/blinds')
-const loadServer = () => load(server, '/admin/api/system')
 
 // ---------- {{ t('Blinds', 'Persianas') }} ----------
 
@@ -75,36 +73,11 @@ async function toggleLock(b) {
   loadBlinds()
 }
 
-// ---------- {{ t('Server', 'Servidor') }} ----------
-
-function bytes(n) {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  while (n >= 1000 && i < units.length - 1) { n /= 1000; i++ }
-  const text = n.toFixed(n < 10 && i > 2 ? 1 : 0)
-  return `${lang.value === 'es' ? text.replace('.', ',') : text} ${units[i]}`
-}
-
-function uptime(seconds) {
-  const d = Math.floor(seconds / 86400)
-  const h = Math.floor((seconds % 86400) / 3600)
-  return d ? `${d} d ${h} h` : `${h} h ${Math.floor((seconds % 3600) / 60)} min`
-}
-
-// tpadmin's disks by name: the SD card the system runs from and the external storage drive.
-const DISK_NAMES = { system: () => 'Raspberry', storage: () => t('External drive', 'Disco externo') }
-const disks = computed(() =>
-  (server.value?.disks ?? [])
-    .filter(d => DISK_NAMES[d.name])
-    .map(d => ({ ...d, label: DISK_NAMES[d.name](), share: d.used / d.total })),
-)
-
-// Both cards change while the page is open.
+// The blinds change while the page is open.
 let timer = null
 function refresh() {
   if (document.hidden) return
   if (has('home')) loadBlinds()
-  if (has('admin') && props.user.is_admin) loadServer()
 }
 
 onMounted(() => {
@@ -154,30 +127,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </section>
-
-  <section v-if="server" class="quick-card">
-    <div class="quick-head">
-      <span class="quick-icon" style="background: var(--indigo)"><Icon name="server" :size="20" :weight="2" /></span>
-      <span class="headline">{{ t('Server', 'Servidor') }}</span>
-    </div>
-    <div class="cells server">
-      <div class="cell stat">
-        <span class="footnote secondary">{{ t('Temperature', 'Temperatura') }}</span>
-        <span class="stat-value">{{ server.temperature_c == null ? '—' : `${Math.round(server.temperature_c)} °C` }}</span>
-      </div>
-      <div class="cell stat">
-        <span class="footnote secondary">{{ t('Uptime', 'Encendido') }}</span>
-        <span class="stat-value">{{ uptime(server.uptime_seconds) }}</span>
-      </div>
-      <div v-for="d in disks" :key="d.name" class="cell disk">
-        <span class="disk-top">
-          <span class="subheadline name">{{ d.label }}</span>
-          <span class="footnote secondary">{{ t(`${bytes(d.free)} free of ${bytes(d.total)}`, `${bytes(d.free)} libres de ${bytes(d.total)}`) }}</span>
-        </span>
-        <span class="meter"><i :style="{ width: `${d.share * 100}%` }" :class="{ full: d.share > 0.9 }" /></span>
-      </div>
-    </div>
-  </section>
 </template>
 
 <style scoped>
@@ -221,15 +170,8 @@ onBeforeUnmount(() => {
 .control.lock { flex: 0 0 32px; color: var(--label-2); }
 .control.lock.on { background: var(--orange); color: #fff; }
 
-.cells.server { grid-template-columns: 1fr 1fr 1.6fr 1.6fr; }
-.stat { gap: 4px; }
-.stat-value { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: 0.35px; }
-/* A disk: its name and space over the bar. */
-.disk { justify-content: space-between; gap: 8px; }
-.disk-top { display: flex; flex-direction: column; gap: 1px; }
 .meter { height: 8px; border-radius: 999px; background: var(--fill-3); overflow: hidden; }
 .meter i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
-.meter i.full { background: var(--orange); }
 /* A blind's bar: how far up it is, green while it can be moved. */
 .meter.open { height: 6px; }
 .meter.open i { background: var(--green); transition: width 0.4s var(--ease); }

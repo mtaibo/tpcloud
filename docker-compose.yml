@@ -15,7 +15,6 @@ services:
     environment:
       - TPCLOUD_SITE=${TPCLOUD_SITE:-:80}
       - TPCLOUD_TLS=${TPCLOUD_TLS:-none}
-      - TPADMIN_UPSTREAM=${TPADMIN_UPSTREAM:-172.20.0.1:8100}
     ports:
       # Only what the chosen way in needs reaches beyond this machine; the defaults stay on
       # localhost (where `tailscale serve` picks the site up).

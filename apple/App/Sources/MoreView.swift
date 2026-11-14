@@ -1,19 +1,17 @@
 import SwiftUI
-import TPAdminFeature
 import TPCloudFeature
 import TPCore
 
 private enum MoreDestination: Hashable {
-    case account, admin
+    case account
 }
 
-/// The fourth tab: who's signed in, Account, the admin-only Admin panel, and sign out — the
-/// screens that used to take up two (or, for admins, three) tabs of their own.
+/// The fourth tab: who's signed in, Account and sign out — the screens that used to take up a
+/// tab of their own.
 struct MoreView: View {
     @ObservedObject var session: AuthSession
     let profile: UserProfile
     let accountClient: CloudAccountClient
-    let adminStore: AdminStore
     let resetSignal: Int
 
     @State private var path: [MoreDestination] = []
@@ -46,12 +44,6 @@ struct MoreView: View {
                     NavigationLink(value: MoreDestination.account) {
                         Label("Account", systemImage: "person.crop.circle")
                     }
-                    // tpadmin controls the Pi itself; its API rejects non-admins anyway.
-                    if profile.isAdmin {
-                        NavigationLink(value: MoreDestination.admin) {
-                            Label("Admin", systemImage: "gauge.with.dots.needle.67percent")
-                        }
-                    }
                 }
 
                 Section {
@@ -68,7 +60,6 @@ struct MoreView: View {
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
                 case .account: AccountView(accountClient: accountClient)
-                case .admin: AdminRootView(store: adminStore)
                 }
             }
             .confirmationDialog("Sign out of TPCloud?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {

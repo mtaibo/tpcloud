@@ -3,7 +3,6 @@
 #   /login  /accounts  /           tpcloud (sign-in, account, dashboard)
 #   /store  /share  /photos        tpstore (files, public share links, gallery)
 #   /home                          tphome
-#   /admin                         tpadmin
 #   /auth                          the auth API every client signs in against
 #
 # Each module's API lives under its own path too (/store/api, /home/api…). The prefix is stripped
@@ -157,17 +156,6 @@
 			reverse_proxy @home_api tphome-api:8000
 			import caching
 			reverse_proxy tphome-frontend:80
-		}
-	}
-
-	# tpadmin runs on the host (it drives docker, git and tmux), listening only on the gateway
-	# network's bridge IP; it also requires is_admin on every endpoint itself.
-	handle /admin/* {
-		route {
-			import protected
-			uri strip_prefix /admin
-			header Cache-Control "no-store"
-			reverse_proxy {$TPADMIN_UPSTREAM}
 		}
 	}
 

@@ -12,7 +12,6 @@ public struct TPServer: Sendable, Equatable {
     public var authURL: URL { url }
     public var storeURL: URL { url.appending(path: "store") }
     public var homeURL: URL { url.appending(path: "home") }
-    public var adminURL: URL { url.appending(path: "admin") }
 
     public var homeWebSocketURL: URL {
         var components = URLComponents(url: url.appending(path: "home/api/ws"), resolvingAgainstBaseURL: false)!

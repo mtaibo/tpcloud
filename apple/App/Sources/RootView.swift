@@ -1,6 +1,5 @@
 import SwiftUI
 import TPCore
-import TPAdminFeature
 import TPCloudFeature
 import TPStoreFeature
 import TPHomeFeature
@@ -21,7 +20,6 @@ struct RootView: View {
     let photosClient: PhotosClient
     let photoGalleryStore: PhotoGalleryStore
     let photoSyncStore: PhotoSyncStore
-    let adminStore: AdminStore
 
     @State private var selectedTab: AppTab = .store
     @State private var moreResetSignal = 0
@@ -92,7 +90,6 @@ struct RootView: View {
                     session: session,
                     profile: profile,
                     accountClient: accountClient,
-                    adminStore: adminStore,
                     resetSignal: moreResetSignal
                 )
             }
@@ -141,7 +138,6 @@ struct RootView: View {
         ),
         photosClient: photosClient,
         photoGalleryStore: PhotoGalleryStore(client: photosClient),
-        photoSyncStore: PhotoSyncStore(client: photosClient),
-        adminStore: AdminStore(client: AdminClient(client: HTTPClient(baseURL: server.adminURL)))
+        photoSyncStore: PhotoSyncStore(client: photosClient)
     )
 }

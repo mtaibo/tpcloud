@@ -47,8 +47,6 @@ targets:
         product: TPHomeFeature
       - package: tpapp
         product: TPPhotosFeature
-      - package: tpapp
-        product: TPAdminFeature
 
   # Same bundle id as the iPhone's, so both are one app (universal purchase) in App Store Connect.
   TPApp-macOS:
@@ -91,8 +89,6 @@ targets:
         product: TPHomeFeature
       - package: tpapp
         product: TPPhotosFeature
-      - package: tpapp
-        product: TPAdminFeature
 
   # Performance tests on a real iPhone (`make perf`).
   TPAppUITests:
