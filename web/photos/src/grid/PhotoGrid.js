@@ -854,10 +854,13 @@ export class PhotoGrid {
     return i < L.rowEnd(r) ? i : -1
   }
 
-  /** Where tapping zooms to instead of opening, like the app: 61 → 31, 31 → 15, 9 or 15 → 5. */
+  /** Where tapping zooms to instead of opening, like the app: 61 → 31, 31 → 15, 9 or 15 → 5.
+   *  On a big screen (the same ≥ 900 px that offers 61 columns) 9 columns already open the photo,
+   *  so 15 → 9. */
   tapLevel() {
     const cols = LEVELS[this.current.level]
-    const target = cols > 31 ? 31 : cols > 15 ? 15 : cols > 5 ? 5 : null
+    const opensAt = this.width >= 900 ? 9 : 5
+    const target = cols > 31 ? 31 : cols > 15 ? 15 : cols > opensAt ? opensAt : null
     return target ? LEVELS.indexOf(target) : null
   }
 
