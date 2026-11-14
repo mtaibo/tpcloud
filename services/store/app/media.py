@@ -75,9 +75,35 @@ def is_video(path: Path) -> bool:
     return path.suffix.lower() in VIDEO_EXTS
 
 
+# Cache names hash a file's path. They hash it as it was seen in the Docker container, whose two
+# roots never moved (the files at /mnt/external, Store's data at /app/data), wherever those really
+# are: the native install has them at /mnt/storage and /var/lib/tpcloud/data/store, and keying
+# by the real path there made every thumbnail and preview of a library that moved over count as
+# missing, so the Pi spent hours making them all again.
+_KEY_ROOTS = []
+for _real, _keyed in (
+    (Path(os.getenv("EXTERNAL_DISK_PATH", "/mnt/external")), "/mnt/external"),
+    (DATA_DIR, "/app/data"),
+):
+    for _root in dict.fromkeys((_real, _real.resolve())):
+        _KEY_ROOTS.append((_root, _keyed))
+_KEY_ROOTS.sort(key=lambda r: len(r[0].parts), reverse=True)  # a root inside the other wins
+
+
+def cache_key_path(path: Path) -> str:
+    """`path` under the roots the cache has always been keyed by (see above)."""
+    for root, keyed in _KEY_ROOTS:
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            continue
+        return f"{keyed}/{rel}" if rel.parts else keyed
+    return str(path)
+
+
 def _cache_path(file_path: Path, kind: str, ext: str) -> Path:
     mtime = int(file_path.stat().st_mtime)
-    key = hashlib.sha256(f"{file_path}|{mtime}|{kind}".encode()).hexdigest()[:24]
+    key = hashlib.sha256(f"{cache_key_path(file_path)}|{mtime}|{kind}".encode()).hexdigest()[:24]
     return MEDIA_DIR / f"{key}.{ext}"
 
 
@@ -465,10 +491,10 @@ def move_caches(old: Path, new: Path, mtime: int) -> None:
     from app.routes.files import _THUMB_DIR
 
     def thumb(path: Path, path_mtime: int, size: int) -> Path:
-        return _THUMB_DIR / f"{hashlib.sha256(f'{path}|{path_mtime}|{size}'.encode()).hexdigest()[:24]}.jpg"
+        return _THUMB_DIR / f"{hashlib.sha256(f'{cache_key_path(path)}|{path_mtime}|{size}'.encode()).hexdigest()[:24]}.jpg"
 
     def media_file(path: Path, kind: str, ext: str) -> Path:
-        return MEDIA_DIR / f"{hashlib.sha256(f'{path}|{mtime}|{kind}'.encode()).hexdigest()[:24]}.{ext}"
+        return MEDIA_DIR / f"{hashlib.sha256(f'{cache_key_path(path)}|{mtime}|{kind}'.encode()).hexdigest()[:24]}.{ext}"
 
     def move(a: Path, b: Path) -> bool:
         try:

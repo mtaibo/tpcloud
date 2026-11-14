@@ -60,7 +60,7 @@ def _release_upload_lock(upload_id: str) -> None:
 
 def _thumb_cache_path(file_path: Path, size: int) -> Path:
     mtime = int(file_path.stat().st_mtime)
-    key = f"{file_path}|{mtime}|{size}"
+    key = f"{media.cache_key_path(file_path)}|{mtime}|{size}"
     h = hashlib.sha256(key.encode()).hexdigest()[:24]
     return _THUMB_DIR / f"{h}.jpg"
 
