@@ -1,7 +1,7 @@
 import Foundation
 
 /// The icons a folder can wear, under the same names and categories as the web frontend's picker
-/// (`tpstore/frontend/src/folderIcons.js`, Lucide names). The backend stores only the name, so an
+/// (`web/store/src/folderIcons.js`, Lucide names). The backend stores only the name, so an
 /// icon picked on the web shows up here and the other way round; each name maps to the closest
 /// SF Symbol.
 enum FolderIconCatalog {
