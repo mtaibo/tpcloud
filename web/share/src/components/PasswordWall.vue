@@ -21,7 +21,7 @@ async function submit() {
       body: JSON.stringify({ password: password.value }),
     })
     if (!res.ok) {
-      error.value = 'Incorrect password'
+      error.value = res.status === 429 ? 'Too many tries. Wait a few minutes and try again.' : 'Incorrect password'
       return
     }
     const { session_token } = await res.json()

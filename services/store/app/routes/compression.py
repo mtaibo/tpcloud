@@ -31,10 +31,11 @@ def _do_extract(job_id: str, zip_path: Path, dest_dir: Path) -> None:
                 members = zf.infolist()
 
                 # Validate paths before starting
-                dest_str = str(dest_dir.resolve())
+                dest_root = dest_dir.resolve()
                 for m in members:
                     member_path = (dest_dir / m.filename).resolve()
-                    if not str(member_path).startswith(dest_str):
+                    # A path compare, not a string one: "../docs-old/x" starts with "docs" too.
+                    if not member_path.is_relative_to(dest_root):
                         raise ValueError(f"Unsafe path in zip: {m.filename}")
 
                 total = sum(m.file_size for m in members)
@@ -98,7 +99,7 @@ async def start_decompress(
     safe_name = Path(filename).name
     zip_path = (dir_path / safe_name).resolve()
 
-    if not str(zip_path).startswith(str(dir_path.resolve())):
+    if not zip_path.resolve().is_relative_to(dir_path.resolve()):
         raise HTTPException(400, "Invalid path")
     if not zip_path.exists() or not zip_path.is_file():
         raise HTTPException(404, "File not found")

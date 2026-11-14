@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import io
 import json
+import re
 import os
 import secrets
 import shutil
@@ -56,6 +57,22 @@ def _lock_for_upload(upload_id: str) -> threading.Lock:
 def _release_upload_lock(upload_id: str) -> None:
     with _upload_locks_guard:
         _upload_locks.pop(upload_id, None)
+
+
+# Upload ids are a UUID (web, app) or a photo's SHA-256 (the app's backup), and they name the
+# `.{id}.part` file beside the upload: anything else could point that file outside the folder.
+_UPLOAD_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+def _check_upload_id(upload_id: str) -> None:
+    if not _UPLOAD_ID.fullmatch(upload_id):
+        raise HTTPException(400, "Invalid upload id")
+
+
+def _inside(path: Path, folder: Path) -> bool:
+    """Whether `path` (resolved) is `folder` or under it; a string prefix would let a sibling
+    such as `docs-old` pass for `docs`."""
+    return path.resolve().is_relative_to(folder.resolve())
 
 
 def _thumb_cache_path(file_path: Path, size: int) -> Path:
@@ -284,7 +301,7 @@ async def upload_files(
         if not filename:
             continue
         dest = (dir_path / filename).resolve()
-        if not str(dest).startswith(str(dir_path.resolve())):
+        if not _inside(dest, dir_path):
             continue
         async with aiofiles.open(dest, "wb") as f:
             while chunk := await file.read(1024 * 1024):
@@ -318,6 +335,7 @@ async def upload_chunk(
     db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
+    _check_upload_id(upload_id)
     _check_access(location, path, user["email"], allow_photos=True)
     base = _base(location)
     dir_path = _resolve(base, path)
@@ -333,7 +351,7 @@ async def upload_chunk(
         raise HTTPException(400, "Invalid chunk parameters")
 
     dest = (dir_path / safe_name).resolve()
-    if not str(dest).startswith(str(dir_path.resolve())):
+    if not _inside(dest, dir_path):
         raise HTTPException(400, "Invalid path")
 
     # Read the request body before taking the lock - streaming it in is the slow part and
@@ -470,6 +488,7 @@ async def list_pending_uploads(request: Request, db: Session = Depends(get_sessi
 @router.delete("/cancel-upload/{upload_id}")
 async def cancel_upload(upload_id: str, request: Request, db: Session = Depends(get_session)):
     user = await get_current_user(request)
+    _check_upload_id(upload_id)
     pending = db.get(PendingUpload, upload_id)
     if not pending or pending.owner_email != user["email"]:
         raise HTTPException(404, "Upload not found")

@@ -79,7 +79,7 @@ def _require_editable(share: ShareLink):
 def _share_resolve(share: ShareLink, subpath: str) -> Path:
     base = get_base(share.location)
     share_root = (base / share.path).resolve()
-    if not str(share_root).startswith(str(base.resolve())):
+    if not share_root.resolve().is_relative_to(base.resolve()):
         raise HTTPException(400, "Invalid share path")
     return resolve_path(share_root, subpath)
 
@@ -142,12 +142,37 @@ class AuthBody(BaseModel):
     password: str
 
 
+# Wrong share passwords: per visitor address and per link, in memory, like auth's sign-in limits.
+_PASSWORD_WINDOW = 15 * 60
+_PASSWORD_LIMITS = {"ip": 10, "share": 50}
+_password_failures: dict[str, list[float]] = {}
+_password_lock = threading.Lock()
+
+
+def _recent_failures(key: str, now: float) -> list[float]:
+    times = [t for t in _password_failures.get(key, []) if now - t < _PASSWORD_WINDOW]
+    if times:
+        _password_failures[key] = times
+    else:
+        _password_failures.pop(key, None)
+    return times
+
+
 @router.post("/{token}/auth")
-def authenticate_share(token: str, body: AuthBody, db: Session = Depends(get_session)):
+def authenticate_share(token: str, body: AuthBody, request: Request, db: Session = Depends(get_session)):
     share = _get_share(token, db)
     if not share.password_hash:
         raise HTTPException(400, "Share has no password")
+    ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "?")
+    keys = {"ip": f"ip:{ip}", "share": f"share:{token}"}
+    now = time.time()
+    with _password_lock:
+        if any(len(_recent_failures(k, now)) >= _PASSWORD_LIMITS[kind] for kind, k in keys.items()):
+            raise HTTPException(429, "Too many wrong passwords. Try again in a few minutes.")
     if not bcrypt.checkpw(body.password.encode(), share.password_hash.encode()):
+        with _password_lock:
+            for k in keys.values():
+                _password_failures.setdefault(k, []).append(now)
         raise HTTPException(401, "Incorrect password")
 
     session_token = secrets.token_urlsafe(32)
@@ -490,7 +515,7 @@ async def upload_files(
         if not filename:
             continue
         dest = (dir_path / filename).resolve()
-        if not str(dest).startswith(str(dir_path.resolve())):
+        if not dest.resolve().is_relative_to(dir_path.resolve()):
             continue
         async with aiofiles.open(dest, "wb") as f:
             while chunk := await file.read(1024 * 1024):
