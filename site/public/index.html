@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TPCloud</title>
+  <meta name="description" content="Your own cloud in one file: files, photos and your house on a machine at home.">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:title" content="TPCloud">
+  <meta property="og:description" content="Your own cloud in one file: files, photos and your house on a machine at home.">
+  <link rel="stylesheet" href="/site.css">
+  <script src="/site.js" defer></script>
+  <script src="/hero.js" defer></script>
+</head>
+<body>
+  <div class="wrap"><header class="top"><a class="brand" href="/"><span class="plate"><svg viewBox="0 0 1024 1024" aria-hidden="true"><rect x="224" y="272" width="576" height="128" rx="64"/><circle cx="512" cy="592" r="96"/><circle cx="512" cy="800" r="70"/></svg></span>TPCloud</a>
+    <nav class="links"><a href="#what">What it is</a><a href="#how">How it installs</a><a href="https://github.com/mtaibo/tpcloud">GitHub</a></nav></header></div>
+  <main class="wrap heroS">
+    <div class="heroS-text">
+    <h1>Your own cloud,<br>in one file.</h1>
+    <p class="lede">Files, photos and your house on a machine at home. <b>One download, nothing else to install.</b></p>
+      <div class="actions">
+        <a class="btn primary" data-dl="main"><span class="label">Download</span><small></small></a>
+        <span class="other">or for <a data-dl="other"></a></span>
+      </div>
+      <div class="cmd"><code data-copy="curl -fsSL https://tpcloud.migueltaibo.com/install | sh"><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/install | sh</code><button class="copy" type="button">Copy</button></div>
+      <p class="hint" data-note></p>
+    </div>
+    <div class="visual" id="visual" aria-hidden="true"></div>
+  </main>
+  <section class="block" id="what"><div class="wrap">
+    <h2>Your files, your photos and your house, on a machine at home.</h2>
+    <p class="intro">Instead of somebody else’s servers. One sign-in for all of it, at your own address, from the browser or the TPCloud app.</p>
+    <div class="grid3">
+      <div class="card"><span class="k">/store · /photos</span><h3>Files and photos</h3><p>A file browser for everyone at home, the iPhone’s photos backed up in the background, and share links with or without a password.</p></div>
+      <div class="card"><span class="k">/home</span><h3>The house</h3><p>Blinds and lights on a floor plan, with switches running tphome’s own firmware. And from the terminal: <code class="mono">tphome --blind B0301 up</code>.</p></div>
+      <div class="card"><span class="k">/login</span><h3>One sign-in</h3><p>Passkeys on the web, password and two-factor in the app, and every session listed so you can close the ones you don’t know.</p></div>
+    </div>
+  </div></section>
+  <section class="block" id="how"><div class="wrap">
+    <h2>Three steps, on a Raspberry Pi or an old PC.</h2>
+    <div class="steps">
+      <div class="step"><h3>Run the command</h3><p>On the machine itself: <code>curl -fsSL https://tpcloud.migueltaibo.com/install | sh</code>. It picks the file for that machine.</p></div>
+      <div class="step"><h3>Answer a few questions</h3><p>Where files go, whether you want the house, how you’ll reach it (only at home, Tailscale or your own domain) and your account.</p></div>
+      <div class="step"><h3>Open it</h3><p>From the browser or the app. On the server, <code>tpcloud</code> shows what’s running, accounts, modules and logs.</p></div>
+    </div>
+    <div class="facts">
+      <div class="fact"><b>66 MB</b><span>One file, everything inside</span></div>
+      <div class="fact"><b>0</b><span>Other things to install: no Docker, no Python</span></div>
+      <div class="fact"><b>6</b><span>Processes it runs and looks after, as a system service</span></div>
+      <div class="fact"><b>2</b><span>Builds: arm64 for a Raspberry Pi, amd64 for a PC</span></div>
+    </div>
+  </div></section>
+  <div class="wrap"><footer class="bottom"><span>TPCloud 0.3</span><a href="https://github.com/mtaibo/tpcloud">Source on GitHub</a><a href="https://migueltaibo.com">Made by Miguel Taibo</a></footer></div>
+</body></html>

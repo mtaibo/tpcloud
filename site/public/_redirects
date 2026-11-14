@@ -1,0 +1,4 @@
+# The binaries live on the latest GitHub release; the site only points at them.
+/download/linux/arm64  https://github.com/mtaibo/tpcloud/releases/latest/download/tpcloud-linux-arm64  302
+/download/linux/amd64  https://github.com/mtaibo/tpcloud/releases/latest/download/tpcloud-linux-amd64  302
+/download/linux        /install  302

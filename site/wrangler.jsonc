@@ -1,0 +1,13 @@
+// tpcloud.migueltaibo.com: the files in public/ served by Cloudflare as a Worker's static assets.
+// Cloudflare builds it from this folder on every push to main that touches site/.
+{
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
+  "name": "tpcloud-site",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "404-page"
+  },
+  "routes": [{ "pattern": "tpcloud.migueltaibo.com", "custom_domain": true }],
+  "workers_dev": false
+}

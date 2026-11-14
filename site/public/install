@@ -1,0 +1,32 @@
+#!/bin/sh
+# TPCloud's installer: curl -fsSL https://tpcloud.migueltaibo.com/install | sh
+# Picks the file for this machine (arm64 for a Raspberry Pi, amd64 for a PC), downloads it and runs
+# `tpcloud install`, which asks the rest in the terminal.
+set -eu
+
+case "$(uname -s)" in
+  Linux) ;;
+  *) echo "TPCloud's server runs on Linux (a Raspberry Pi, an old PC…)." >&2; exit 1 ;;
+esac
+case "$(uname -m)" in
+  aarch64 | arm64) arch=arm64 ;;
+  x86_64 | amd64) arch=amd64 ;;
+  *) echo "There's no TPCloud for $(uname -m) yet." >&2; exit 1 ;;
+esac
+
+url="https://tpcloud.migueltaibo.com/download/linux/$arch"
+file="$(mktemp)"
+echo "Downloading TPCloud for $arch…"
+if command -v curl >/dev/null 2>&1; then
+  curl -fL --progress-bar "$url" -o "$file"
+else
+  wget -q --show-progress -O "$file" "$url"
+fi
+chmod +x "$file"
+
+# Piped into sh, stdin is this script: the setup's questions are read from the terminal instead.
+if [ "$(id -u)" -eq 0 ]; then
+  exec "$file" install </dev/tty
+else
+  exec sudo "$file" install </dev/tty
+fi
