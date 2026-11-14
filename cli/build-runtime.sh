@@ -3,13 +3,14 @@
 # architecture Docker runs on here. Docker is needed only on the machine that builds.
 #
 #   TPHOME_DIR=../tphome cli/build-runtime.sh      → cli/dist/runtime-<arch>.tar.zst
+#   ARCH=amd64 cli/build-runtime.sh                 another architecture, emulated
 set -euo pipefail
 
 cli="$(cd "$(dirname "$0")" && pwd)"
 cloud="$(dirname "$cli")"
 home="${TPHOME_DIR:-$(dirname "$cloud")/tphome}"
 [[ -f "$home/docker-compose.yml" ]] || { echo "No tphome checkout at $home (set TPHOME_DIR)" >&2; exit 1; }
-arch="$(docker version --format '{{.Server.Arch}}')"
+arch="${ARCH:-$(docker version --format '{{.Server.Arch}}')}"
 
 ctx="$(mktemp -d)"
 trap 'rm -rf "$ctx"' EXIT
@@ -23,6 +24,6 @@ pack "$home" tphome api
 cp "$cli/runtime/Dockerfile" "$ctx/Dockerfile"
 
 mkdir -p "$cli/dist"
-docker build --output "type=local,dest=$ctx/out" "$ctx"
+docker build --platform "linux/$arch" --output "type=local,dest=$ctx/out" "$ctx"
 mv "$ctx/out/runtime.tar.zst" "$cli/dist/runtime-$arch.tar.zst"
 ls -la "$cli/dist/runtime-$arch.tar.zst"
