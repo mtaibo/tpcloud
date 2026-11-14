@@ -8,13 +8,13 @@
 
 ![Status](https://img.shields.io/badge/status-active-brightgreen)
 ![Made with](https://img.shields.io/badge/made%20with-Python%20%7C%20Vue%20%7C%20Swift-blue)
-![Runs on](https://img.shields.io/badge/runs%20on-Docker-lightgrey)
+![Runs on](https://img.shields.io/badge/runs%20on-Linux-lightgrey)
 
 </div>
 
 ---
 
-TPCloud is everything I self-host, in one repo. It's the front door that every request goes through: one gateway at a single address, where every module is a path (`/store`, `/photos`, `/home`, `/login`…), one auth service that signs you in once for all of them, my storage and photo backup, the web apps for all of it and the native iOS and macOS app. Home automation lives in its own repo, [tphome](https://github.com/mtaibo/tphome), because it's a project of its own with firmware and hardware, and plugs in as one more module. Anyone can run their own with one installer.
+TPCloud is everything I self-host, in one repo. It's the front door that every request goes through: one gateway at a single address, where every module is a path (`/store`, `/photos`, `/home`, `/login`…), one auth service that signs you in once for all of them, my storage and photo backup, the web apps for all of it and the native iOS and macOS app. Home automation lives in its own repo, [tphome](https://github.com/mtaibo/tphome), because it's a project of its own with firmware and hardware, and plugs in as one more module. Anyone can run their own from one file, downloaded from [tpcloud.migueltaibo.com](https://tpcloud.migueltaibo.com).
 
 ## Why I built it
 
@@ -98,11 +98,13 @@ tpcloud/
 │   ├── login/  accounts/  cloud/
 │   ├── store/  photos/  share/
 │   └── home/           tphome's control panel
+├── cli/                the `tpcloud` command: one file with everything inside
+├── site/               tpcloud.migueltaibo.com, where it's downloaded
 ├── data/               what the services write while they run (not in git)
 │   ├── auth/           users and sessions
 │   └── store/          share links, photo index, thumbnails
-├── docker-compose.yml  everything above, one command
-└── install.sh          step-by-step installer, and updates
+├── docker-compose.yml  everything above with Docker, one command
+└── install.sh          the Docker installer, and updates
 ```
 
 ## Architecture
@@ -199,35 +201,44 @@ The owner account is created by the installer. From there, admins can create use
 | **App** | Swift · SwiftUI · Swift Package Manager · XcodeGen |
 | **Gateway** | Caddy · `forward_auth` |
 | **Exposure** | Cloudflare Tunnel (`cloudflared`) · Tailscale · Caddy's own TLS |
-| **Hosting** | Docker Compose, set up by `install.sh` |
+| **Hosting** | One static Rust binary (`cli/`) that supervises every process, or Docker Compose |
+| **Site** | Cloudflare Workers static assets |
 
 ## How to run
 
 ### One file: the `tpcloud` command
 
-[`cli/`](cli/) builds a single static Linux binary (Rust, ~1.4 MB) that carries everything a server needs: the compose file, the services and web apps, and [tphome](https://github.com/mtaibo/tphome)'s API. Nothing is cloned.
+On a Linux machine (a Raspberry Pi, an old PC, a VPS; arm64 or x86-64):
 
 ```bash
-cli/build.sh                                  # → cli/dist/tpcloud-linux-<arch>
-sudo ./tpcloud-linux-arm64 install            # copies itself to /usr/local/bin and sets the server up
+curl -fsSL https://tpcloud.migueltaibo.com/install | sh
 ```
 
-The code goes to `/opt/tpcloud` and is replaced on every install; settings, databases and caches live in `/var/lib/tpcloud` (`tpcloud.env`, `data/`, `gateway-extra/`, `home/`) and are never touched. `install --adopt <folder>` takes over a server that ran from tpcloud and tphome clones in that folder: it builds the new images while the old containers keep running, then stops them, copies their settings and data and starts again, a few seconds down.
+That downloads the right file for the machine and runs `sudo tpcloud install`. The file can also be downloaded by hand from [tpcloud.migueltaibo.com](https://tpcloud.migueltaibo.com) or the [releases](https://github.com/mtaibo/tpcloud/releases), then `sudo ./tpcloud-linux-arm64 install`.
+
+It's a single static binary (~66 MB) and needs nothing else: no Docker, no Python, nothing from the package manager. Inside it carries its own Python with every service, the built web apps, [tphome](https://github.com/mtaibo/tphome)'s API, and static builds of Caddy, Mosquitto, ffmpeg, rsync and cloudflared. Installing unpacks them to `/opt/tpcloud`, copies itself to `/usr/local/bin` and adds a systemd service, `tpcloud serve`, that runs each process and restarts it if it stops. The guided setup asks where Store keeps files, which modules to turn on, how it'll be reached (only at home, Tailscale, a Cloudflare Tunnel or your own domain on port 443) and creates your admin account.
+
+Settings, databases and caches live in `/var/lib/tpcloud` (`tpcloud.env`, `data/`, `home/`, `gateway-extra/`, `logs/`) and an update never touches them: running `install` from a newer file replaces only the program. `install --adopt <folder>` takes over a server that ran with Docker from tpcloud and tphome clones in that folder, copying their settings and data, with about a second down.
 
 | Command | What it does |
 |---|---|
-| `tpcloud` | What's running, the address, the modules and where files and data are |
-| `tpcloud start` · `stop` · `restart` | Build what changed and start everything, or stop it (data is kept) |
-| `tpcloud logs [service] [-f]` | A service's log, or every one's |
+| `tpcloud` | A terminal app: status, Home, accounts, modules, logs and setup |
+| `tpcloud status` | What's running, the address, the modules and where files and data are |
+| `tpcloud setup` | The guided configuration again |
+| `tpcloud start` · `stop` · `restart` | Start everything, stop it (data is kept) or restart it |
+| `tpcloud logs [process] [-f]` | A process's log, or every one's |
 | `tpcloud module list` · `enable home` · `disable home` | Turn Store or Home on and off |
+| `tpcloud users` · `users add <email> [--admin]` | List the accounts or add one |
 | `tphome` | Every blind, its position and whether it's connected (there while Home is on) |
 | `tphome --blind B0301 up` | Raise a blind; also `down`, `stop`, or a position from 0 (closed) to 100 (open) |
 
-`tphome` talks to home-api straight on its Docker network from the server itself, so it needs no session: whoever can use Docker there already owns the server.
+`tphome` talks to home-api on its local port from the server itself, so it needs no session: whoever can run commands there already owns the server.
 
-### The installer script
+To build it: `cli/build.sh` (needs Docker and Rust, with tphome cloned next to this folder) writes `cli/dist/tpcloud-linux-<arch>`. Pushing a `v*` tag builds both architectures on GitHub Actions and publishes them as a release, which is what the site's download links point to.
 
-On a Linux machine (a Raspberry Pi, an old PC, a VPS), run the installer and answer its questions:
+### With Docker
+
+The services also run as Docker containers. The installer script asks the same questions:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mtaibo/tpcloud/main/install.sh | bash
