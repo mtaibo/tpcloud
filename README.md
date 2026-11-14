@@ -203,6 +203,30 @@ The owner account is created by the installer. From there, admins can create use
 
 ## How to run
 
+### One file: the `tpcloud` command
+
+[`cli/`](cli/) builds a single static Linux binary (Rust, ~1.4 MB) that carries everything a server needs: the compose file, the services and web apps, and [tphome](https://github.com/mtaibo/tphome)'s API. Nothing is cloned.
+
+```bash
+cli/build.sh                                  # → cli/dist/tpcloud-linux-<arch>
+sudo ./tpcloud-linux-arm64 install            # copies itself to /usr/local/bin and sets the server up
+```
+
+The code goes to `/opt/tpcloud` and is replaced on every install; settings, databases and caches live in `/var/lib/tpcloud` (`tpcloud.env`, `data/`, `gateway-extra/`, `home/`) and are never touched. `install --adopt <folder>` takes over a server that ran from tpcloud and tphome clones in that folder: it builds the new images while the old containers keep running, then stops them, copies their settings and data and starts again, a few seconds down.
+
+| Command | What it does |
+|---|---|
+| `tpcloud` | What's running, the address, the modules and where files and data are |
+| `tpcloud start` · `stop` · `restart` | Build what changed and start everything, or stop it (data is kept) |
+| `tpcloud logs [service] [-f]` | A service's log, or every one's |
+| `tpcloud module list` · `enable home` · `disable home` | Turn Store or Home on and off |
+| `tphome` | Every blind, its position and whether it's connected (there while Home is on) |
+| `tphome --blind B0301 up` | Raise a blind; also `down`, `stop`, or a position from 0 (closed) to 100 (open) |
+
+`tphome` talks to home-api straight on its Docker network from the server itself, so it needs no session: whoever can use Docker there already owns the server.
+
+### The installer script
+
 On a Linux machine (a Raspberry Pi, an old PC, a VPS), run the installer and answer its questions:
 
 ```bash
