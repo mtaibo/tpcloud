@@ -9,6 +9,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{DefaultTerminal, Frame};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const ACCENT: Color = Color::Rgb(106, 175, 255);
@@ -35,18 +36,86 @@ const SECTIONS: [(Section, &str); 6] = [
     (Section::Setup, "Setup"),
 ];
 
+/// What the screen shows, kept up to date by a thread of its own: reading it (systemctl, the
+/// supervisor's report, home-api, auth's database through Python) takes from milliseconds to a
+/// second, and done on each key press it made moving through the menu crawl.
+#[derive(Default)]
+struct Data {
+    status: Option<status::Status>,
+    blinds: Vec<serde_json::Value>,
+    home_error: Option<String>,
+    users: Option<Vec<users::User>>,
+    /// What the last action said, for the footer.
+    message: Option<(String, Color)>,
+}
+
+enum Job {
+    Refresh,
+    Blind(String, String),
+    Module(&'static str, bool),
+}
+
+fn worker(data: Arc<Mutex<Data>>, jobs: mpsc::Receiver<Job>) {
+    let mut users_at: Option<Instant> = None;
+    loop {
+        let job = match jobs.recv_timeout(Duration::from_secs(2)) {
+            Ok(job) => Some(job),
+            Err(mpsc::RecvTimeoutError::Timeout) => None,
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+        };
+        let said = match job {
+            Some(Job::Blind(id, action)) => Some(
+                match home::Api::connect().and_then(|api| home::send(&api, &id, home::parse_action(&action)?)) {
+                    Ok((name, said)) => (format!("{name}: {said}"), GREEN),
+                    Err(err) => (format!("{err:#}"), ORANGE),
+                },
+            ),
+            Some(Job::Module(name, on)) => Some(match install::set_module(name, on) {
+                Ok(()) => (format!("{name} is {}.", if on { "on" } else { "off" }), GREEN),
+                Err(err) => (format!("{err:#}"), ORANGE),
+            }),
+            _ => None,
+        };
+        if let Some(said) = said {
+            data.lock().unwrap().message = Some(said);
+        }
+        let st = status::read();
+        let (blinds, home_error) = if install::home_enabled() {
+            match home::Api::connect().and_then(|api| home::blinds(&api)) {
+                Ok(list) => (Some(list), None),
+                Err(err) => (None, Some(format!("{err:#}"))),
+            }
+        } else {
+            (Some(Vec::new()), None)
+        };
+        // Accounts change rarely and cost a Python start: every 15 s.
+        let users = if users_at.map_or(true, |t| t.elapsed() > Duration::from_secs(15)) {
+            users_at = Some(Instant::now());
+            users::list().ok()
+        } else {
+            None
+        };
+        let mut d = data.lock().unwrap();
+        d.status = Some(st);
+        if let Some(list) = blinds {
+            d.blinds = list;
+        }
+        d.home_error = home_error;
+        if users.is_some() {
+            d.users = users;
+        }
+    }
+}
+
 struct App {
     menu: ListState,
     /// Keys go to the section on the right instead of the menu.
     inside: bool,
-    status: status::Status,
-    blinds: Vec<serde_json::Value>,
+    data: Arc<Mutex<Data>>,
+    jobs: mpsc::Sender<Job>,
     blind: ListState,
-    users: Vec<users::User>,
     module: usize,
     log_service: usize,
-    message: Option<(String, Color)>,
-    refreshed: Instant,
     quit: bool,
     run_setup: bool,
 }
@@ -56,45 +125,31 @@ impl App {
         SECTIONS[self.menu.selected().unwrap_or(0)].0
     }
 
-    fn refresh(&mut self) {
-        self.status = status::read();
-        match self.section() {
-            Section::Home if install::home_enabled() => {
-                match home::Api::connect().and_then(|api| home::blinds(&api)) {
-                    Ok(list) => self.blinds = list,
-                    Err(err) => self.say(&format!("{err:#}"), ORANGE),
-                }
-                if self.blind.selected().is_none() && !self.blinds.is_empty() {
-                    self.blind.select(Some(0));
-                }
-            }
-            Section::Users => {
-                if let Ok(list) = users::list() {
-                    self.users = list;
-                }
-            }
-            _ => {}
-        }
-        self.refreshed = Instant::now();
+    fn say(&mut self, text: &str, color: Color) {
+        self.data.lock().unwrap().message = Some((text.to_string(), color));
     }
 
-    fn say(&mut self, text: &str, color: Color) {
-        self.message = Some((text.to_string(), color));
+    fn send(&self, job: Job) {
+        let _ = self.jobs.send(job);
     }
 }
 
 pub fn run() -> Result<()> {
+    let data = Arc::new(Mutex::new(Data { status: Some(status::read()), ..Default::default() }));
+    let (jobs, inbox) = mpsc::channel();
+    {
+        let data = data.clone();
+        std::thread::spawn(move || worker(data, inbox));
+    }
+    let _ = jobs.send(Job::Refresh);
     let mut app = App {
         menu: ListState::default().with_selected(Some(0)),
         inside: false,
-        status: status::read(),
-        blinds: Vec::new(),
+        data,
+        jobs,
         blind: ListState::default(),
-        users: Vec::new(),
         module: 0,
         log_service: 0,
-        message: None,
-        refreshed: Instant::now() - Duration::from_secs(10),
         quit: false,
         run_setup: false,
     };
@@ -111,7 +166,7 @@ pub fn run() -> Result<()> {
             println!("\nPress enter to go back to TPCloud.");
             let mut line = String::new();
             let _ = std::io::stdin().read_line(&mut line);
-            app.refreshed = Instant::now() - Duration::from_secs(10);
+            app.send(Job::Refresh);
             continue;
         }
         if app.quit {
@@ -122,18 +177,22 @@ pub fn run() -> Result<()> {
 
 fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     while !app.quit && !app.run_setup {
-        if app.refreshed.elapsed() > Duration::from_secs(2) {
-            app.refresh();
-        }
         terminal.draw(|f| draw(f, app))?;
-        if !event::poll(Duration::from_millis(250))? {
+        // Wait for a key (or redraw every half second for what the worker brought in), then take
+        // every key already waiting before drawing again, so a held arrow never falls behind.
+        if !event::poll(Duration::from_millis(500))? {
             continue;
         }
-        let Event::Key(key) = event::read()? else { continue };
-        if key.kind != KeyEventKind::Press {
-            continue;
+        loop {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    handle_key(app, key.code);
+                }
+            }
+            if app.quit || app.run_setup || !event::poll(Duration::ZERO)? {
+                break;
+            }
         }
-        handle_key(app, key.code);
     }
     Ok(())
 }
@@ -158,8 +217,7 @@ fn handle_key(app: &mut App, code: KeyCode) {
             KeyCode::Esc => app.quit = true,
             _ => return,
         }
-        app.message = None;
-        app.refreshed = Instant::now() - Duration::from_secs(10);
+        app.data.lock().unwrap().message = None;
         return;
     }
     if matches!(code, KeyCode::Esc | KeyCode::Left) {
@@ -173,15 +231,12 @@ fn handle_key(app: &mut App, code: KeyCode) {
             KeyCode::Down => app.module = (app.module + 1).min(1),
             KeyCode::Enter | KeyCode::Char(' ') => {
                 let name = ["store", "home"][app.module];
-                let on = !app.status.modules.iter().any(|m| m == name);
+                let on = !app.data.lock().unwrap().status.as_ref().is_some_and(|s| s.modules.iter().any(|m| m == name));
                 if unsafe { libc::geteuid() } != 0 {
                     app.say("Changing modules needs root: open it with `sudo tpcloud`.", ORANGE);
                 } else {
-                    match install::set_module(name, on) {
-                        Ok(()) => app.say(&format!("{name} is {}.", if on { "on" } else { "off" }), GREEN),
-                        Err(err) => app.say(&format!("{err:#}"), ORANGE),
-                    }
-                    app.refresh();
+                    app.say(&format!("Turning {name} {} (TPCloud restarts)…", if on { "on" } else { "off" }), DIM);
+                    app.send(Job::Module(name, on));
                 }
             }
             _ => {}
@@ -197,13 +252,14 @@ fn handle_key(app: &mut App, code: KeyCode) {
 
 fn home_key(app: &mut App, code: KeyCode) {
     let i = app.blind.selected().unwrap_or(0);
+    let count = app.data.lock().unwrap().blinds.len();
     let action = match code {
         KeyCode::Up | KeyCode::Char('k') => {
             app.blind.select(Some(i.saturating_sub(1)));
             return;
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            app.blind.select(Some((i + 1).min(app.blinds.len().saturating_sub(1))));
+            app.blind.select(Some((i + 1).min(count.saturating_sub(1))));
             return;
         }
         KeyCode::Char('u') => "up".to_string(),
@@ -212,21 +268,20 @@ fn home_key(app: &mut App, code: KeyCode) {
         KeyCode::Char(c @ '0'..='9') => ((c as u8 - b'0') as u32 * 10).to_string(),
         _ => return,
     };
-    let Some(id) = app.blinds.get(i).and_then(|b| b["id"].as_str()).map(str::to_string) else { return };
-    let result = home::Api::connect().and_then(|api| home::send(&api, &id, home::parse_action(&action)?));
-    match result {
-        Ok((name, said)) => app.say(&format!("{name}: {said}"), GREEN),
-        Err(err) => app.say(&format!("{err:#}"), ORANGE),
+    let id = app.data.lock().unwrap().blinds.get(i).and_then(|b| b["id"].as_str()).map(str::to_string);
+    if let Some(id) = id {
+        app.send(Job::Blind(id, action));
     }
-    app.refreshed = Instant::now() - Duration::from_millis(1500);
 }
 
 fn draw(f: &mut Frame, app: &mut App) {
+    let shared = app.data.clone();
+    let data = shared.lock().unwrap();
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(5), Constraint::Length(1)])
         .split(f.area());
-    draw_header(f, app, rows[0]);
+    draw_header(f, &data, rows[0]);
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(20), Constraint::Min(30)])
@@ -234,10 +289,10 @@ fn draw(f: &mut Frame, app: &mut App) {
     draw_menu(f, app, cols[0]);
     let body = cols[1];
     match app.section() {
-        Section::Status => draw_status(f, app, body),
-        Section::Home => draw_home(f, app, body),
-        Section::Users => draw_users(f, app, body),
-        Section::Modules => draw_modules(f, app, body),
+        Section::Status => draw_status(f, &data, body),
+        Section::Home => draw_home(f, app, &data, body),
+        Section::Users => draw_users(f, app, &data, body),
+        Section::Modules => draw_modules(f, app, &data, body),
         Section::Logs => draw_logs(f, app, body),
         Section::Setup => draw_setup(f, body),
     }
@@ -248,7 +303,7 @@ fn draw(f: &mut Frame, app: &mut App) {
         (true, Section::Logs) => "↑↓ service · ← back",
         (true, _) => "← back · q quit",
     };
-    let footer = match &app.message {
+    let footer = match &data.message {
         Some((text, color)) => Line::from(Span::styled(format!(" {text}"), Style::default().fg(*color))),
         None => Line::from(Span::styled(format!(" {hint}"), Style::default().fg(DIM))),
     };
@@ -263,8 +318,8 @@ fn card(title: &str, focused: bool) -> Block<'_> {
         .title(Span::styled(format!(" {title} "), Style::default().add_modifier(Modifier::BOLD)))
 }
 
-fn draw_header(f: &mut Frame, app: &App, area: Rect) {
-    let st = &app.status;
+fn draw_header(f: &mut Frame, data: &Data, area: Rect) {
+    let Some(st) = &data.status else { return };
     let state = if st.active { Span::styled("● running", Style::default().fg(GREEN)) } else { Span::styled("○ stopped", Style::default().fg(ORANGE)) };
     let line = Line::from(vec![
         Span::styled(" TPCloud ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
@@ -285,14 +340,24 @@ fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_stateful_widget(list, area, &mut app.menu);
 }
 
-fn draw_status(f: &mut Frame, app: &App, area: Rect) {
-    let st = &app.status;
+fn draw_status(f: &mut Frame, data: &Data, area: Rect) {
+    let Some(st) = &data.status else { return };
     let mut lines = vec![
         Line::from(vec![Span::styled("Modules  ", Style::default().fg(DIM)), Span::raw(if st.modules.is_empty() { "none".into() } else { st.modules.join(", ") })]),
         Line::from(vec![Span::styled("Files    ", Style::default().fg(DIM)), Span::raw(st.files.clone())]),
         Line::from(vec![Span::styled("Data     ", Style::default().fg(DIM)), Span::raw(crate::paths::state_dir().display().to_string())]),
-        Line::raw(""),
+        Line::from(vec![
+            Span::styled("Backup   ", Style::default().fg(DIM)),
+            Span::styled(st.backup.clone(), Style::default().fg(if st.backup_ok { Color::Reset } else { ORANGE })),
+        ]),
     ];
+    if let Some(v) = &st.update {
+        lines.push(Line::from(vec![
+            Span::styled("Update   ", Style::default().fg(DIM)),
+            Span::styled(format!("TPCloud {v} is out: sudo tpcloud update"), Style::default().fg(ACCENT)),
+        ]));
+    }
+    lines.push(Line::raw(""));
     if !st.active {
         lines.push(Line::styled("Nothing is running: `sudo tpcloud start`.", Style::default().fg(ORANGE)));
     }
@@ -311,13 +376,21 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(lines).block(card("Status", false)), area);
 }
 
-fn draw_home(f: &mut Frame, app: &mut App, area: Rect) {
-    if !install::home_enabled() {
+fn draw_home(f: &mut Frame, app: &mut App, data: &Data, area: Rect) {
+    let home_on = data.status.as_ref().is_some_and(|s| s.modules.iter().any(|m| m == "home"));
+    if !home_on {
         f.render_widget(Paragraph::new("Home is off. Turn it on in Modules.").block(card("Home", app.inside)), area);
         return;
     }
-    let width = app.blinds.iter().map(|b| b["name"].as_str().unwrap_or("").chars().count()).max().unwrap_or(4);
-    let items: Vec<ListItem> = app
+    if let Some(err) = &data.home_error {
+        f.render_widget(Paragraph::new(err.clone()).style(Style::default().fg(ORANGE)).block(card("Home", app.inside)), area);
+        return;
+    }
+    if app.blind.selected().is_none() && !data.blinds.is_empty() {
+        app.blind.select(Some(0));
+    }
+    let width = data.blinds.iter().map(|b| b["name"].as_str().unwrap_or("").chars().count()).max().unwrap_or(4);
+    let items: Vec<ListItem> = data
         .blinds
         .iter()
         .map(|b| {
@@ -346,9 +419,12 @@ fn draw_home(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_stateful_widget(list, area, &mut app.blind);
 }
 
-fn draw_users(f: &mut Frame, app: &App, area: Rect) {
-    let mut lines: Vec<Line> = app
-        .users
+fn draw_users(f: &mut Frame, app: &App, data: &Data, area: Rect) {
+    let Some(users) = &data.users else {
+        f.render_widget(Paragraph::new(Line::styled("Loading…", Style::default().fg(DIM))).block(card("Accounts", app.inside)), area);
+        return;
+    };
+    let mut lines: Vec<Line> = users
         .iter()
         .map(|u| {
             Line::from(vec![
@@ -363,13 +439,14 @@ fn draw_users(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(lines).block(card("Accounts", app.inside)), area);
 }
 
-fn draw_modules(f: &mut Frame, app: &App, area: Rect) {
+fn draw_modules(f: &mut Frame, app: &App, data: &Data, area: Rect) {
+    let modules = data.status.as_ref().map(|s| s.modules.clone()).unwrap_or_default();
     let rows = [("store", "Files, photo backup from the app and share links"), ("home", "Blinds and lights, with tphome's switches; adds the tphome command")];
     let lines: Vec<Line> = rows
         .iter()
         .enumerate()
         .map(|(i, (name, what))| {
-            let on = app.status.modules.iter().any(|m| m == name);
+            let on = modules.iter().any(|m| m == name);
             let selected = app.inside && i == app.module;
             let style = if selected { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default() };
             Line::from(vec![

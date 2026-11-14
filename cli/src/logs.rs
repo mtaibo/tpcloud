@@ -6,12 +6,23 @@ use std::io::{Read, Seek, SeekFrom, Write};
 
 pub const NAMES: [&str; 6] = ["gateway", "auth", "store-api", "home-api", "mqtt-broker", "cloudflared"];
 
-/// The last `n` lines of a log.
+/// The last `n` lines of a log, reading only its end (they grow to 10 MB, and the terminal app
+/// shows one several times a second).
 pub fn tail(name: &str, n: usize) -> Vec<String> {
     let path = paths::logs_dir().join(format!("{name}.log"));
-    let Ok(text) = std::fs::read(&path) else { return Vec::new() };
-    let text = String::from_utf8_lossy(&text);
-    let lines: Vec<&str> = text.lines().collect();
+    let Ok(mut file) = std::fs::File::open(&path) else { return Vec::new() };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let want = (n as u64 * 400).clamp(16 * 1024, 4 * 1024 * 1024);
+    let start = len.saturating_sub(want);
+    let mut bytes = Vec::new();
+    if file.seek(SeekFrom::Start(start)).is_err() || file.read_to_end(&mut bytes).is_err() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let mut lines: Vec<&str> = text.lines().collect();
+    if start > 0 && !lines.is_empty() {
+        lines.remove(0); // cut in the middle
+    }
     lines[lines.len().saturating_sub(n)..].iter().map(|l| l.to_string()).collect()
 }
 
