@@ -1,10 +1,10 @@
-// C · The file: tpcloud, 66 MB, opens into what it really carries, and the six processes come on.
+// C · The file: tpcloud, ~75 MB, opens into what it really carries, and the six processes come on.
 (() => {
   const v = document.getElementById('visual'); if (!v) return
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
   const make = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e }
   const wrap = make('div', 'vfile'), doc = make('div', 'doc'), stream = make('div', 'stream')
-  doc.append(make('b', null, 'tpcloud'), make('span', null, '66 MB'))
+  doc.append(make('b', null, 'tpcloud'), make('span', null, '~75 MB'))
   wrap.append(doc, stream); v.append(wrap)
   const PROCS = ['gateway', 'auth', 'store-api', 'home-api', 'mqtt-broker', 'cloudflared']
   const grid = make('div', 'procs'); v.append(grid)

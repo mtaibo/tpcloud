@@ -15,7 +15,7 @@
   for (const el of document.querySelectorAll('[data-dl="main"]')) {
     el.href = BASE + main
     el.querySelector('.label').textContent = os === 'linux' && arch ? 'Download for this machine' : 'Download for Raspberry Pi'
-    el.querySelector('small').textContent = `Linux ${main} · 66 MB`
+    el.querySelector('small').textContent = `Linux ${main} · ~75 MB`
   }
   for (const el of document.querySelectorAll('[data-dl="other"]')) { el.href = BASE + other; el.textContent = `${NAMES[other]} (${other})` }
   for (const el of document.querySelectorAll('[data-dl]:not([data-dl="main"]):not([data-dl="other"])')) el.href = BASE + el.dataset.dl
