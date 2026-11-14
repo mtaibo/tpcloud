@@ -218,13 +218,18 @@ That downloads the right file for the machine and runs `sudo tpcloud install`. T
 
 It's a single static binary (~75 MB) and needs nothing else: no Docker, no Python, nothing from the package manager. Inside it carries its own Python with every service, the built web apps, [tphome](https://github.com/mtaibo/tphome)'s API, and static builds of Caddy, Mosquitto, ffmpeg, rsync and cloudflared. Installing unpacks them to `/opt/tpcloud`, copies itself to `/usr/local/bin` and adds a systemd service, `tpcloud serve`, that runs each process and restarts it if it stops. The guided setup asks where Store keeps files, which modules to turn on, how it'll be reached (only at home, Tailscale, a Cloudflare Tunnel or your own domain on port 443) and creates your admin account.
 
-Settings, databases and caches live in `/var/lib/tpcloud` (`tpcloud.env`, `data/`, `home/`, `gateway-extra/`, `logs/`) and an update never touches them: running `install` from a newer file replaces only the program. `install --adopt <folder>` takes over a server that ran with Docker from tpcloud and tphome clones in that folder, copying their settings and data, with about a second down.
+Settings, databases and caches live in `/var/lib/tpcloud` (`tpcloud.env`, `data/`, `home/`, `gateway-extra/`, `logs/`) and an update never touches them. `sudo tpcloud update` gets the latest release from GitHub (checked against its SHA-256) and installs it; `install` run from an older file does the same, unless it's given `--this-file`. The service looks for a new release once a day, and `tpcloud status` says when there is one. `install --adopt <folder>` takes over a server that ran with Docker from tpcloud and tphome clones in that folder, copying their settings and data, with about a second down.
+
+**Backups.** Every night the service copies TPCloud's own data (settings, every database: accounts, the photo index, albums, share links, the house; Home's firmware) to the folder set by the guided setup or `sudo tpcloud backup --to <folder>`, best on another disk. They're a few MB each, made with SQLite's online backup while everything keeps running, and the last 14 are kept. Your files aren't in them (they're on their own disk, with Store's own mirror to a backup disk), nor are thumbnails and previews, which are made again. If the folder is inside that mirror's destination, the mirror leaves it alone. `sudo tpcloud restore <backup>` puts one back, after backing up what's there.
 
 | Command | What it does |
 |---|---|
 | `tpcloud` | A terminal app: status, Home, accounts, modules, logs and setup |
 | `tpcloud status` | What's running, the address, the modules and where files and data are |
 | `tpcloud setup` | The guided configuration again |
+| `tpcloud update [--force]` | Get the latest release from GitHub and install it |
+| `tpcloud backup [--to <folder>]` · `--list` · `--off` | Back up now (and set where), list the backups, or stop the nightly ones |
+| `tpcloud restore <backup>` | Put a backup's settings and databases back |
 | `tpcloud start` · `stop` · `restart` | Start everything, stop it (data is kept) or restart it |
 | `tpcloud logs [process] [-f]` | A process's log, or every one's |
 | `tpcloud module list` · `enable home` · `disable home` | Turn Store or Home on and off |
