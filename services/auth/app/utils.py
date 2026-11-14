@@ -105,14 +105,16 @@ def lookup_location(ip: str) -> str:
     if not ip or ip in ("127.0.0.1", "::1", ""):
         return "Local"
     try:
+        # Over HTTPS (ip-api.com only has it on paid plans): the address doesn't travel in clear.
         r = httpx.get(
-            f"http://ip-api.com/json/{ip}?fields=city,regionName,country",
+            f"https://ipapi.co/{ip}/json/",
+            headers={"User-Agent": "tpcloud-auth"},
             timeout=2.0,
         )
-        if r.status_code == 200:
+        if r.status_code == 200 and not r.json().get("error"):
             data = r.json()
             parts = []
-            for key in ("city", "regionName", "country"):
+            for key in ("city", "region", "country_name"):
                 value = data.get(key, "")
                 if value and value not in parts:
                     parts.append(value)
