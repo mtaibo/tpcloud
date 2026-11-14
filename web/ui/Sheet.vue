@@ -1,8 +1,8 @@
 <script setup>
+import { t } from './i18n.js'
 import { onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
 import Spinner from './Spinner.vue'
-import { t } from './i18n.js'
 
 // A sheet with the iOS 26 bar: ✕ on the left, the title, and a ✓ that confirms (when the sheet
 // has something to confirm). From the bottom on a phone, centred on a wider screen.
@@ -35,7 +35,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <Transition name="sheet">
+    <Transition name="sheet" appear>
       <div v-if="open" class="overlay" @click.self="close">
         <div class="sheet" role="dialog" aria-modal="true" :aria-label="title">
           <div class="sheet-bar">
@@ -54,7 +54,7 @@ onBeforeUnmount(() => {
               <Spinner v-if="busy" :size="18" style="color: #fff" />
               <Icon v-else name="checkmark" :size="20" :weight="2.4" />
             </button>
-            <span v-else />
+            <slot v-else name="trailing"><span /></slot>
           </div>
           <div class="sheet-body"><slot /></div>
         </div>
