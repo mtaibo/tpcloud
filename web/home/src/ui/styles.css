@@ -1,4 +1,4 @@
-/* Copied from tpcloud/ui so TPHome looks like the rest of TPCloud. Keep the two in step. */
+/* Copied from tpcloud/web/ui so TPHome looks like the rest of TPCloud. Keep the two in step. */
 /*
  * TPCloud's web UI, drawn after iOS: the system's colours, type scale, grouped lists, bars and
  * controls, in light and dark. Every web app in the repo imports this one file.
