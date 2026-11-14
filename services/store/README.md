@@ -42,7 +42,7 @@ FastAPI backend for everything: file operations, resumable uploads, thumbnails, 
 ### 🗂️ [`web/store`](../../web/store/)
 The storage browser at `/store`, drawn after Finder on the desktop and Files on the phone, in light and dark: icon and list views with sortable columns, keyboard selection, Quick Look for photos and videos, folders with custom symbols, favourites, drag-and-drop uploads with a transfer panel, and share links managed from sheets. Its look comes from tpcloud's shared `ui/`.
 
-**Vue 3 · Vite · Nginx**
+**Vue 3 · Vite · served by the gateway**
 
 </td>
 <td width="33%" valign="top">
@@ -53,7 +53,7 @@ The public viewer at `/share`, in the same look as the browser: the shared folde
 ### 🖼️ [`web/photos`](../../web/photos/)
 The gallery at `/photos`, a section of its own next to the store: every photo backed up from the iPhone, newest first and grouped by month, filtered to the camera's or screenshots, full screen with download and delete. Its tiles and previews are the same light versions as a share page, and the API makes every photo's thumbnail ahead of time so scrolling back years doesn't wait for them.
 
-**Vue 3 · Vite · Nginx**
+**Vue 3 · Vite · served by the gateway**
 
 </td>
 </tr>
@@ -72,8 +72,8 @@ The gallery at `/photos`, a section of its own next to the store: every photo ba
 └──────────┬──────────────────────────┬─────────────────────────┬─────────────┘
            │                          │                         │
 ┌──────────▼──────────┐   ┌───────────▼───────────┐  ┌──────────▼──────────┐
-│     frontend/       │   │         api/          │  │   share-frontend/   │
-│  Vue 3 · Nginx      │   │  FastAPI · SQLite     │  │   Vue 3 · Nginx     │
+│      web/store      │   │       store-api       │  │      web/share      │
+│ Vue 3 · in gateway  │   │  FastAPI · SQLite     │  │ Vue 3 · in gateway  │
 └─────────────────────┘   └─────┬───────────┬─────┘  └─────────────────────┘
                                 │           │
                    session check│           │ files
@@ -81,7 +81,7 @@ The gallery at `/photos`, a section of its own next to the store: every photo ba
                        tpcloud auth    external disk
 ```
 
-tpstore isn't a standalone deployment. It joins tpcloud's `tpcloud_gateway` Docker network, the gateway routes `/store`, `/share` and `/photos` to it (stripping the prefix, so the API still serves `/api/...`), and the API asks tpcloud's `auth` service who's behind every request. `share-frontend` and `photos-frontend` have no backend of their own: every request it makes is served by the same API, against the same database.
+Store isn't a standalone deployment. Its web apps are built into tpcloud's gateway, which serves them at `/store`, `/photos` and `/share` and sends their API calls to `store-api` (stripping the prefix, so the API still serves `/api/...`); the API asks tpcloud's `auth` service who's behind every request. The gallery and the share pages have no backend of their own: every request they make is served by the same API, against the same database.
 
 ## How it works
 
@@ -149,10 +149,10 @@ Each photo is unique per user by checksum, so the same picture is never stored t
 | **Images and video** | Pillow · pillow-heif · ffmpeg |
 | **Frontends** | Vue 3 · Vite |
 | **Auth** | tpcloud's auth service · bcrypt for share passwords |
-| **Hosting** | Docker Compose · Nginx · behind the tpcloud gateway |
+| **Hosting** | Docker Compose · the API as `store-api`, the web apps inside the tpcloud gateway |
 
 ## How to run
 
 Store is part of tpcloud: it runs from the [compose file at the root](../../docker-compose.yml), behind the `store` profile (`COMPOSE_PROFILES=store` in `.env`, which the installer sets), with its database and thumbnails in `data/store/` and users' files in `EXTERNAL_DISK_PATH`. See tpcloud's [How to run](../../README.md#how-to-run).
 
-No routing to configure here: the tpcloud gateway reaches `store-api`, `store-frontend`, `share-frontend` and `photos-frontend` by their service names on the shared network.
+No routing to configure here: the gateway serves the three web apps from its own image and reaches `store-api` by its name on the shared network.

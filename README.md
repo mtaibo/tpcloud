@@ -40,7 +40,7 @@ The authentication service behind everything. Passkeys (WebAuthn), password + TO
 <td width="50%" valign="top">
 
 ### 🌐 [`services/gateway`](services/gateway/)
-Caddy routes each path to its container on a shared Docker network, puts the protected ones behind `auth`, and adds strict security headers to every answer. In front of it sits whatever way in was chosen: `cloudflared`, `tailscale serve`, or Caddy's own certificate.
+Caddy routes each path on a shared Docker network, puts the protected ones behind `auth`, serves every web app's files itself (they're built into its image) and adds strict security headers to every answer. In front of it sits whatever way in was chosen: `cloudflared`, `tailscale serve`, or Caddy's own certificate.
 
 **Caddy · Cloudflare Tunnel · Tailscale · Docker Compose**
 
@@ -60,7 +60,7 @@ My replacement for Google Drive and iCloud Photos, on my own disk: file operatio
 ### 🔑 [`web/`](web/)
 Every web app, drawn after iOS (grouped lists, large titles, sheets, light and dark) from one shared [`web/ui`](web/ui/): `login`, `accounts` (profile, passkeys, 2FA, devices, activity, users for admins), `cloud` (the dashboard), `store` (a Finder-like file browser), `photos` (the gallery), `share` (public share links) and `home` (the house's control panel, with a live floor plan).
 
-**Vue 3 · Vite · Nginx**
+**Vue 3 · Vite · served by the gateway**
 
 </td>
 </tr>
@@ -195,7 +195,7 @@ The owner account is created by the installer. From there, admins can create use
 | **Auth** | FastAPI · Python · SQLModel · SQLite |
 | **Security** | WebAuthn (`webauthn`) · TOTP (`pyotp`) · bcrypt |
 | **Storage** | FastAPI · SQLModel · Pillow · ffmpeg |
-| **Frontends** | Vue 3 · Vite · Nginx |
+| **Frontends** | Vue 3 · Vite, built into the gateway's image and served by Caddy |
 | **App** | Swift · SwiftUI · Swift Package Manager · XcodeGen |
 | **Gateway** | Caddy · `forward_auth` |
 | **Exposure** | Cloudflare Tunnel (`cloudflared`) · Tailscale · Caddy's own TLS |
