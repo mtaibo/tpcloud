@@ -1,6 +1,6 @@
 [package]
 name = "tpcloud"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "Installs, runs and configures a TPCloud server from one file, with nothing else to install."
 license = "MIT"
@@ -16,8 +16,10 @@ crossterm = "=0.28.1"
 libc = "=0.2.174"
 ratatui = "=0.29.0"
 serde_json = "=1.0.140"
+sha2 = "=0.10.9"
 tar = "=0.4.44"
-ureq = { version = "=2.12.1", default-features = false }
+# TLS for GitHub (updates); rustls with its bundled roots, so no system certificates are needed.
+ureq = { version = "=2.12.1", default-features = false, features = ["tls"] }
 zstd = "=0.13.3"
 
 [profile.release]

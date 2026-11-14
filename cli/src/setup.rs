@@ -29,6 +29,12 @@ RP_NAME=TPCloud
 # -------  Store  -------
 
 EXTERNAL_DISK_PATH=/var/lib/tpcloud/files
+
+# -------  Backups  -------
+
+# A nightly copy of this server's own data (not the files), best on another disk; empty = none.
+TPCLOUD_BACKUP_DIR=
+#TPCLOUD_BACKUP_KEEP=14
 ";
 
 const HOME_ENV: &str = "\
@@ -144,6 +150,26 @@ pub fn run() -> Result<()> {
     println!("  {}", ui::dim("Where Store keeps everyone's files and photos: a big disk is best."));
     let storage = ask("Folder", &if first { "/var/lib/tpcloud/files".into() } else { current("EXTERNAL_DISK_PATH") })?;
 
+    heading("Backups");
+    println!("  {}", ui::dim("Every night, a copy of TPCloud's own data (accounts, the photo index, albums, share"));
+    println!("  {}", ui::dim("links, the house, settings; a few MB) to a folder, best on another disk. Not your files:"));
+    println!("  {}", ui::dim("back that disk up on its own. Type none for no backups."));
+    let backup_dir = loop {
+        let answer = ask("Folder", &if current("TPCLOUD_BACKUP_DIR").is_empty() { "none".into() } else { current("TPCLOUD_BACKUP_DIR") })?;
+        if answer == "none" || answer == "-" {
+            break String::new();
+        }
+        if !answer.starts_with('/') {
+            ui::warn("Give the full path, starting with /.");
+            continue;
+        }
+        if std::path::Path::new(&answer).starts_with(paths::state_dir()) {
+            ui::warn(&format!("Not inside {}: it would copy itself.", paths::state_dir().display()));
+            continue;
+        }
+        break answer;
+    };
+
     heading("Modules");
     let modules = envfile::get_list(&env, "TPCLOUD_MODULES");
     let store = ask_yes("Store (files, photo backup from the app, share links)?", first || modules.iter().any(|m| m == "store"))?;
@@ -240,6 +266,7 @@ pub fn run() -> Result<()> {
     envfile::set_list(&env, "TPCLOUD_MODULES", &module_list)?;
     envfile::set_list(&env, "COMPOSE_PROFILES", &profiles)?;
     set("EXTERNAL_DISK_PATH", &storage)?;
+    set("TPCLOUD_BACKUP_DIR", &backup_dir)?;
     if !tunnel_token.is_empty() {
         set("TUNNEL_TOKEN", &tunnel_token)?;
     }
@@ -262,6 +289,9 @@ pub fn run() -> Result<()> {
         users::create_owner(&email, &password)?;
     }
     ui::done(&format!("Saved. TPCloud will answer at {}.", ui::accent(&url)));
+    if !backup_dir.is_empty() {
+        println!("  {}", ui::dim(&format!("Backups: every night to {} (`sudo tpcloud backup` makes one now).", backup_dir)));
+    }
     if access == 0 {
         println!("  {}", ui::dim("Each device has to trust this machine's certificate once: Caddy's local authority, in"));
         println!("  {}", ui::dim(&format!("{}", paths::state_dir().join("caddy/data/caddy/pki/authorities/local/root.crt").display())));

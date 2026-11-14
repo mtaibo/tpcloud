@@ -18,6 +18,9 @@ _STATUS_FILE = Path(os.getenv("EXTERNAL_DISK_PATH", "/mnt/external")) / ".backup
 # The host's disks: mounted at /mnt/server/mnt in Docker, the real paths when run without it.
 _SOURCE = os.getenv("BACKUP_SOURCE", "/mnt/server/mnt/storage/")
 _DEST = os.getenv("BACKUP_DEST", "/mnt/server/mnt/backup/")
+# A folder inside the destination that isn't a copy of the files (TPCloud's own backups, when
+# they're kept on the same disk), so --delete doesn't remove it: "/tpcloud-backups/".
+_EXCLUDE = os.getenv("BACKUP_EXCLUDE", "")
 
 
 def _read_status() -> dict:
@@ -32,7 +35,7 @@ def _do_backup():
     started_at = datetime.now(timezone.utc).isoformat()
     try:
         result = subprocess.run(
-            ["rsync", "-avxHAX", "--delete", _SOURCE, _DEST],
+            ["rsync", "-avxHAX", "--delete", *([f"--exclude={_EXCLUDE}"] if _EXCLUDE else []), _SOURCE, _DEST],
             capture_output=True,
             text=True,
         )

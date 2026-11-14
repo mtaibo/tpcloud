@@ -2,6 +2,7 @@
 //! systemd service supervising its own bundled processes) and configures it. On its own it opens a
 //! terminal app; called as `tphome` (a link made while Home is on), it controls the house.
 
+mod backup;
 mod envfile;
 mod home;
 mod install;
@@ -14,6 +15,7 @@ mod status;
 mod supervisor;
 mod tui;
 mod ui;
+mod update;
 mod users;
 
 use anyhow::Result;
@@ -41,6 +43,32 @@ enum Command {
         /// Only install; don't start anything.
         #[arg(long)]
         no_start: bool,
+        /// Install this file's version, without looking for a newer one on GitHub.
+        #[arg(long)]
+        this_file: bool,
+    },
+    /// Get the latest release from GitHub and install it: needs sudo.
+    Update {
+        /// Install the latest release even if it's the version already here.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Back TPCloud's own data up now (settings and databases, not the files): needs sudo.
+    Backup {
+        /// Where backups go from now on, every night (best on another disk).
+        #[arg(long, value_name = "FOLDER")]
+        to: Option<PathBuf>,
+        /// Stop the nightly backups (the copies made are kept).
+        #[arg(long, conflicts_with = "to")]
+        off: bool,
+        /// List the backups instead of making one.
+        #[arg(long, conflicts_with_all = ["to", "off"])]
+        list: bool,
+    },
+    /// Put a backup's settings and databases back (what's there now is backed up first): needs sudo.
+    Restore {
+        /// The backup's folder (`tpcloud backup --list` shows them).
+        backup: PathBuf,
     },
     /// The guided configuration: files, modules, how it's reached, the first account. Needs sudo.
     Setup,
@@ -127,7 +155,11 @@ fn run() -> Result<()> {
     match cli.command {
         None if std::io::stdout().is_terminal() && std::io::stdin().is_terminal() => tui::run(),
         None | Some(Command::Status) => status::print(),
-        Some(Command::Install { adopt, no_start }) => install::install(adopt, !no_start),
+        Some(Command::Install { adopt, no_start, this_file }) => install::install(adopt, !no_start, this_file),
+        Some(Command::Update { force }) => update::command(force),
+        Some(Command::Backup { list: true, .. }) => backup::print_list(),
+        Some(Command::Backup { to, off, .. }) => backup::command(to, off),
+        Some(Command::Restore { backup: copy }) => backup::restore(&copy),
         Some(Command::Setup) => {
             setup::run()?;
             if status::read().active {

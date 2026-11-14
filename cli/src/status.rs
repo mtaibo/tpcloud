@@ -1,9 +1,10 @@
 //! What's running: the supervisor's own report (run/status.json) and systemd's view of it.
 
-use crate::{envfile, install, paths, runtime, ui};
+use crate::{backup, envfile, install, paths, runtime, ui, update};
 use anyhow::Result;
 use std::process::Command;
 
+#[derive(Clone)]
 pub struct ProcessState {
     pub name: String,
     pub running: bool,
@@ -12,6 +13,7 @@ pub struct ProcessState {
     pub last_exit: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct Status {
     pub installed: bool,
     pub active: bool,
@@ -20,6 +22,11 @@ pub struct Status {
     pub modules: Vec<String>,
     pub files: String,
     pub processes: Vec<ProcessState>,
+    /// Where backups go and how the last one went, as one line.
+    pub backup: String,
+    pub backup_ok: bool,
+    /// A newer release the service found on GitHub.
+    pub update: Option<String>,
 }
 
 pub fn read() -> Status {
@@ -47,6 +54,7 @@ pub fn read() -> Status {
                 .collect()
         })
         .unwrap_or_default();
+    let (backup, backup_ok) = backup_line();
     Status {
         installed: env.exists() || paths::runtime_dir().exists(),
         active,
@@ -55,6 +63,18 @@ pub fn read() -> Status {
         modules: install::modules(),
         files: envfile::get(&env, "EXTERNAL_DISK_PATH").unwrap_or_default(),
         processes,
+        backup,
+        backup_ok,
+        update: update::available(),
+    }
+}
+
+fn backup_line() -> (String, bool) {
+    let Some(dir) = backup::dir() else { return ("off (`sudo tpcloud backup --to <folder>`)".into(), false) };
+    match backup::last() {
+        Some(l) if l.ok => (format!("{} ago → {}", ago(l.at), dir.display()), true),
+        Some(l) => (format!("failed {} ago: {}", ago(l.at), l.detail), false),
+        None => (format!("none yet → {}", dir.display()), true),
     }
 }
 
@@ -87,6 +107,10 @@ pub fn print() -> Result<()> {
         println!("{}  {}", ui::dim("Files  "), st.files);
     }
     println!("{}  {}", ui::dim("Data   "), paths::state_dir().display());
+    println!("{}  {}", ui::dim("Backup "), if st.backup_ok { st.backup.clone() } else { ui::warn_text(&st.backup) });
+    if let Some(v) = &st.update {
+        println!("{}  {}", ui::dim("Update "), ui::accent(&format!("TPCloud {v} is out: `sudo tpcloud update`")));
+    }
     println!();
     if st.processes.is_empty() || !st.active {
         println!("  Nothing is running: `sudo tpcloud start`.");

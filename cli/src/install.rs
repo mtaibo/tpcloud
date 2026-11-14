@@ -1,7 +1,7 @@
 //! Installing from this file (runtime, state folder, systemd service), adopting a server that ran
 //! from git clones with Docker, and turning modules on and off.
 
-use crate::{envfile, paths, runtime, setup, ui};
+use crate::{envfile, paths, runtime, setup, ui, update};
 use anyhow::{bail, Context, Result};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -22,8 +22,30 @@ pub fn home_enabled() -> bool {
     modules().iter().any(|m| m == "home")
 }
 
-pub fn install(adopt: Option<PathBuf>, start: bool) -> Result<()> {
+pub fn install(adopt: Option<PathBuf>, start: bool, this_file: bool) -> Result<()> {
     require_root("Installing")?;
+
+    // Run from an older file (an old download, or the curl installer's), get the latest instead.
+    let downloaded = std::env::var_os(update::FROM_UPDATE).map(PathBuf::from);
+    if downloaded.is_none() && !this_file {
+        match update::latest() {
+            Ok(release) if update::newer(&release.version, env!("CARGO_PKG_VERSION")) => {
+                ui::step(&format!("TPCloud {} is out (this file is {}): installing that one", release.version, env!("CARGO_PKG_VERSION")));
+                let args: Vec<String> = std::env::args().skip(1).collect();
+                return update::run_release(&release, &args);
+            }
+            Ok(_) => {}
+            Err(err) => ui::warn(&format!("Couldn't check for a newer version ({err:#}); installing this one.")),
+        }
+    }
+    let result = install_this(adopt, start);
+    if let Some(file) = downloaded {
+        let _ = std::fs::remove_file(file);
+    }
+    result
+}
+
+fn install_this(adopt: Option<PathBuf>, start: bool) -> Result<()> {
     let state = paths::state_dir();
 
     ui::step("Installing the tpcloud command");

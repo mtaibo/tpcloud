@@ -153,6 +153,25 @@ pub fn serve() -> Result<()> {
         .collect();
     println!("tpcloud {}: supervising {}", env!("CARGO_PKG_VERSION"), running.iter().map(|r| r.service.name).collect::<Vec<_>>().join(", "));
 
+    // The nightly backup and a daily look for a newer release, beside the processes. Checked every
+    // ten minutes, the first time ten minutes after starting, so a restart loop can't run them.
+    std::thread::spawn(|| {
+        let mut looked: Option<Instant> = None;
+        loop {
+            std::thread::sleep(Duration::from_secs(600));
+            if crate::backup::due() {
+                match crate::backup::run() {
+                    Ok(path) => println!("tpcloud: backed up to {}", path.display()),
+                    Err(err) => eprintln!("tpcloud: backup failed: {err:#}"),
+                }
+            }
+            if looked.map_or(true, |t| t.elapsed() > Duration::from_secs(24 * 3600)) {
+                crate::update::check_quietly();
+                looked = Some(Instant::now());
+            }
+        }
+    });
+
     let mut last_status = Instant::now() - Duration::from_secs(60);
     while !STOPPING.load(Ordering::SeqCst) {
         let mut changed = false;

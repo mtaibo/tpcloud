@@ -162,6 +162,12 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
             let mount = mount.trim_end_matches('/');
             env.insert("BACKUP_SOURCE".into(), format!("{mount}/storage/"));
             env.insert("BACKUP_DEST".into(), format!("{mount}/backup/"));
+            // TPCloud's own backups kept on that disk must survive the files' mirror (--delete).
+            if let Some(dir) = settings.get("TPCLOUD_BACKUP_DIR").filter(|d| !d.is_empty()) {
+                if let Some(rel) = std::path::Path::new(dir).strip_prefix(format!("{mount}/backup")).ok().filter(|r| r.components().next().is_some()) {
+                    env.insert("BACKUP_EXCLUDE".into(), format!("/{}/", rel.display()));
+                }
+            }
         }
         services.push(Service {
             name: "store-api",

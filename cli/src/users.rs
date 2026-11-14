@@ -25,6 +25,7 @@ fn python(script: &str, args: &[&str], extra_env: &[(&str, &str)]) -> Result<Out
     cmd.output().context("couldn't run the bundled Python (is TPCloud installed?)")
 }
 
+#[derive(Clone)]
 pub struct User {
     pub email: String,
     pub admin: bool,
