@@ -8,7 +8,7 @@
 
 ![Status](https://img.shields.io/badge/status-active-brightgreen)
 ![Made with](https://img.shields.io/badge/made%20with-Python%20%7C%20Vue-blue)
-![Runs on](https://img.shields.io/badge/runs%20on-Docker-lightgrey)
+![Runs on](https://img.shields.io/badge/runs%20on-Linux-lightgrey)
 
 </div>
 
@@ -149,10 +149,10 @@ Each photo is unique per user by checksum, so the same picture is never stored t
 | **Images and video** | Pillow · pillow-heif · ffmpeg |
 | **Frontends** | Vue 3 · Vite |
 | **Auth** | tpcloud's auth service · bcrypt for share passwords |
-| **Hosting** | Docker Compose · the API as `store-api`, the web apps inside the tpcloud gateway |
+| **Hosting** | Part of the `tpcloud` server: the API runs as its `store-api` process, the web apps are served by its gateway |
 
 ## How to run
 
-Store is part of tpcloud: it runs from the [compose file at the root](../../docker-compose.yml), behind the `store` profile (`COMPOSE_PROFILES=store` in `.env`, which the installer sets), with its database and thumbnails in `data/store/` and users' files in `EXTERNAL_DISK_PATH`. See tpcloud's [How to run](../../README.md#how-to-run).
+Store is part of tpcloud and ships inside its single `tpcloud` file: turn it on in the guided setup (or with `sudo tpcloud module enable store`) and the server runs the API as its `store-api` process, with its database and thumbnails in `/var/lib/tpcloud/data/store/` and users' files in the folder the setup asks for (`EXTERNAL_DISK_PATH`). See tpcloud's [How to run](../../README.md#how-to-run).
 
-No routing to configure here: the gateway serves the three web apps from its own image and reaches `store-api` by its name on the shared network.
+No routing to configure here: the gateway serves the three web apps and sends `/store/api` and the share endpoints to the API. With Docker instead, it's the `store-api` container behind the `store` profile of tpcloud's [compose file](../../docker-compose.yml).

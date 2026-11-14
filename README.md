@@ -22,7 +22,7 @@ Every service I added to my server needed its own login, its own port and its ow
 
 - **One login** — sign in once at `/login` and every module knows who you are
 - **Reached your way** — only at home, privately from anywhere through Tailscale, or at your own domain through a Cloudflare Tunnel; nothing is opened unless you choose to
-- **Plug in a module** — a new service only needs a container on the shared network and a path in the gateway
+- **Plug in a module** — a new service is one more process the server runs and one more path in the gateway
 - **Modern auth** — passkeys on the web, password + TOTP for the native app, and sessions you can see and revoke
 
 ## What's inside
@@ -40,9 +40,9 @@ The authentication service behind everything. Passkeys (WebAuthn), password + TO
 <td width="50%" valign="top">
 
 ### 🌐 [`services/gateway`](services/gateway/)
-Caddy routes each path on a shared Docker network, puts the protected ones behind `auth`, serves every web app's files itself (they're built into its image) and adds strict security headers to every answer. In front of it sits whatever way in was chosen: `cloudflared`, `tailscale serve`, or Caddy's own certificate.
+Caddy routes each path to its service, puts the protected ones behind `auth`, serves every web app's files itself and adds strict security headers to every answer. In front of it sits whatever way in was chosen: `cloudflared`, `tailscale serve`, or Caddy's own certificate.
 
-**Caddy · Cloudflare Tunnel · Tailscale · Docker Compose**
+**Caddy · Cloudflare Tunnel · Tailscale**
 
 </td>
 </tr>
@@ -76,9 +76,27 @@ The native iOS and macOS app, installed as **TPCloud**: files, photos with backg
 <td width="50%" valign="top">
 
 ### 🏠 [tphome](https://github.com/mtaibo/tphome)
-Home automation with my own Wi-Fi switches for lights and blinds: firmware, MQTT broker and the API behind `/home/api`. A separate repo that joins the gateway's network when it's installed; its control panel is [`web/home`](web/home/), here.
+Home automation with my own Wi-Fi switches for lights and blinds: firmware, MQTT broker and the API behind `/home/api`. A separate repo whose API ships inside the `tpcloud` file and runs when Home is turned on; its control panel is [`web/home`](web/home/), here.
 
 **C++ · ESP8266 · MQTT · FastAPI · Vue 3**
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🧰 [`cli/`](cli/)
+The `tpcloud` command: one static Linux file that carries everything above, its own Python included, and installs, runs, updates and backs up the whole server with nothing else on the machine. A systemd service runs every process and restarts any that stops; on its own it opens a terminal app, and `tphome` moves the blinds.
+
+**Rust · ratatui · systemd · static Caddy, Mosquitto, ffmpeg**
+
+</td>
+<td width="50%" valign="top">
+
+### ⬇️ [`site/`](site/)
+[tpcloud.migueltaibo.com](https://tpcloud.migueltaibo.com), where TPCloud is downloaded: the right file for the visitor's machine, the one-line install command, and the script it runs. Every tagged release builds both Linux files on GitHub Actions, and the site's links always point at the latest.
+
+**HTML · CSS · Cloudflare Workers · GitHub Actions**
 
 </td>
 </tr>
@@ -100,11 +118,9 @@ tpcloud/
 │   └── home/           tphome's control panel
 ├── cli/                the `tpcloud` command: one file with everything inside
 ├── site/               tpcloud.migueltaibo.com, where it's downloaded
-├── data/               what the services write while they run (not in git)
-│   ├── auth/           users and sessions
-│   └── store/          share links, photo index, thumbnails
-├── docker-compose.yml  everything above with Docker, one command
-└── install.sh          the Docker installer, and updates
+├── data/               what the services write when run with Docker (not in git)
+├── docker-compose.yml  the same services as containers, for running with Docker instead
+└── install.sh          the installer for that Docker setup
 ```
 
 ## Architecture
@@ -140,7 +156,7 @@ tpcloud/
 | `/home` | [Home control panel](web/home/), API at `/home/api` from [tphome](https://github.com/mtaibo/tphome) | ✅ |
 | `/auth` | The auth API every client signs in against | — |
 
-The gateway strips each module's prefix, so the services behind it still see the `/api/...` paths they always had.
+The gateway strips each module's prefix, so the services behind it still see the `/api/...` paths they always had. On a server everything above runs as plain processes under one systemd service: the services listen only on `127.0.0.1`, and the gateway is the only way in (with Home, the switches also reach the MQTT broker on the local network).
 
 ## How it works
 
@@ -184,11 +200,11 @@ Sessions slide forward while they're used: with "keep me signed in" (asked right
 - **Limited attempts** — 5 wrong passwords per account (or 20 per address) in 15 minutes lock sign-in for a while; a half-signed-in session is thrown away after 5 wrong TOTP codes, and each code works once.
 - **Nothing to enumerate** — unknown emails get the same answers, in the same time, as real ones.
 - **Strict headers** — HSTS, a Content-Security-Policy that only allows this host's own scripts, `nosniff`, no framing by other sites; files users upload are served sandboxed, so an uploaded HTML page can't run scripts.
-- **Little exposed** — only the gateway listens beyond the Docker network, and only on what the chosen way in needs; the APIs have no docs or schema online.
+- **Little exposed** — every service listens only on `127.0.0.1`; the gateway listens only on what the chosen way in needs (and, with Home, the MQTT broker and `/firmware` on the local network for the switches); the APIs have no docs or schema online.
 
 ### Users and admins
 
-The owner account is created by the installer. From there, admins can create users, change roles and revoke anyone's sessions from `accounts`, and services like Store check the `is_admin` flag to unlock admin-only features.
+The owner account is created by the guided setup. From there, admins can create users, change roles and revoke anyone's sessions from `accounts`, and services like Store check the `is_admin` flag to unlock admin-only features.
 
 ## Tech stack
 
@@ -197,11 +213,12 @@ The owner account is created by the installer. From there, admins can create use
 | **Auth** | FastAPI · Python · SQLModel · SQLite |
 | **Security** | WebAuthn (`webauthn`) · TOTP (`pyotp`) · bcrypt |
 | **Storage** | FastAPI · SQLModel · Pillow · ffmpeg |
-| **Frontends** | Vue 3 · Vite, built into the gateway's image and served by Caddy |
+| **Frontends** | Vue 3 · Vite, built into the `tpcloud` file and served by Caddy |
 | **App** | Swift · SwiftUI · Swift Package Manager · XcodeGen |
 | **Gateway** | Caddy · `forward_auth` |
 | **Exposure** | Cloudflare Tunnel (`cloudflared`) · Tailscale · Caddy's own TLS |
-| **Hosting** | One static Rust binary (`cli/`) that supervises every process, or Docker Compose |
+| **Server** | One static Rust binary (`cli/`) run by systemd, supervising every process · Docker Compose as an alternative |
+| **Releases** | GitHub Actions (arm64 and x86-64 builds) · GitHub Releases |
 | **Site** | Cloudflare Workers static assets |
 
 ## How to run
@@ -239,11 +256,11 @@ Settings, databases and caches live in `/var/lib/tpcloud` (`tpcloud.env`, `data/
 
 `tphome` talks to home-api on its local port from the server itself, so it needs no session: whoever can run commands there already owns the server.
 
-To build it: `cli/build.sh` (needs Docker and Rust, with tphome cloned next to this folder) writes `cli/dist/tpcloud-linux-<arch>`. Pushing a `v*` tag builds both architectures on GitHub Actions and publishes them as a release, which is what the site's download links point to.
+To build it: `cli/build.sh` writes `cli/dist/tpcloud-linux-<arch>`. It needs Docker on the building machine only (the runtime and the Rust binary are both built in containers) and tphome cloned next to this folder. Pushing a `v*` tag builds both architectures on GitHub Actions and publishes them as a release, which is what the site's download links point to.
 
-### With Docker
+### With Docker instead
 
-The services also run as Docker containers. The installer script asks the same questions:
+The same services also run as Docker containers, if you'd rather manage them that way. The installer script asks the same questions:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mtaibo/tpcloud/main/install.sh | bash
