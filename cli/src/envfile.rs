@@ -13,7 +13,7 @@ pub fn get(path: &Path, key: &str) -> Option<String> {
         .map(|line| strip_comment(&line[prefix.len()..]).to_string())
 }
 
-fn strip_comment(value: &str) -> &str {
+pub fn strip_comment(value: &str) -> &str {
     // Compose's own rule: an inline comment needs a space before the #.
     match value.find(" #") {
         Some(i) => value[..i].trim_end(),

@@ -1,7 +1,7 @@
-//! `tphome`: the house from the terminal. It talks to home-api straight on its Docker network,
-//! from the server itself: whoever can use Docker here already owns the server, so no session.
+//! `tphome`: the house from the terminal. It talks to home-api on its local port, from the server
+//! itself: whoever can run commands here already owns the server, so no session.
 
-use crate::{docker, install, ui};
+use crate::{install, services, ui};
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::Value;
@@ -47,14 +47,13 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<()> {
     }
 }
 
-struct Api {
+pub struct Api {
     base: String,
 }
 
 impl Api {
-    fn connect() -> Result<Self> {
-        let ip = docker::container_ip("home-api").context("home-api isn't running (try `tpcloud start`)")?;
-        Ok(Api { base: format!("http://{ip}:8000") })
+    pub fn connect() -> Result<Self> {
+        Ok(Api { base: format!("http://127.0.0.1:{}", services::HOME_PORT) })
     }
 
     fn get(&self, path: &str) -> Result<Value> {
@@ -90,7 +89,7 @@ fn api_error(err: ureq::Error) -> anyhow::Error {
                 _ => anyhow::anyhow!("home-api answered {code}{}", suffix(&detail)),
             }
         }
-        other => anyhow::anyhow!("couldn't reach home-api: {other}"),
+        ureq::Error::Transport(_) => anyhow::anyhow!("home-api isn't answering (is TPCloud running? `tpcloud status`)"),
     }
 }
 
@@ -98,14 +97,14 @@ fn suffix(detail: &str) -> String {
     if detail.is_empty() { String::new() } else { format!(" ({detail})") }
 }
 
-enum Action {
+pub enum Action {
     Up,
     Down,
     Stop,
     Set(u8),
 }
 
-fn parse_action(text: &str) -> Result<Action> {
+pub fn parse_action(text: &str) -> Result<Action> {
     match text.to_ascii_lowercase().as_str() {
         "up" | "open" | "subir" => Ok(Action::Up),
         "down" | "close" | "bajar" => Ok(Action::Down),
@@ -117,7 +116,7 @@ fn parse_action(text: &str) -> Result<Action> {
     }
 }
 
-fn blinds(api: &Api) -> Result<Vec<Value>> {
+pub fn blinds(api: &Api) -> Result<Vec<Value>> {
     Ok(api.get("/devices/blinds")?.as_array().cloned().unwrap_or_default())
 }
 
@@ -129,17 +128,21 @@ fn find_blind(api: &Api, id: &str) -> Result<Value> {
         .with_context(|| format!("there's no blind {id} (`tphome` lists them)"))
 }
 
-fn blind_action(api: &Api, id: &str, action: &str) -> Result<()> {
-    let action = parse_action(action)?;
+pub fn blind_action(api: &Api, id: &str, action: &str) -> Result<()> {
+    let (name, said) = send(api, id, parse_action(action)?)?;
+    ui::done(&format!("{name} ({}): {said}", id.to_ascii_uppercase()));
+    Ok(())
+}
+
+/// Sends an action to a blind; returns its name and what it's doing, for a message.
+pub fn send(api: &Api, id: &str, action: Action) -> Result<(String, String)> {
     let blind = find_blind(api, id)?;
     let id = blind["id"].as_str().unwrap_or_default().to_string();
     let name = blind["name"].as_str().unwrap_or(&id).to_string();
     if blind["locked"].as_bool() == Some(true) {
         bail!("{name} ({id}) is locked: unlock it from Home first");
     }
-    if blind["connection"]["online"].as_bool() != Some(true) {
-        ui::warn(&format!("{name} ({id}) looks offline; sending anyway"));
-    }
+
     let (path, said) = match action {
         Action::Up => ("up".to_string(), "raising".to_string()),
         Action::Down => ("down".to_string(), "lowering".to_string()),
@@ -147,8 +150,7 @@ fn blind_action(api: &Api, id: &str, action: &str) -> Result<()> {
         Action::Set(n) => (format!("set/{n}"), format!("moving to {n} % open")),
     };
     api.post(&format!("/commands/{id}/{path}"))?;
-    ui::done(&format!("{name} ({id}): {said}"));
-    Ok(())
+    Ok((name, said))
 }
 
 fn show_blind(api: &Api, id: &str) -> Result<()> {

@@ -32,3 +32,7 @@ pub fn done(text: &str) {
 pub fn warn(text: &str) {
     eprintln!("{} {text}", paint("38;5;215", "!"));
 }
+
+pub fn warn_dot() -> String {
+    paint("38;5;215", "●")
+}

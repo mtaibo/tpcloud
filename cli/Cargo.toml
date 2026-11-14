@@ -1,8 +1,8 @@
 [package]
 name = "tpcloud"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-description = "Installs, runs and configures a TPCloud server from one file."
+description = "Installs, runs and configures a TPCloud server from one file, with nothing else to install."
 license = "MIT"
 
 [[bin]]
@@ -12,11 +12,13 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "=1.0.98"
 clap = { version = "=4.5.40", features = ["derive"] }
-flate2 = "=1.1.2"
+crossterm = "=0.28.1"
 libc = "=0.2.174"
+ratatui = "=0.29.0"
 serde_json = "=1.0.140"
 tar = "=0.4.44"
 ureq = { version = "=2.12.1", default-features = false }
+zstd = "=0.13.3"
 
 [profile.release]
 opt-level = "z"
