@@ -1,12 +1,12 @@
-FROM node:20-alpine as build-stage
+# Built from web/ (see docker-compose.yml) so the shared ui/ is in reach.
+FROM node:20-alpine AS build
 WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
+COPY ui ./ui
+COPY home/package*.json ./home/
+RUN cd home && npm install
+COPY home ./home
+RUN cd home && npm run build
 
-FROM nginx:stable-alpine as production-stage
-COPY --from=build-stage /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+FROM nginx:alpine
+COPY --from=build /app/home/dist /usr/share/nginx/html
+COPY home/nginx.conf /etc/nginx/conf.d/default.conf

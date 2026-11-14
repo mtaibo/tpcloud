@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { syncLang } from '@/ui/i18n.js'
+import { syncLang } from '@ui/i18n.js'
 
 // Who's signed in, from tpcloud's auth (the gateway already let them through).
 export const session = reactive({ user: null })

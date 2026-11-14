@@ -1,8 +1,8 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 
-import AlertHost   from '@/ui/AlertHost.vue'
-import Spinner     from '@/ui/Spinner.vue'
+import AlertHost   from '@ui/AlertHost.vue'
+import Spinner     from '@ui/Spinner.vue'
 import ContextMenu from '@/components/ContextMenu.vue'
 import Sidebar     from '@/layout/Sidebar.vue'
 import TabBar      from '@/layout/TabBar.vue'

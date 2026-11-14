@@ -2,14 +2,14 @@
 import { computed, ref } from 'vue'
 import { Map, Settings } from 'lucide-vue-next'
 
-import Sheet from '@/ui/Sheet.vue'
+import Sheet from '@ui/Sheet.vue'
 import Plan from '@/components/blueprint/Plan.vue'
 import BlindsControl from './BlindsControl.vue'
 
 import { useDevices } from '@/config/devices'
 import { useBlueprint } from '@/config/blueprint'
 import { navigateToDevice } from '@/config/sections'
-import { t } from '@/ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // The house from above: rooms as one shape of cards, and each blind on its window filling green
 // as far as it's open. Tap a blind to move it.

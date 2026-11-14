@@ -543,6 +543,7 @@ configure() {
   esac
   (( WANT_HOME )) && ota_publish="80"
   (( WANT_STORE )) && profiles+=(store)
+  (( WANT_HOME )) && profiles+=(home)
 
   [[ -f "$env" ]] || { (( DRY_RUN )) || printf '# Written by install.sh. Run it again to change these.\n' > "$env"; }
   [[ -n "$(env_get "$env" DATABASE_URL)" ]] || env_set "$env" DATABASE_URL "sqlite:///data/tpauth.db"
@@ -588,10 +589,12 @@ start() {
   if (( ! WANT_STORE )); then
     run "Stopping Store" compose "$CORE" rm --stop --force store-api store-frontend share-frontend photos-frontend
   fi
+  # Home's panel is tpcloud's too (profile `home`); its API, broker and firmware are tphome's.
   if (( WANT_HOME )); then
     run "Starting tphome" compose "$BASE/tphome" up -d --build --remove-orphans
-  elif [[ -f "$BASE/tphome/docker-compose.yml" ]]; then
-    run "Stopping tphome" compose "$BASE/tphome" down
+  else
+    run "Stopping Home" compose "$CORE" rm --stop --force home-frontend
+    [[ -f "$BASE/tphome/docker-compose.yml" ]] && run "Stopping tphome" compose "$BASE/tphome" down
   fi
   return 0
 }
@@ -607,10 +610,12 @@ update() {
     [[ -d "$BASE/$name/.git" ]] || continue
     fetch_repo "$name"
   done
-  run "Restarting TPCloud" compose "$CORE" up -d --build --remove-orphans
+  # tphome first: the network already exists by now, and an older tphome still runs its own
+  # tphome-frontend, which --remove-orphans takes away before tpcloud starts the one it now owns.
   if [[ -f "$BASE/tphome/.env" ]]; then
     run "Restarting tphome" compose "$BASE/tphome" up -d --build --remove-orphans
   fi
+  run "Restarting TPCloud" compose "$CORE" up -d --build --remove-orphans
   gap
   say "${OK}${B}Up to date.${R}"
   gap

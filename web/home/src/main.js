@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
-import './ui/styles.css'
+import '@ui/styles.css'
 import App from './App.vue'
 import { socket_manager } from './config/socket'
 

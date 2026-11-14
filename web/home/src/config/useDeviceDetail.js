@@ -1,8 +1,8 @@
 import { ref, reactive, computed, nextTick } from 'vue'
 import { api } from '@/config/api'
 import { useDevices } from '@/config/devices'
-import { ask, toast } from '@/ui/dialog.js'
-import { t } from '@/ui/i18n.js'
+import { ask, toast } from '@ui/dialog.js'
+import { t } from '@ui/i18n.js'
 
 // Asks before something that can't be undone; resolves to true to go ahead.
 const confirmAction = (title, message, label, destructive = false) => ask({

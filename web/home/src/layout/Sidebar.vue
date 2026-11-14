@@ -6,7 +6,7 @@ import { useSections } from '@/config/sections'
 import { apiOnline } from '@/config/socket'
 import { session, signOut } from '@/config/user'
 import { openMenu } from '@/menu.js'
-import { t } from '@/ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // The Mac-style sidebar, the same as Archivos': the home's screens, its settings, and who's signed in.
 const { activeSection, homeSections, settingsSections } = useSections()

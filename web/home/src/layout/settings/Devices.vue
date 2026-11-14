@@ -2,10 +2,10 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { Blinds, ChevronLeft, Cpu, Lightbulb } from 'lucide-vue-next'
 
-import ListSection from '@/ui/ListSection.vue'
-import ListRow     from '@/ui/ListRow.vue'
-import Toggle      from '@/ui/Toggle.vue'
-import Spinner     from '@/ui/Spinner.vue'
+import ListSection from '@ui/ListSection.vue'
+import ListRow     from '@ui/ListRow.vue'
+import Toggle      from '@ui/Toggle.vue'
+import Spinner     from '@ui/Spinner.vue'
 import MapPopup    from './MapPopup.vue'
 import DeviceLogs  from '@/components/DeviceLogs.vue'
 
@@ -14,7 +14,7 @@ import { api } from '@/config/api'
 import { pendingDeviceId } from '@/config/sections'
 import { useDeviceDetail } from '@/config/useDeviceDetail'
 import { session } from '@/config/user'
-import { t } from '@/ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // Every switch: the new ones waiting to be placed, the configured ones by kind, and a device's
 // own screen (actions, preferences, where it is on the plan, firmware and its MQTT log).

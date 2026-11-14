@@ -2,15 +2,15 @@
 import { computed, onMounted, ref } from 'vue'
 import { Check, HardDriveDownload, MoreHorizontal, Trash2 } from 'lucide-vue-next'
 
-import ListSection from '@/ui/ListSection.vue'
-import ListRow     from '@/ui/ListRow.vue'
-import Segmented   from '@/ui/Segmented.vue'
-import Spinner     from '@/ui/Spinner.vue'
+import ListSection from '@ui/ListSection.vue'
+import ListRow     from '@ui/ListRow.vue'
+import Segmented   from '@ui/Segmented.vue'
+import Spinner     from '@ui/Spinner.vue'
 
 import { api } from '@/config/api'
-import { ask, toast } from '@/ui/dialog.js'
+import { ask, toast } from '@ui/dialog.js'
 import { openMenu } from '@/menu.js'
-import { locale, t as tr } from '@/ui/i18n.js'
+import { locale, t as tr } from '@ui/i18n.js'
 
 // The binaries the switches update from: upload a new one, mark which is active, delete old ones.
 const firmwares = ref([])

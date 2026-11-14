@@ -7,7 +7,7 @@ import BlindSlider from '@/components/BlindSlider.vue'
 import { useDevices } from '@/config/devices'
 import { positions, handlePositions } from '@/config/useBlindAnimations'
 import { dragMove, dragStart, moveBlind, setBlind, stopBlind } from '@/config/blindControl'
-import { t } from '@/ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // Every blind as a tile, like Home's accessories: its bar and up / stop / down right there.
 // The tile itself does nothing when tapped; only its controls do.

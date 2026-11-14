@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useBlueprint } from '@/config/blueprint'
-import { t } from '@/ui/i18n.js'
+import { t } from '@ui/i18n.js'
 import HouseLayer  from './Map.vue'
 import LightsLayer from './Lights.vue'
 import BlindsLayer from './Blinds.vue'

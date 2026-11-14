@@ -5,7 +5,7 @@ import Blueprint       from '@/layout/dashboard/Blueprint.vue'
 import BlindsSection   from '@/layout/dashboard/BlindsSection.vue'
 import Devices         from '@/layout/settings/Devices.vue'
 import FirmwareManager from '@/layout/settings/FirmwareManager.vue'
-import { t } from '@/ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // What the sidebar (and the phone's tab bar) can open. Lights and scenes come back once their
 // firmware works; until then they'd only be empty screens.

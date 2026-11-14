@@ -1,14 +1,14 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 
-import Sheet from '@/ui/Sheet.vue'
+import Sheet from '@ui/Sheet.vue'
 import Plan from '@/components/blueprint/Plan.vue'
 
 import { useBlueprint } from '@/config/blueprint'
 import { useDevices } from '@/config/devices'
 import { api } from '@/config/api'
-import { toast } from '@/ui/dialog.js'
-import { t } from '@/ui/i18n.js'
+import { toast } from '@ui/dialog.js'
+import { t } from '@ui/i18n.js'
 
 // Placing a new switch: tap which blind or light on the plan it is, then ✓ sends it its ID and
 // that device's preferences.

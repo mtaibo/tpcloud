@@ -157,6 +157,22 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  # ── Home: tphome's control panel (COMPOSE_PROFILES=home) ─────────────────────────────────────
+  # Its API, broker and firmware live in the tphome repo, next to this one; the gateway sends
+  # /home/api there and /home here.
+
+  home-frontend:
+    build:
+      context: ./web
+      dockerfile: home/Dockerfile
+    container_name: tphome-frontend
+    profiles: ["home"]
+    networks:
+      - gateway
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
 networks:
   # Every module joins this one network to sit behind the gateway.
   gateway:

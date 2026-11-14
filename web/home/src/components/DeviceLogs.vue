@@ -1,9 +1,9 @@
 <script setup>
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import Spinner from '@/ui/Spinner.vue'
+import Spinner from '@ui/Spinner.vue'
 import { api } from '@/config/api'
 import { onEvent } from '@/config/socket'
-import { locale, t } from '@/ui/i18n.js'
+import { locale, t } from '@ui/i18n.js'
 
 // A device's MQTT traffic, newest first, live from the WebSocket.
 const props = defineProps({ deviceId: { type: String, required: true } })

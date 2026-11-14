@@ -3,7 +3,7 @@ import { watch } from 'vue'
 import { api } from './api'
 import { useDevices } from './devices'
 import { positions, handlePositions, getAnim, setPending, isPending } from './useBlindAnimations'
-import { t } from '@/ui/i18n.js'
+import { t } from '@ui/i18n.js'
 
 // Moving a blind from any screen (its tile, its sheet): starts the predicted animation right
 // away and sends the command; the WebSocket's state updates then correct it.
