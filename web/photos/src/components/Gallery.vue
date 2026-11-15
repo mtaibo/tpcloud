@@ -1,10 +1,11 @@
 <script setup>
 import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
-import { BookImage, ChevronLeft, Download, Heart, HeartOff, Images, ListMinus, ListPlus, Minus, Plus, Trash2 } from 'lucide-vue-next'
+import { ChevronLeft, Download, Heart, HeartOff, Images, ListMinus, ListPlus, Minus, MoreHorizontal, Plus, Trash2 } from 'lucide-vue-next'
 import Spinner from '@ui/Spinner.vue'
 import Segmented from '@ui/Segmented.vue'
 import { openMenu } from '../menu.js'
-import { confirmDestructive, prompt, toast } from '@ui/dialog.js'
+import { confirmDestructive, toast } from '@ui/dialog.js'
+import { albumIcon, albumMenuItems, albumName, createAlbum, newAlbumItem } from '../albums.js'
 import { vLongPress } from '../longPress.js'
 import { downloadLink, photoMediaUrls } from '../mediaUrls.js'
 import { LEVELS, PhotoGrid, maxLevelFor } from '../grid/PhotoGrid.js'
@@ -20,7 +21,7 @@ import { locale, t } from '@ui/i18n.js'
 // Which photos: "all", "camera", "screenshots" or "album:<id>", picked in the sidebar on a
 // computer and with the segmented control on a phone.
 const section = defineModel('section', { type: String, default: 'all' })
-const props = defineProps({ albums: { type: Array, default: () => [] } })
+const props = defineProps({ albums: { type: Array, default: () => [] }, libraryVersion: { type: Number, default: 0 } })
 const emit = defineEmits(['albums-changed'])
 
 const titles = () => ({ all: t('Library', 'Biblioteca'), camera: t('Camera', 'Cámara'), screenshots: t('Screenshots', 'Capturas') })
@@ -30,33 +31,50 @@ const favoritesId = ref(null)
 const inFavorites = computed(() => albumId.value !== null && albumId.value === favoritesId.value)
 const title = computed(() => (album.value?.kind === 'favorites' ? t('Favourites', 'Favoritos') : album.value?.name) || titles()[section.value] || t('Library', 'Biblioteca'))
 
-// Albums of your own (made here or in the iPhone app); hidden ones stay out, as in the sidebar.
-const userAlbums = computed(() => props.albums.filter(a => a.kind !== 'favorites' && !a.hidden))
+// Albums of your own (made here or in the iPhone app), hidden ones included, for «Añadir a».
+const userAlbums = computed(() => props.albums.filter(a => a.kind !== 'favorites'))
 
-// On a phone the last segment is Favoritos, or «Álbumes» (a menu of them all) once there are
-// albums of your own besides it.
+// On a phone the last segment is «Álbumes»: a menu of every album (Favoritos, yours, then the
+// hidden ones) and «Nuevo álbum…».
 const filters = computed(() => [
   { value: 'all', label: t('All', 'Todas') },
   { value: 'camera', label: t('Camera', 'Cámara') },
   { value: 'screenshots', label: t('Screenshots', 'Capturas') },
-  ...(userAlbums.value.length
-    ? [{ value: 'albums', label: t('Albums', 'Álbumes') }]
-    : favoritesId.value ? [{ value: `album:${favoritesId.value}`, label: t('Favourites', 'Favoritos') }] : []),
+  ...(props.albums.length ? [{ value: 'albums', label: t('Albums', 'Álbumes') }] : []),
 ])
 const segment = computed({
-  get: () => (albumId.value !== null && userAlbums.value.length ? 'albums' : section.value),
+  get: () => (albumId.value !== null && props.albums.length ? 'albums' : section.value),
   set: v => { if (v === 'albums') albumsMenu(); else section.value = v },
 })
 
 function albumsMenu() {
-  const list = props.albums.filter(a => !a.hidden)
-  openMenu(filtersEl.value, list.map(a => ({
-    label: a.kind === 'favorites' ? t('Favourites', 'Favoritos') : a.name,
-    icon: a.kind === 'favorites' ? Heart : BookImage,
-    checked: albumId.value === a.id,
-    action: () => { section.value = `album:${a.id}` },
-  })), t('Albums', 'Álbumes'))
+  const pick = a => ({ label: albumName(a), icon: albumIcon(a), checked: albumId.value === a.id, action: () => { section.value = `album:${a.id}` } })
+  const hidden = props.albums.filter(a => a.hidden)
+  openMenu(filtersEl.value, [
+    ...props.albums.filter(a => !a.hidden).map(pick),
+    hidden.length && { separator: true },
+    ...hidden.map(pick),
+    { separator: true },
+    newAlbumItem(async () => {
+      const a = await createAlbum()
+      if (!a) return
+      emit('albums-changed')
+      section.value = `album:${a.id}`
+    }),
+  ], t('Albums', 'Álbumes'))
 }
+
+// The open album's own menu (rename, hide, keep out of the library, delete), over the title.
+function openAlbumMenu(e) {
+  const a = album.value
+  if (!a) return
+  openMenu(e.currentTarget, albumMenuItems(a, {
+    changed: change => emit('albums-changed', change),
+    deleted: () => { section.value = 'all' },
+  }), a.name)
+}
+
+watch(() => props.libraryVersion, () => { if (albumId.value === null) load() })
 
 // Oldest first, as on screen. Plain objects (not reactive): there are thousands of them and the
 // grid reads them every frame.
@@ -279,11 +297,9 @@ async function removeFromAlbum(p) {
 }
 
 async function newAlbum(p) {
-  const name = (await prompt({ title: t('New album', 'Nuevo álbum'), placeholder: t('Name', 'Nombre'), confirm: t('Create', 'Crear') }))?.trim()
-  if (!name) return
-  const res = await fetch('/store/api/albums', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, photo_ids: [p.id] }) }).catch(() => null)
-  if (!res?.ok) { toast(t('The album couldn’t be created', 'No se ha podido crear el álbum'), 'warning'); return }
-  toast(t(`Added to “${name}”`, `Añadida a «${name}»`))
+  const a = await createAlbum([p.id])
+  if (!a) return
+  toast(t(`Added to “${a.name}”`, `Añadida a «${a.name}»`))
   emit('albums-changed')
 }
 
@@ -295,7 +311,7 @@ function menu(p, at) {
       : { label: t('Add to Favourites', 'Añadir a Favoritos'), icon: Heart, action: () => toggleFavorite(p) }),
     inOwnAlbum && { label: t('Remove from this album', 'Quitar de este álbum'), icon: ListMinus, action: () => removeFromAlbum(p) },
     { separator: true },
-    ...userAlbums.value.filter(a => a.id !== albumId.value).map(a => ({ label: t(`Add to “${a.name}”`, `Añadir a «${a.name}»`), icon: ListPlus, action: () => addToAlbum(p, a) })),
+    ...userAlbums.value.filter(a => a.id !== albumId.value).map(a => ({ label: t(`Add to “${a.name}”`, `Añadir a «${a.name}»`), icon: a.hidden ? albumIcon(a) : ListPlus, action: () => addToAlbum(p, a) })),
     { label: t('New album…', 'Nuevo álbum…'), icon: Plus, action: () => newAlbum(p) },
     { separator: true },
     { label: t('Download the original', 'Descargar el original'), icon: Download, action: () => download(p) },
@@ -350,6 +366,7 @@ onUnmounted(() => {
       <a href="/" class="back"><ChevronLeft :size="20" :stroke-width="2.4" /> TPCloud</a>
       <div class="head-row">
         <h1 class="head-title">{{ title }}</h1>
+        <button v-if="album && album.kind !== 'favorites'" type="button" class="album-more glass" :title="t('Album options', 'Opciones del álbum')" @click="openAlbumMenu"><MoreHorizontal :size="18" :stroke-width="2.2" /></button>
         <div v-if="items.length" class="zoom glass" role="group" :aria-label="t('Zoom', 'Zoom')">
           <button type="button" class="zoom-btn" :disabled="level >= maxLevel" :aria-label="t('Smaller', 'Más pequeñas')" @click="zoom(1)">
             <Minus :size="16" :stroke-width="2.4" />
@@ -449,6 +466,7 @@ onUnmounted(() => {
 .head-sub { margin-top: 2px; font-size: 15px; font-weight: 600; color: var(--label-2); font-variant-numeric: tabular-nums; }
 .back { display: none; }
 
+.album-more { flex-shrink: 0; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: var(--label); }
 .zoom { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; }
 .zoom-btn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: var(--label); }
 .zoom-btn:hover:not(:disabled) { background: var(--fill-3); }
