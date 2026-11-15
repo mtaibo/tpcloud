@@ -63,6 +63,19 @@ class FolderIcon(SQLModel, table=True):
     icon_name: str
 
 
+class StoreFavorite(SQLModel, table=True):
+    """A folder a user pinned to Favourites in the file browser. Kept here, not in each
+    browser or the app, so every device and session sees the same list."""
+    __tablename__ = "store_favorites"
+    __table_args__ = (UniqueConstraint("owner_email", "location", "path", name="uq_store_favorites_owner_path"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_email: str = Field(index=True)
+    location: str
+    path: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class CompressionJob(SQLModel, table=True):
     __tablename__ = "compression_jobs"
 

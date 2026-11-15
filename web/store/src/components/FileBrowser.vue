@@ -601,9 +601,13 @@ async function onIconChosen(iconName) {
   }
 }
 
-function addFavourite(path) {
-  const added = addFav(store.location, path, store.user.email)
-  toast(added ? tr('Added to Favourites', 'Añadida a Favoritos') : tr('Already in Favourites', 'Ya está en Favoritos'), added ? 'check-circle' : 'info')
+async function addFavourite(path) {
+  try {
+    const added = await addFav(store.location, path)
+    toast(added ? tr('Added to Favourites', 'Añadida a Favoritos') : tr('Already in Favourites', 'Ya está en Favoritos'), added ? 'check-circle' : 'info')
+  } catch {
+    toast(tr('Couldn’t add it to Favourites', 'No se ha podido añadir a Favoritos'), 'warning')
+  }
 }
 
 async function deleteShareLink(entry) {

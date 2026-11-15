@@ -39,7 +39,8 @@ public struct StoreRootView: View {
     let storeClient: StoreClient
     let rootPath: String
 
-    @StateObject private var favorites = StoreFavoritesStore()
+    @StateObject private var favorites: StoreFavoritesStore
+    @Environment(\.scenePhase) private var scenePhase
     @State private var cache: StoreDirectoryCache
     @State private var uploads: StoreUploadQueue
     @State private var path: [StoreFolder]
@@ -49,6 +50,7 @@ public struct StoreRootView: View {
         self.rootPath = rootPath
         let cache = StoreDirectoryCache(storeClient: storeClient)
         _cache = State(initialValue: cache)
+        _favorites = StateObject(wrappedValue: StoreFavoritesStore(storeClient: storeClient))
         _uploads = State(initialValue: StoreUploadQueue(storeClient: storeClient, cache: cache))
         _path = State(initialValue: [.home(rootPath)])
     }
@@ -72,6 +74,12 @@ public struct StoreRootView: View {
             }
         }
         .animation(.smooth, value: uploads.items.isEmpty)
+        // Favorites are shared with the web and other devices: picked up on launch and whenever
+        // the app comes back to the front.
+        .task { await favorites.refresh() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await favorites.refresh() } }
+        }
     }
 }
 

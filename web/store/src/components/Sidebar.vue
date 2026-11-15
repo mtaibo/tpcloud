@@ -31,9 +31,13 @@ function isActive(loc, path) {
   return store.panel === 'files' && store.location === loc && store.path === path
 }
 
-function addCurrent() {
-  const added = add(store.location, store.path, store.user.email)
-  toast(added ? t('Added to Favourites', 'Añadida a Favoritos') : t('Already in Favourites', 'Ya está en Favoritos'), added ? 'check-circle' : 'info')
+async function addCurrent() {
+  try {
+    const added = await add(store.location, store.path)
+    toast(added ? t('Added to Favourites', 'Añadida a Favoritos') : t('Already in Favourites', 'Ya está en Favoritos'), added ? 'check-circle' : 'info')
+  } catch {
+    toast(t('Couldn’t add it to Favourites', 'No se ha podido añadir a Favoritos'), 'warning')
+  }
 }
 
 function userMenu(e) {

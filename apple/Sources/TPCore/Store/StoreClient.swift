@@ -54,6 +54,27 @@ public struct StoreClient: Sendable {
         }
     }
 
+    // MARK: - Favorites
+
+    /// The account's favorite folders, in the order they were added.
+    public func favorites() async throws -> [StoreFavorite] {
+        try await client.get("/api/favorites")
+    }
+
+    /// Adds folders (ones already there are skipped) and answers with the whole list.
+    @discardableResult
+    public func addFavorites(_ folders: [(location: StoreLocation, path: String)]) async throws -> [StoreFavorite] {
+        let body = FavoritesBody(items: folders.map { PathBody(path: $0.path, location: $0.location.rawValue) })
+        let response: FavoritesResponse = try await client.post("/api/favorites", body: body)
+        return response.favorites
+    }
+
+    @discardableResult
+    public func removeFavorite(path: String, location: StoreLocation = .external) async throws -> [StoreFavorite] {
+        let response: FavoritesResponse = try await client.delete("/api/favorites", query: ["path": path, "location": location.rawValue])
+        return response.favorites
+    }
+
     // MARK: - Download / Upload
 
     public func download(path: String, location: StoreLocation = .external) async throws -> Data {
@@ -262,6 +283,14 @@ public struct StoreClient: Sendable {
 
 private struct ChunkResponse: Decodable {
     let status: String
+}
+
+private struct FavoritesBody: Encodable {
+    let items: [PathBody]
+}
+
+private struct FavoritesResponse: Decodable {
+    let favorites: [StoreFavorite]
 }
 
 private struct PathBody: Encodable {

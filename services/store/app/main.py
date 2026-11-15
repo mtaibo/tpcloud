@@ -16,6 +16,7 @@ from app.routes.compression import router as compression_router
 from app.routes.backup import router as backup_router
 from app.routes.photos import router as photos_router
 from app.routes.albums import router as albums_router
+from app.routes.favorites import router as favorites_router
 
 
 @asynccontextmanager
@@ -53,3 +54,4 @@ app.include_router(compression_router)
 app.include_router(backup_router)
 app.include_router(photos_router)
 app.include_router(albums_router)
+app.include_router(favorites_router)
