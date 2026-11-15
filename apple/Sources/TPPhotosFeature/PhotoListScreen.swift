@@ -92,7 +92,8 @@ struct PhotoListScreen: View {
                 titleLeadingInset: 72,
                 selection: gridSelection,
                 onSelect: { detailPhotoID = $0.id },
-                onDelete: { photo in Task { await store.delete(photo) } }
+                onDelete: { photo in Task { await store.delete(photo) } },
+                albums: albums
             )
             .refreshable { await store.reload() }
         }

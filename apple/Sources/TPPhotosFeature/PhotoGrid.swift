@@ -71,6 +71,8 @@ struct PhotoGrid: View {
     /// Opens a photo on the Mac; on iPhone and iPad the grid opens its own viewer.
     let onSelect: (Photo) -> Void
     let onDelete: (Photo) -> Void
+    /// For the viewer's heart (Favorites); not observed, the grid doesn't change with it.
+    var albums: PhotoAlbumsStore?
 
     @AppStorage(PhotoGridDensity.storageKey) private var columnLevel = 0
     @State private var scrollPosition = ScrollPosition(idType: Int.self)
@@ -92,7 +94,8 @@ struct PhotoGrid: View {
             title: title,
             titleLeadingInset: titleLeadingInset,
             selection: selection,
-            onDelete: onDelete
+            onDelete: onDelete,
+            albums: albums
         )
         // Scrolls under the bars; the collection view insets itself by the safe area.
         .ignoresSafeArea()

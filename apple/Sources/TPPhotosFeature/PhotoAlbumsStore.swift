@@ -16,6 +16,10 @@ public final class PhotoAlbumsStore: ObservableObject {
     /// Photos may have come back to the library: it syncs again.
     public var onLibraryNeedsReload: () -> Void = {}
 
+    /// Ids of the photos in Favorites, for the viewer's heart. Not `@Published`: the gallery
+    /// doesn't draw hearts, and re-rendering it on every tap would only cost frames.
+    public private(set) var favoriteIDs: Set<Int> = []
+
     private let client: PhotosClient
 
     public init(client: PhotosClient) {
@@ -28,11 +32,34 @@ public final class PhotoAlbumsStore: ObservableObject {
 
     public func album(id: Int) -> PhotoAlbum? { albums.first { $0.id == id } }
 
+    public var favoritesAlbum: PhotoAlbum? { albums.first(where: \.isFavorites) }
+
+    public func isFavorite(_ photoID: Int) -> Bool { favoriteIDs.contains(photoID) }
+
+    /// Puts a photo in Favorites or takes it out, the same album the web's heart uses. Answers
+    /// whether the server took it.
+    @discardableResult
+    public func setFavorite(_ photoID: Int, _ on: Bool) async -> Bool {
+        if albums.isEmpty { await load() }
+        guard let favorites = favoritesAlbum else { return false }
+        let before = favoriteIDs
+        if on { favoriteIDs.insert(photoID) } else { favoriteIDs.remove(photoID) }
+        let updated = await apply {
+            on ? try await self.client.addPhotos([photoID], toAlbum: favorites.id)
+               : try await self.client.removePhotos([photoID], fromAlbum: favorites.id)
+        }
+        if updated == nil { favoriteIDs = before }
+        return updated != nil
+    }
+
     public func load() async {
         isLoading = albums.isEmpty
         defer { isLoading = false }
         do {
             albums = try await client.albums()
+            if let favorites = favoritesAlbum, let ids = await photoIDs(inAlbum: favorites.id) {
+                favoriteIDs = ids
+            }
         } catch {
             if albums.isEmpty { errorMessage = apiErrorMessage(error) }
         }
@@ -53,11 +80,13 @@ public final class PhotoAlbumsStore: ObservableObject {
 
     public func add(_ photoIDs: [Int], to album: PhotoAlbum) async {
         guard let updated = await apply({ try await self.client.addPhotos(photoIDs, toAlbum: album.id) }) else { return }
+        if updated.isFavorites { favoriteIDs.formUnion(photoIDs) }
         if updated.hidesFromLibrary { onPhotosLeftLibrary(Set(photoIDs)) }
     }
 
     public func remove(_ photoIDs: [Int], from album: PhotoAlbum) async {
         guard let updated = await apply({ try await self.client.removePhotos(photoIDs, fromAlbum: album.id) }) else { return }
+        if updated.isFavorites { favoriteIDs.subtract(photoIDs) }
         if updated.hidesFromLibrary { onLibraryNeedsReload() }
     }
 

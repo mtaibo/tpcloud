@@ -454,7 +454,8 @@ public struct PhotoGalleryView: View {
                 title: section.title,
                 selection: gridSelection,
                 onSelect: { detailPhotoID = $0.id },
-                onDelete: { photo in Task { await store.delete(photo) } }
+                onDelete: { photo in Task { await store.delete(photo) } },
+                albums: albums
             )
             .refreshable { await store.reload() }
         }

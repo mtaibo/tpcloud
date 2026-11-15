@@ -20,6 +20,7 @@ struct PhotoCollectionGrid: UIViewRepresentable {
     var titleLeadingInset: CGFloat = 20
     let selection: PhotoSelection?
     let onDelete: (Photo) -> Void
+    var albums: PhotoAlbumsStore?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(client: client, level: columnLevel)
@@ -107,6 +108,7 @@ struct PhotoCollectionGrid: UIViewRepresentable {
     func updateUIView(_ container: PhotoGridContainerView, context: Context) {
         let coordinator = context.coordinator
         coordinator.onDelete = onDelete
+        coordinator.albums = albums
         coordinator.sync(selection: selection)
         coordinator.dateHeader?.title = title
         coordinator.setColumnLevel = { columnLevel = $0 }
@@ -132,6 +134,7 @@ struct PhotoCollectionGrid: UIViewRepresentable {
         var columns: Int
         var scrollToBottomSignal = 0
         var onDelete: (Photo) -> Void = { _ in }
+        weak var albums: PhotoAlbumsStore?
         var setColumnLevel: (Int) -> Void = { _ in }
         /// The `columnLevel` last seen from (or written to) SwiftUI.
         var lastColumnLevel: Int
@@ -721,7 +724,7 @@ struct PhotoCollectionGrid: UIViewRepresentable {
         private func presentViewer(photos viewerPhotos: [Photo], index: Int) {
             guard let gridView, let presenter = gridView.owningViewController,
                   presenter.presentedViewController == nil else { return }
-            let viewer = PhotoViewerController(photos: viewerPhotos, index: index, client: client) { [weak self] photo in
+            let viewer = PhotoViewerController(photos: viewerPhotos, index: index, client: client, albums: albums) { [weak self] photo in
                 self?.onDelete(photo)
             }
             let navigation = PhotoViewerNavigationController(rootViewController: viewer)

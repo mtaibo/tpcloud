@@ -16,6 +16,7 @@ final class PhotoViewerController: UIViewController, UICollectionViewDataSource,
     private(set) var index: Int
     private let client: PhotosClient
     private let onDelete: (Photo) -> Void
+    private weak var albums: PhotoAlbumsStore?
     /// Once the viewer has closed (its transition finished).
     var onDismissed: (() -> Void)?
 
@@ -29,13 +30,21 @@ final class PhotoViewerController: UIViewController, UICollectionViewDataSource,
         primaryAction: UIAction { [weak self] _ in self?.confirmDelete() }
     )
 
+    /// The heart, as in Photos: puts the photo in Favorites (shared with the web) or takes it out.
+    private lazy var favoriteItem = UIBarButtonItem(
+        title: "Favorite",
+        image: UIImage(systemName: "heart"),
+        primaryAction: UIAction { [weak self] _ in self?.toggleFavorite() }
+    )
+
     /// The space between two photos while swiping, as in Photos.
     private static let gap: CGFloat = 20
 
-    init(photos: [Photo], index: Int, client: PhotosClient, onDelete: @escaping (Photo) -> Void) {
+    init(photos: [Photo], index: Int, client: PhotosClient, albums: PhotoAlbumsStore? = nil, onDelete: @escaping (Photo) -> Void) {
         self.photos = photos
         self.index = min(max(index, 0), max(photos.count - 1, 0))
         self.client = client
+        self.albums = albums
         self.onDelete = onDelete
         super.init(nibName: nil, bundle: nil)
     }
@@ -100,7 +109,9 @@ final class PhotoViewerController: UIViewController, UICollectionViewDataSource,
             image: UIImage(systemName: "info.circle"),
             primaryAction: UIAction { [weak self] _ in self?.showInfo() }
         )
-        toolbarItems = [infoItem, .flexibleSpace(), trashItem]
+        toolbarItems = albums == nil
+            ? [infoItem, .flexibleSpace(), trashItem]
+            : [infoItem, .flexibleSpace(), favoriteItem, .flexibleSpace(), trashItem]
         updateTitle()
     }
 
@@ -144,6 +155,7 @@ final class PhotoViewerController: UIViewController, UICollectionViewDataSource,
     // MARK: Chrome
 
     private func updateTitle() {
+        updateFavoriteItem()
         guard let date = currentPhoto?.takenAt.flatMap(PhotoDates.parse) else {
             navigationItem.title = nil
             navigationItem.subtitle = nil
@@ -168,6 +180,25 @@ final class PhotoViewerController: UIViewController, UICollectionViewDataSource,
     @objc private func handleDoubleTap(_ tap: UITapGestureRecognizer) {
         guard let cell = currentCell else { return }
         cell.zoomView.toggleZoom(at: tap.location(in: cell.zoomView.imageView))
+    }
+
+    // MARK: Favorite
+
+    private func updateFavoriteItem() {
+        let on = currentPhoto.map { albums?.isFavorite($0.id) ?? false } ?? false
+        favoriteItem.image = UIImage(systemName: on ? "heart.fill" : "heart")
+        favoriteItem.title = on ? "Unfavorite" : "Favorite"
+    }
+
+    private func toggleFavorite() {
+        guard let photo = currentPhoto, let albums else { return }
+        let on = !albums.isFavorite(photo.id)
+        favoriteItem.image = UIImage(systemName: on ? "heart.fill" : "heart")
+        Task { [weak self] in
+            await albums.setFavorite(photo.id, on)
+            // The server's answer (back to how it was if it said no), for whichever photo is showing now.
+            self?.updateFavoriteItem()
+        }
     }
 
     // MARK: Info and delete
