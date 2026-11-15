@@ -1,10 +1,10 @@
 <script setup>
 import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
-import { ChevronLeft, Download, Heart, HeartOff, Images, Minus, Plus, Trash2 } from 'lucide-vue-next'
+import { BookImage, ChevronLeft, Download, Heart, HeartOff, Images, ListMinus, ListPlus, Minus, Plus, Trash2 } from 'lucide-vue-next'
 import Spinner from '@ui/Spinner.vue'
 import Segmented from '@ui/Segmented.vue'
 import { openMenu } from '../menu.js'
-import { confirmDestructive, toast } from '@ui/dialog.js'
+import { confirmDestructive, prompt, toast } from '@ui/dialog.js'
 import { vLongPress } from '../longPress.js'
 import { downloadLink, photoMediaUrls } from '../mediaUrls.js'
 import { LEVELS, PhotoGrid, maxLevelFor } from '../grid/PhotoGrid.js'
@@ -30,12 +30,33 @@ const favoritesId = ref(null)
 const inFavorites = computed(() => albumId.value !== null && albumId.value === favoritesId.value)
 const title = computed(() => (album.value?.kind === 'favorites' ? t('Favourites', 'Favoritos') : album.value?.name) || titles()[section.value] || t('Library', 'Biblioteca'))
 
+// Albums of your own (made here or in the iPhone app); hidden ones stay out, as in the sidebar.
+const userAlbums = computed(() => props.albums.filter(a => a.kind !== 'favorites' && !a.hidden))
+
+// On a phone the last segment is Favoritos, or «Álbumes» (a menu of them all) once there are
+// albums of your own besides it.
 const filters = computed(() => [
   { value: 'all', label: t('All', 'Todas') },
   { value: 'camera', label: t('Camera', 'Cámara') },
   { value: 'screenshots', label: t('Screenshots', 'Capturas') },
-  ...(favoritesId.value ? [{ value: `album:${favoritesId.value}`, label: t('Favourites', 'Favoritos') }] : []),
+  ...(userAlbums.value.length
+    ? [{ value: 'albums', label: t('Albums', 'Álbumes') }]
+    : favoritesId.value ? [{ value: `album:${favoritesId.value}`, label: t('Favourites', 'Favoritos') }] : []),
 ])
+const segment = computed({
+  get: () => (albumId.value !== null && userAlbums.value.length ? 'albums' : section.value),
+  set: v => { if (v === 'albums') albumsMenu(); else section.value = v },
+})
+
+function albumsMenu() {
+  const list = props.albums.filter(a => !a.hidden)
+  openMenu(filtersEl.value, list.map(a => ({
+    label: a.kind === 'favorites' ? t('Favourites', 'Favoritos') : a.name,
+    icon: a.kind === 'favorites' ? Heart : BookImage,
+    checked: albumId.value === a.id,
+    action: () => { section.value = `album:${a.id}` },
+  })), t('Albums', 'Álbumes'))
+}
 
 // Oldest first, as on screen. Plain objects (not reactive): there are thousands of them and the
 // grid reads them every frame.
@@ -238,11 +259,45 @@ const isFavorite = computed(() => {
   return favoritesId.value ? (p => p.favorite) : null
 })
 
+// The same albums the iPhone app has: add a photo to one of yours, take it out of the one you're
+// looking at, or start a new one with it.
+async function addToAlbum(p, a) {
+  const res = await fetch(`/store/api/albums/${a.id}/photos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [p.id] }) }).catch(() => null)
+  if (!res?.ok) { toast(t('It couldn’t be added', 'No se ha podido añadir'), 'warning'); return }
+  toast(t(`Added to “${a.name}”`, `Añadida a «${a.name}»`))
+  if (a.hides_from_library && albumId.value === null) dropFromList(p)
+  emit('albums-changed')
+}
+
+async function removeFromAlbum(p) {
+  const a = album.value
+  if (!a) return
+  const res = await fetch(`/store/api/albums/${a.id}/photos/remove`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [p.id] }) }).catch(() => null)
+  if (!res?.ok) { toast(t('It couldn’t be removed', 'No se ha podido quitar'), 'warning'); return }
+  dropFromList(p)
+  emit('albums-changed')
+}
+
+async function newAlbum(p) {
+  const name = (await prompt({ title: t('New album', 'Nuevo álbum'), placeholder: t('Name', 'Nombre'), confirm: t('Create', 'Crear') }))?.trim()
+  if (!name) return
+  const res = await fetch('/store/api/albums', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, photo_ids: [p.id] }) }).catch(() => null)
+  if (!res?.ok) { toast(t('The album couldn’t be created', 'No se ha podido crear el álbum'), 'warning'); return }
+  toast(t(`Added to “${name}”`, `Añadida a «${name}»`))
+  emit('albums-changed')
+}
+
 function menu(p, at) {
+  const inOwnAlbum = album.value && album.value.kind !== 'favorites'
   openMenu(at, [
     favoritesId.value && (p.favorite
       ? { label: t('Remove from Favourites', 'Quitar de Favoritos'), icon: HeartOff, action: () => toggleFavorite(p) }
       : { label: t('Add to Favourites', 'Añadir a Favoritos'), icon: Heart, action: () => toggleFavorite(p) }),
+    inOwnAlbum && { label: t('Remove from this album', 'Quitar de este álbum'), icon: ListMinus, action: () => removeFromAlbum(p) },
+    { separator: true },
+    ...userAlbums.value.filter(a => a.id !== albumId.value).map(a => ({ label: t(`Add to “${a.name}”`, `Añadir a «${a.name}»`), icon: ListPlus, action: () => addToAlbum(p, a) })),
+    { label: t('New album…', 'Nuevo álbum…'), icon: Plus, action: () => newAlbum(p) },
+    { separator: true },
     { label: t('Download the original', 'Descargar el original'), icon: Download, action: () => download(p) },
     { separator: true },
     { label: t('Delete', 'Eliminar'), icon: Trash2, danger: true, action: () => remove(p) },
@@ -317,7 +372,7 @@ onUnmounted(() => {
       <p class="head-sub">{{ subtitle || ' ' }}</p>
     </header>
 
-    <div ref="filtersEl" class="filters glass"><Segmented v-model="section" :options="filters" /></div>
+    <div ref="filtersEl" class="filters glass"><Segmented v-model="segment" :options="filters" /></div>
 
     <div v-if="loading" class="state"><Spinner :size="26" /></div>
     <div v-else-if="error" class="state">
