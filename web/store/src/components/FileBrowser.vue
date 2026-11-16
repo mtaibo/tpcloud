@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
-  Archive, ArchiveRestore, ArrowUpDown, ChevronLeft, ChevronRight, Copy, CopyPlus, Download, ExternalLink,
+  Archive, ArchiveRestore, ArrowUpDown, ChevronLeft, ChevronRight, Copy, CopyPlus, Download,
   Eye, FilePlus, FolderInput, FolderPlus, LayoutGrid, Link, List, MoreHorizontal, Palette, Pencil, Plus,
   Search, Share, Star, Trash2, Upload, X,
 } from 'lucide-vue-next'
@@ -23,6 +23,7 @@ import QuickLook from './QuickLook.vue'
 import { shareMediaUrls, storeMediaUrls } from '../mediaUrls.js'
 import MoveSheet from './MoveSheet.vue'
 import ShareSheet from './ShareSheet.vue'
+import SharesPanel from './SharesPanel.vue'
 import IconSheet from './IconSheet.vue'
 import { t as tr } from '@ui/i18n.js'
 import { apiError } from '../apiErrors.js'
@@ -51,7 +52,6 @@ const { add: addFav, updateIconName: updateFavIconName } = useFavourites()
 const moveEntry = ref(null)
 const moveMode = ref('move')
 const shareEntry = ref(null)
-const shareProps = ref(null)
 const iconEntry = ref(null)
 const lookEntry = ref(null)
 
@@ -90,7 +90,7 @@ const visible = computed(() => {
   const list = q ? displayEntries.value.filter(e => e.name.toLowerCase().includes(q)) : [...displayEntries.value]
   const dir = store.sortAsc ? 1 : -1
   const key = store.sortKey
-  const isDir = e => e.type === 'directory' || e.type === 'share-link'
+  const isDir = e => e.type === 'directory'
   return list.sort((a, b) => {
     if (isDir(a) !== isDir(b)) return isDir(a) ? -1 : 1
     let r = 0
@@ -110,6 +110,11 @@ const searchResults = ref(null) // null while the first answer for this query is
 const searchLoading = ref(false)
 const searchTruncated = ref(false)
 const searching = computed(() => !!query.value.trim() && !shareMode.value)
+
+// Shared, at its top: the folder, and under it the links (yours, and the public ones of others).
+const atSharedRoot = computed(() => !shareMode.value && !searching.value && store.location === 'external' && store.path === 'shared')
+const sharesVersion = ref(0)
+
 let searchTimer = null
 let searchController = null
 
@@ -203,29 +208,9 @@ async function loadDirectory() {
       const data = await res.json().catch(() => ({}))
       throw new Error(apiError(data.detail) || `Error ${res.status}`)
     }
-    let real = (await res.json()).entries
-
-    // The Compartido folder also lists the share links: yours, and the public ones of others.
-    if (store.location === 'external' && store.path === 'shared') {
-      let own = new Set()
-      const sres = await fetch('/store/api/shares', { signal })
-      if (sres.ok) {
-        const sdata = await sres.json()
-        own = new Set(sdata.map(s => s.token))
-        real = [...sdata.map(s => ({
-          type: 'share-link', name: s.path.split('/').filter(Boolean).at(-1) || s.token,
-          token: s.token, url: s.url, share: s, size: null, modified: null,
-        })), ...real]
-      }
-      const pres = await fetch('/store/api/share', { signal })
-      if (pres.ok) {
-        const pdata = await pres.json()
-        real = [...real, ...pdata.filter(s => !own.has(s.token)).map(s => ({
-          type: 'share-link', name: s.label, token: s.token, url: s.url,
-          share: { ...s, isOwn: false }, size: null, modified: null,
-        }))]
-      }
-    }
+    const real = (await res.json()).entries
+    // Shared's lower half lists the links; it reloads with the folder.
+    if (atSharedRoot.value) sharesVersion.value++
 
     entries.value = real
     if (pendingReveal) nextTick(revealPending)
@@ -275,7 +260,7 @@ const title = computed(() => {
 
 const parent = computed(() => {
   if (shareMode.value) {
-    if (!shareMode.value.path) return { label: 'Compartido', go: exitShareMode }
+    if (!shareMode.value.path) return { label: tr('Shared', 'Compartido'), go: exitShareMode }
     const parts = shareMode.value.path.split('/').filter(Boolean)
     parts.pop()
     return { label: parts.at(-1) || shareMode.value.label, go: () => navigateShareTo(parts.join('/')) }
@@ -335,7 +320,6 @@ function viewSrc(entry) {
 
 function open(entry) {
   if (entry.type === 'upload-pending') return
-  if (entry.type === 'share-link') return openShareLink(entry)
   if (entry.type === 'directory') {
     if (shareMode.value) return navigateShareTo(joinPath(shareMode.value.path, entry.name))
     return navigate(store.location, joinPath(store.path, entry.name))
@@ -610,16 +594,6 @@ async function addFavourite(path) {
   }
 }
 
-async function deleteShareLink(entry) {
-  const ok = await confirmDestructive(tr(`Delete the link to “${entry.name}”?`, `¿Eliminar el enlace de «${entry.name}»?`), tr('Anyone who has it won’t be able to open it any more. The files aren’t deleted.', 'Quien lo tenga dejará de poder abrirlo. Los archivos no se borran.'), tr('Delete link', 'Eliminar enlace'))
-  if (ok) run(() => fetch(`/store/api/shares/${entry.token}`, { method: 'DELETE' }), tr('Link deleted', 'Enlace eliminado'))
-}
-
-function copyLink(url) {
-  navigator.clipboard.writeText(url)
-  toast(tr('Link copied', 'Enlace copiado'))
-}
-
 // ---- Uploads and downloads ----
 
 function triggerUpload() {
@@ -739,12 +713,12 @@ function newItems() {
 }
 
 function folderItems() {
-  if (shareMode.value) return [{ label: 'Volver a Compartido', icon: ChevronLeft, action: exitShareMode }]
+  if (shareMode.value) return [{ label: tr('Back to Shared', 'Volver a Compartido'), icon: ChevronLeft, action: exitShareMode }]
   return [
     ...newItems(),
     { separator: true },
     { label: tr('Add to Favourites', 'Añadir a Favoritos'), icon: Star, action: () => addFavourite(store.path) },
-    { label: tr('Shared links', 'Enlaces compartidos'), icon: Link, action: () => { store.panel = 'shares' } },
+    !atSharedRoot.value && { label: tr('Shared links', 'Enlaces compartidos'), icon: Link, action: () => navigate('external', 'shared') },
   ]
 }
 
@@ -754,16 +728,6 @@ function entryItems(entry) {
       { label: tr('Resume upload…', 'Reanudar subida…'), icon: Upload, action: () => resumeUpload({ ...entry, file_size: entry.size }) },
       { separator: true },
       { label: tr('Cancel upload', 'Cancelar subida'), icon: Trash2, danger: true, action: () => cancelPendingUpload(entry.upload_id) },
-    ]
-  }
-  if (entry.type === 'share-link') {
-    return [
-      { label: tr('Open', 'Abrir'), icon: Eye, action: () => openShareLink(entry) },
-      { label: tr('Open in browser', 'Abrir en el navegador'), icon: ExternalLink, action: () => window.open(entry.url, '_blank') },
-      { label: tr('Copy link', 'Copiar enlace'), icon: Copy, action: () => copyLink(entry.url) },
-      entry.share?.isOwn !== false && { separator: true },
-      entry.share?.isOwn !== false && { label: tr('Link options…', 'Opciones del enlace…'), icon: Pencil, action: () => { shareProps.value = entry.share } },
-      entry.share?.isOwn !== false && { label: tr('Delete link', 'Eliminar enlace'), icon: Trash2, danger: true, action: () => deleteShareLink(entry) },
     ]
   }
   if (shareMode.value) {
@@ -853,7 +817,6 @@ function uploadPercent(entry) {
 
 function subtitle(entry) {
   if (entry.type === 'upload-pending') return tr(`Uploading · ${uploadPercent(entry)}%`, `Subiendo · ${uploadPercent(entry)} %`)
-  if (entry.type === 'share-link') return entry.share?.isOwn === false ? tr('Public link', 'Enlace público') : tr('Your shared link', 'Tu enlace compartido')
   if (entry.type === 'directory') return formatDate(entry.modified)
   return `${formatDate(entry.modified)} · ${formatSize(entry.size)}`
 }
@@ -1054,7 +1017,7 @@ onUnmounted(() => {
               <span v-if="phone" class="row-sub">{{ subtitle(entry) }}</span>
               <span v-if="entry.type === 'upload-pending'" class="progress"><i :style="{ width: `${uploadPercent(entry)}%` }" /></span>
             </span>
-            <ChevronRight v-if="phone && (entry.type === 'directory' || entry.type === 'share-link')" :size="18" class="row-chevron" />
+            <ChevronRight v-if="phone && entry.type === 'directory'" :size="18" class="row-chevron" />
           </span>
           <template v-if="!phone">
             <span class="cell col-modified">{{ formatDate(entry.modified) }}</span>
@@ -1065,7 +1028,10 @@ onUnmounted(() => {
       </div>
 
       <p v-if="phone && visible.length && !searching" class="phone-status footnote secondary">{{ status }}</p>
+      <SharesPanel v-if="phone && atSharedRoot" :version="sharesVersion" @open="openShareLink" />
     </div>
+
+    <SharesPanel v-if="!phone && atSharedRoot" class="links-pane" :version="sharesVersion" @open="openShareLink" />
 
     <!-- Path bar and status -->
     <footer v-if="!phone" class="pathbar">
@@ -1100,12 +1066,11 @@ onUnmounted(() => {
       @moved="moveEntry = null; loadDirectory()"
     />
     <ShareSheet
-      v-if="shareEntry || shareProps"
+      v-if="shareEntry"
       :entry="shareEntry"
-      :share="shareProps"
       :location="store.location"
       :current-path="store.path"
-      @close="shareEntry = null; shareProps = null"
+      @close="shareEntry = null"
       @changed="loadDirectory"
     />
     <IconSheet v-if="iconEntry" :entry="iconEntry" @close="iconEntry = null" @done="onIconChosen" />
@@ -1293,6 +1258,9 @@ onUnmounted(() => {
 
 .progress { display: block; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--orange) 25%, transparent); overflow: hidden; }
 .progress i { display: block; height: 100%; background: var(--orange); transition: width 0.4s; }
+
+/* ---- Shared: the links under the folder ---- */
+.links-pane { flex: 0 0 44%; border-top: 0.5px solid var(--separator); }
 
 /* ---- Path bar ---- */
 .pathbar {

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted } from 'vue'
-import { Cloud, DatabaseBackup, Folder, House, Link, LogOut, User, Users } from 'lucide-vue-next'
+import { Cloud, DatabaseBackup, Folder, House, Images, LogOut, User, Users } from 'lucide-vue-next'
 import ListSection from '@ui/ListSection.vue'
 import { useFavourites } from '../useFavourites.js'
 import { FOLDER_ICONS_MAP } from '../folderIcons.js'
@@ -8,7 +8,7 @@ import { folderTitle, homePath, navigate, store } from '../store.js'
 import { formatSize } from '../utils/formatSize.js'
 import { t } from '@ui/i18n.js'
 
-// The phone's "{{ t('Browse', 'Explorar') }}" tab, like Files' Browse: places, favourites, links and storage.
+// The phone's Browse tab, like Files' Browse: places, favourites and storage.
 const emit = defineEmits(['backup'])
 const { favourites, load } = useFavourites()
 onMounted(load)
@@ -25,16 +25,16 @@ async function logout() {
   <section class="browse">
     <h1 class="large-title">{{ t('Browse', 'Explorar') }}</h1>
 
-    <ListSection header="Ubicaciones">
+    <ListSection>
       <button type="button" class="row" @click="navigate('external', homePath)">
         <House class="lead" :size="24" /><span class="row-body"><span class="row-title">{{ t('Home', 'Inicio') }}</span></span>
       </button>
       <button type="button" class="row" @click="navigate('external', 'shared')">
-        <Users class="lead" :size="24" /><span class="row-body"><span class="row-title">Compartido</span></span>
+        <Users class="lead" :size="24" /><span class="row-body"><span class="row-title">{{ t('Shared', 'Compartido') }}</span></span>
       </button>
-      <button type="button" class="row" @click="store.panel = 'shares'">
-        <Link class="lead" :size="24" /><span class="row-body"><span class="row-title">{{ t('Shared links', 'Enlaces compartidos') }}</span></span>
-      </button>
+      <a href="/photos/" class="row">
+        <Images class="lead" :size="24" /><span class="row-body"><span class="row-title">{{ t('Photos', 'Galería') }}</span></span>
+      </a>
     </ListSection>
 
     <ListSection :header="t('Favourites', 'Favoritos')" :footer="favourites.length ? '' : t('Touch and hold a folder and choose “Add to Favourites”.', 'Mantén pulsada una carpeta y elige «Añadir a Favoritos».')">

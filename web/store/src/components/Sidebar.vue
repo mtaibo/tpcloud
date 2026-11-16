@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { ChevronRight, Cloud, DatabaseBackup, Folder, House, Images, Link, LogOut, Plus, User, Users, X } from 'lucide-vue-next'
+import { ChevronRight, Cloud, DatabaseBackup, Folder, House, Images, LogOut, Plus, User, Users, X } from 'lucide-vue-next'
 import { useFavourites } from '../useFavourites.js'
 import { useTransfers } from '../useTransfers.js'
 import { useCompression } from '../useCompression.js'
@@ -77,6 +77,19 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocDown))
     </a>
 
     <nav class="nav">
+      <button type="button" class="item" :class="{ active: isActive('external', homePath) }" @click="navigate('external', homePath)">
+        <House :size="18" :stroke-width="1.9" class="item-icon" />
+        <span class="item-label">{{ t('Home', 'Inicio') }}</span>
+      </button>
+      <button type="button" class="item" :class="{ active: isActive('external', 'shared') }" @click="navigate('external', 'shared')">
+        <Users :size="18" :stroke-width="1.9" class="item-icon" />
+        <span class="item-label">{{ t('Shared', 'Compartido') }}</span>
+      </button>
+      <a href="/photos/" class="item">
+        <Images :size="18" :stroke-width="1.9" class="item-icon" />
+        <span class="item-label">{{ t('Photos', 'Galería') }}</span>
+      </a>
+
       <div class="group-head" @click="favouritesOpen = !favouritesOpen">
         <span>{{ t('Favourites', 'Favoritos') }}</span>
         <button type="button" class="head-btn" :title="t('Add this folder', 'Añadir esta carpeta')" @click.stop="addCurrent"><Plus :size="14" :stroke-width="2.4" /></button>
@@ -92,26 +105,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocDown))
           <button type="button" class="remove" :title="t('Remove from Favourites', 'Quitar de Favoritos')" @click="remove(fav.id)"><X :size="12" :stroke-width="2.6" /></button>
         </div>
       </template>
-
-      <div class="group-head static"><span>{{ t('Locations', 'Ubicaciones') }}</span></div>
-      <button type="button" class="item" :class="{ active: isActive('external', homePath) }" @click="navigate('external', homePath)">
-        <House :size="18" :stroke-width="1.9" class="item-icon" />
-        <span class="item-label">{{ t('Home', 'Inicio') }}</span>
-      </button>
-      <button type="button" class="item" :class="{ active: isActive('external', 'shared') }" @click="navigate('external', 'shared')">
-        <Users :size="18" :stroke-width="1.9" class="item-icon" />
-        <span class="item-label">Compartido</span>
-      </button>
-      <a href="/photos/" class="item" :title="t('Open Photos', 'Abrir la Galería')">
-        <Images :size="18" :stroke-width="1.9" class="item-icon" />
-        <span class="item-label">{{ t('Photos', 'Galería') }}</span>
-      </a>
-
-      <div class="group-head static"><span>{{ t('Links', 'Enlaces') }}</span></div>
-      <button type="button" class="item" :class="{ active: store.panel === 'shares' }" @click="store.panel = 'shares'">
-        <Link :size="18" :stroke-width="1.9" class="item-icon" />
-        <span class="item-label">{{ t('Shared links', 'Enlaces compartidos') }}</span>
-      </button>
     </nav>
 
     <div v-if="summary.count" ref="transfersRef" class="transfers">

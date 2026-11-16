@@ -5,7 +5,6 @@ import Sheet from '@ui/Sheet.vue'
 import Spinner from '@ui/Spinner.vue'
 import Sidebar from './components/Sidebar.vue'
 import FileBrowser from './components/FileBrowser.vue'
-import SharesPanel from './components/SharesPanel.vue'
 import MobileBottomNav from './components/MobileBottomNav.vue'
 import MobileBrowse from './components/MobileBrowse.vue'
 import FileViewer from './components/FileViewer.vue'
@@ -65,7 +64,6 @@ onMounted(async () => {
     <Sidebar class="desktop-only" />
     <main class="main">
       <MobileBrowse v-if="store.panel === 'browse'" class="phone-only" @backup="backupOpen = true" />
-      <SharesPanel v-else-if="store.panel === 'shares'" />
       <FileBrowser v-else />
     </main>
     <MobileBottomNav @transfers="transfersOpen = true" />

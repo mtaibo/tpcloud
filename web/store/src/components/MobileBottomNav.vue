@@ -17,7 +17,7 @@ const tabs = computed(() => [
 ])
 
 const active = computed(() => {
-  if (store.panel === 'browse' || store.panel === 'shares') return 'browse'
+  if (store.panel === 'browse') return 'browse'
   if (store.path === 'shared' || store.path.startsWith('shared/')) return 'shared'
   return 'home'
 })
