@@ -112,6 +112,11 @@ async function loadAlbums() {
         <span>{{ t('Photos', 'Galería') }}</span>
       </a>
       <nav class="nav">
+        <a href="/store/" class="item">
+          <Folder :size="18" :stroke-width="1.9" class="item-icon" />
+          <span class="item-label">{{ t('Files', 'Archivos') }}</span>
+        </a>
+
         <div class="group-head"><span>{{ t('Photos', 'Fotos') }}</span></div>
         <button
           v-for="s in sections"
@@ -166,12 +171,6 @@ async function loadAlbums() {
             </div>
           </template>
         </template>
-
-        <div class="group-head"><span>{{ t('Locations', 'Ubicaciones') }}</span></div>
-        <a href="/store/" class="item" :title="t('Open Files', 'Abrir Archivos')">
-          <Folder :size="18" :stroke-width="1.9" class="item-icon" />
-          <span class="item-label">{{ t('Files', 'Archivos') }}</span>
-        </a>
       </nav>
 
       <div v-if="disk" class="storage">
