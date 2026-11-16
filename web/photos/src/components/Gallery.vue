@@ -1,9 +1,9 @@
 <script setup>
 import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
-import { ChevronLeft, Download, Heart, HeartOff, Images, ListMinus, ListPlus, Minus, MoreHorizontal, Plus, Trash2 } from 'lucide-vue-next'
+import { CheckCircle, ChevronLeft, Circle, Download, Heart, HeartOff, Images, ListMinus, ListPlus, Minus, MoreHorizontal, Plus, Trash2 } from 'lucide-vue-next'
 import Spinner from '@ui/Spinner.vue'
 import Segmented from '@ui/Segmented.vue'
-import { openMenu } from '../menu.js'
+import { menuState, openMenu } from '../menu.js'
 import { confirmDestructive, toast } from '@ui/dialog.js'
 import { albumIcon, albumMenuItems, albumName, createAlbum, newAlbumItem } from '../albums.js'
 import { vLongPress } from '../longPress.js'
@@ -83,6 +83,7 @@ const loading = ref(false)
 const loaded = ref(false)
 const error = ref('')
 const look = shallowRef(null)
+const lookItems = shallowRef(null) // Quick Look over the selected photos only ("Show Selected")
 const favVersion = ref(0) // bumped when a heart changes, so Quick Look shows it
 const level = ref(readLevel())
 const view = ref({ first: -1, last: -1, atNewest: true })
@@ -91,6 +92,7 @@ const maxLevel = ref(LEVELS.length - 1) // 61 columns only on a big screen
 const scroller = ref(null)
 const head = ref(null)
 const filtersEl = ref(null)
+const selectBar = ref(null)
 const gallery = ref(null)
 let grid = null
 let generation = 0
@@ -187,7 +189,7 @@ async function load() {
     if (mine === generation) loading.value = false
   }
 }
-watch(section, load)
+watch(section, () => { endSelect(); load() })
 
 // The title floats over the photos, and on a phone the filters do too: the grid leaves room for
 // them at its ends.
@@ -196,8 +198,9 @@ function measure() {
   if (scroller.value) maxLevel.value = maxLevelFor(scroller.value.clientWidth)
   const top = head.value ? head.value.offsetHeight : 0
   let bottom = 4
-  if (filtersEl.value && getComputedStyle(filtersEl.value).display !== 'none') {
-    bottom = gallery.value.getBoundingClientRect().bottom - filtersEl.value.getBoundingClientRect().top + 8
+  const bar = selecting.value ? selectBar.value : filtersEl.value
+  if (bar && getComputedStyle(bar).display !== 'none') {
+    bottom = gallery.value.getBoundingClientRect().bottom - bar.getBoundingClientRect().top + 8
   }
   grid.setInsets(top, bottom)
 }
@@ -211,8 +214,11 @@ function onSlider(e) {
 }
 
 function onKey(e) {
-  if (look.value || e.metaKey || e.ctrlKey || e.altKey) return
+  if (look.value || menuState.open) return
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return
+  if (selecting.value && e.key === 'Escape') { e.preventDefault(); endSelect(); return }
+  if (selecting.value && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAll(); return }
+  if (e.metaKey || e.ctrlKey || e.altKey) return
   if (e.key === '+' || e.key === '=') { e.preventDefault(); zoom(-1) }
   else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoom(1) }
 }
@@ -241,12 +247,22 @@ async function remove(p) {
 }
 
 function dropFromList(p) {
-  const list = items.value
-  const i = list.indexOf(p)
-  if (i < 0) return
-  if (look.value === p) look.value = list[i + 1] || list[i - 1] || null
-  const next = list.slice(0, i).concat(list.slice(i + 1))
+  dropMany(new Set([p.id]))
+}
+
+// Takes photos out of view (deleted, or out of the album on screen), and out of the selection and
+// Quick Look's list too.
+function dropMany(ids) {
+  if (!ids.size) return
+  const shown = lookItems.value || items.value
+  if (look.value && ids.has(look.value.id)) {
+    const i = shown.indexOf(look.value)
+    look.value = shown.slice(i + 1).find(x => !ids.has(x.id)) || shown.slice(0, i).reverse().find(x => !ids.has(x.id)) || null
+  }
+  if (lookItems.value) lookItems.value = lookItems.value.filter(x => !ids.has(x.id))
+  const next = items.value.filter(x => !ids.has(x.id))
   items.value = next
+  if (selectedIds.value.size) setSelected(new Set([...selectedIds.value].filter(id => !ids.has(id))))
   grid?.setItems(next)
 }
 
@@ -303,6 +319,167 @@ async function newAlbum(p) {
   emit('albums-changed')
 }
 
+// ---- Select mode, like the app's: tap photos (or drag across them with a mouse, shift-click for a
+// run) and act on all of them from the bar at the bottom: download, see them, add them to an
+// album, take them out of the one on screen, delete them.
+
+const selecting = ref(false)
+const selectedIds = shallowRef(new Set())
+const selectedCount = computed(() => selectedIds.value.size)
+let lastToggled = -1
+let dragBase = null
+let dragSelects = true
+
+function setSelected(ids) {
+  selectedIds.value = ids
+  grid?.setSelection(selecting.value ? ids : null)
+}
+
+async function startSelect() {
+  selecting.value = true
+  lastToggled = -1
+  setSelected(new Set())
+  await nextTick()
+  measure()
+}
+
+async function endSelect() {
+  if (!selecting.value) return
+  selecting.value = false
+  setSelected(new Set())
+  await nextTick()
+  measure()
+}
+
+function selectedPhotos() {
+  const ids = selectedIds.value
+  return items.value.filter(p => ids.has(p.id))
+}
+
+function onToggle(i, e) {
+  const next = new Set(selectedIds.value)
+  if (e?.shiftKey && lastToggled >= 0 && lastToggled < items.value.length) {
+    const [a, b] = [lastToggled, i].sort((x, y) => x - y)
+    for (let k = a; k <= b; k++) next.add(items.value[k].id)
+  } else {
+    const id = items.value[i].id
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+  }
+  lastToggled = i
+  setSelected(next)
+}
+
+function onDrag(from, to, first) {
+  if (first) {
+    dragBase = selectedIds.value
+    dragSelects = !dragBase.has(items.value[from].id)
+  }
+  const next = new Set(dragBase)
+  const [a, b] = [from, to].sort((x, y) => x - y)
+  for (let k = a; k <= b; k++) {
+    const id = items.value[k].id
+    if (dragSelects) next.add(id)
+    else next.delete(id)
+  }
+  lastToggled = to
+  setSelected(next)
+}
+
+function selectAll() {
+  setSelected(new Set(items.value.map(p => p.id)))
+}
+
+function showSelected() {
+  const list = selectedPhotos()
+  if (!list.length) return
+  lookItems.value = list
+  look.value = list[0]
+}
+
+// The originals, one after another (the browser may ask once to allow several downloads).
+function downloadSelected() {
+  selectedPhotos().forEach((p, i) => setTimeout(() => download(p), i * 350))
+}
+
+async function deleteSelected() {
+  const list = selectedPhotos()
+  const n = list.length
+  if (!n) return
+  const ok = await confirmDestructive(
+    n === 1 ? t('Delete this photo?', '¿Eliminar esta foto?') : t(`Delete ${n} photos?`, `¿Eliminar ${n} fotos?`),
+    t('They’ll be deleted from the server. The ones still on the iPhone will come back with the next backup.', 'Se borrarán del servidor. Las que sigan en el iPhone volverán con la próxima copia de seguridad.'),
+    n === 1 ? t('Delete Photo', 'Eliminar foto') : t(`Delete ${n} Photos`, `Eliminar ${n} fotos`),
+  )
+  if (!ok) return
+  const done = new Set()
+  const queue = [...list]
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    for (let p = queue.shift(); p; p = queue.shift()) {
+      const res = await fetch(`/store/api/photos/${p.id}`, { method: 'DELETE' }).catch(() => null)
+      if (res?.ok) done.add(p.id)
+    }
+  }))
+  endSelect()
+  dropMany(done)
+  if (done.size < n) toast(t('Some photos couldn’t be deleted', 'Algunas fotos no se han podido eliminar'), 'warning')
+  else toast(n === 1 ? t('Photo deleted', 'Foto eliminada') : t(`${n} photos deleted`, `${n} fotos eliminadas`))
+  if (list.some(p => p.favorite && done.has(p.id))) emit('albums-changed')
+}
+
+async function addSelectedTo(a) {
+  const list = selectedPhotos()
+  if (!list.length) return
+  const res = await fetch(`/store/api/albums/${a.id}/photos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: list.map(p => p.id) }) }).catch(() => null)
+  if (!res?.ok) { toast(t('They couldn’t be added', 'No se han podido añadir'), 'warning'); return }
+  endSelect()
+  const name = albumName(a)
+  toast(list.length === 1 ? t(`Added to “${name}”`, `Añadida a «${name}»`) : t(`${list.length} added to “${name}”`, `${list.length} añadidas a «${name}»`))
+  if (a.kind === 'favorites') list.forEach(p => setFavorite(p, true))
+  if (a.hides_from_library && albumId.value === null) dropMany(new Set(list.map(p => p.id)))
+  emit('albums-changed')
+}
+
+async function newAlbumWithSelected() {
+  const list = selectedPhotos()
+  if (!list.length) return
+  const a = await createAlbum(list.map(p => p.id))
+  if (!a) return
+  endSelect()
+  toast(t(`Added to “${a.name}”`, `Añadidas a «${a.name}»`))
+  emit('albums-changed')
+}
+
+async function removeSelectedFromAlbum() {
+  const a = album.value
+  const list = selectedPhotos()
+  if (!a || !list.length) return
+  const res = await fetch(`/store/api/albums/${a.id}/photos/remove`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: list.map(p => p.id) }) }).catch(() => null)
+  if (!res?.ok) { toast(t('They couldn’t be removed', 'No se han podido quitar'), 'warning'); return }
+  endSelect()
+  if (a.kind === 'favorites') list.forEach(p => setFavorite(p, false))
+  dropMany(new Set(list.map(p => p.id)))
+  emit('albums-changed')
+}
+
+// The bar's •••: Select All / Deselect All, then the albums, as in the app's menu.
+function selectionMenu(e) {
+  const none = !selectedCount.value
+  openMenu(e.currentTarget, [
+    { label: t('Select All', 'Seleccionar todo'), icon: CheckCircle, action: selectAll },
+    { label: t('Deselect All', 'Deseleccionar todo'), icon: Circle, disabled: none, action: () => setSelected(new Set()) },
+    { separator: true },
+    ...props.albums.filter(a => a.id !== albumId.value).map(a => ({ label: t(`Add to “${albumName(a)}”`, `Añadir a «${albumName(a)}»`), icon: a.kind === 'favorites' || a.hidden ? albumIcon(a) : ListPlus, disabled: none, action: () => addSelectedTo(a) })),
+    { label: t('New Album…', 'Nuevo álbum…'), icon: Plus, disabled: none, action: newAlbumWithSelected },
+    album.value && { label: t('Remove from Album', 'Quitar del álbum'), icon: ListMinus, disabled: none, action: removeSelectedFromAlbum },
+  ], none ? t('Select Items', 'Seleccionar') : selectionLabel.value)
+}
+
+const selectionLabel = computed(() => {
+  const n = selectedCount.value
+  return n === 1 ? t('1 Selected', '1 seleccionada') : t(`${numberFormat.format(n)} Selected`, `${numberFormat.format(n)} seleccionadas`)
+})
+
 function menu(p, at) {
   const inOwnAlbum = album.value && album.value.kind !== 'favorites'
   openMenu(at, [
@@ -328,6 +505,7 @@ function onLongPress(pt) {
 function closeLook() {
   const i = items.value.indexOf(look.value)
   look.value = null
+  lookItems.value = null
   if (i >= 0) grid?.reveal(i)
 }
 
@@ -337,6 +515,8 @@ onMounted(() => {
     level: level.value,
     onOpen: i => { look.value = items.value[i] },
     onMenu: (i, at) => menu(items.value[i], at),
+    onToggle,
+    onDrag,
     onLevel: saveLevel,
     onView: v => { view.value = v },
     chipLabel,
@@ -366,6 +546,7 @@ onUnmounted(() => {
       <a href="/" class="back"><ChevronLeft :size="20" :stroke-width="2.4" /> TPCloud</a>
       <div class="head-row">
         <h1 class="head-title">{{ title }}</h1>
+        <button v-if="items.length" type="button" class="select-btn glass" :class="{ on: selecting }" @click="selecting ? endSelect() : startSelect()">{{ selecting ? t('Cancel', 'Cancelar') : t('Select', 'Seleccionar') }}</button>
         <button v-if="album && album.kind !== 'favorites'" type="button" class="album-more glass" :title="t('Album options', 'Opciones del álbum')" @click="openAlbumMenu"><MoreHorizontal :size="18" :stroke-width="2.2" /></button>
         <div v-if="items.length" class="zoom glass" role="group" :aria-label="t('Zoom', 'Zoom')">
           <button type="button" class="zoom-btn" :disabled="level >= maxLevel" :aria-label="t('Smaller', 'Más pequeñas')" @click="zoom(1)">
@@ -389,7 +570,18 @@ onUnmounted(() => {
       <p class="head-sub">{{ subtitle || ' ' }}</p>
     </header>
 
-    <div ref="filtersEl" class="filters glass"><Segmented v-model="segment" :options="filters" /></div>
+    <div v-show="!selecting" ref="filtersEl" class="filters glass"><Segmented v-model="segment" :options="filters" /></div>
+
+    <Transition name="bar">
+      <div v-if="selecting" ref="selectBar" class="select-bar">
+        <button type="button" class="bar-round glass" :disabled="!selectedCount" :title="t('Download the originals', 'Descargar los originales')" @click="downloadSelected"><Download :size="19" /></button>
+        <button type="button" class="bar-count glass" :disabled="!selectedCount" @click="showSelected">
+          {{ selectedCount ? t(`Show Selected (${numberFormat.format(selectedCount)})`, `Ver seleccionadas (${numberFormat.format(selectedCount)})`) : t('Select Items', 'Selecciona fotos') }}
+        </button>
+        <button type="button" class="bar-round glass" :title="t('More', 'Más')" @click="selectionMenu"><MoreHorizontal :size="19" /></button>
+        <button type="button" class="bar-round glass danger" :disabled="!selectedCount" :title="t('Delete', 'Eliminar')" @click="deleteSelected"><Trash2 :size="18" /></button>
+      </div>
+    </Transition>
 
     <div v-if="loading" class="state"><Spinner :size="26" /></div>
     <div v-else-if="error" class="state">
@@ -411,7 +603,7 @@ onUnmounted(() => {
 
     <QuickLook
       v-if="look"
-      :items="items"
+      :items="lookItems || items"
       :entry="look"
       :urls="photoMediaUrls"
       :subtitle="photoSubtitle"
@@ -466,6 +658,28 @@ onUnmounted(() => {
 .head-sub { margin-top: 2px; font-size: 15px; font-weight: 600; color: var(--label-2); font-variant-numeric: tabular-nums; }
 .back { display: none; }
 
+.select-btn { flex-shrink: 0; height: 38px; padding: 0 16px; border-radius: 999px; font-size: 15px; font-weight: 600; color: var(--label); }
+.select-btn.on { color: #fff; background: var(--accent); }
+
+.select-bar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transform: translateX(-50%);
+}
+.bar-round { width: 46px; height: 46px; flex-shrink: 0; display: grid; place-items: center; border-radius: 50%; color: var(--accent); }
+.bar-round.danger { color: var(--red); }
+.bar-count { height: 46px; padding: 0 20px; border-radius: 999px; font-size: 15px; font-weight: 600; color: var(--label); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.select-bar button:disabled { opacity: 0.45; }
+.bar-count:disabled { opacity: 1; color: var(--label-2); }
+.bar-enter-active { transition: transform 0.35s var(--spring), opacity 0.2s; }
+.bar-leave-active { transition: transform 0.2s, opacity 0.15s; }
+.bar-enter-from, .bar-leave-to { transform: translate(-50%, 16px); opacity: 0; }
+
 .album-more { flex-shrink: 0; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: var(--label); }
 .zoom { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; }
 .zoom-btn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: var(--label); }
@@ -485,6 +699,9 @@ onUnmounted(() => {
   .head-title { font-size: 34px; }
   .zoom-slider { display: none; }
   .zoom-btn { width: 34px; height: 34px; }
+  .select-btn { height: 42px; }
+  .select-bar { bottom: calc(14px + env(safe-area-inset-bottom)); gap: 8px; }
+  .bar-count { padding: 0 14px; }
   .filters {
     position: absolute;
     left: 50%;

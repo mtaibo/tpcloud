@@ -145,6 +145,7 @@ class Layer {
     const start = L.rowStart(r)
     const end = L.rowEnd(r)
     const badges = L.tile >= 56
+    const selection = g.selection
     for (let i = start; i < end; i++) {
       const p = g.items[i]
       const x0 = Math.round((i - start) * L.pitch * dpr)
@@ -152,7 +153,9 @@ class Layer {
       const bitmap = g.thumbs.get(p.id, this.size)
       if (bitmap) ctx.drawImage(bitmap, x0, 0, x1 - x0, h)
       else { ctx.fillStyle = g.placeholder; ctx.fillRect(x0, 0, x1 - x0, h) }
-      if (badges && (p.isVideo || p.favorite)) drawBadges(ctx, p, x0, x1 - x0, h, dpr)
+      const picked = !!selection?.has(p.id)
+      if (badges && (p.isVideo || p.favorite)) drawBadges(ctx, p, x0, x1 - x0, h, dpr, picked)
+      if (picked) drawCheck(ctx, x0, x1 - x0, h, dpr, L.tile)
     }
   }
 
@@ -173,8 +176,9 @@ const heart = typeof Path2D !== 'undefined'
   ? new Path2D('M12 21s-7.5-4.6-10-9.2C.3 8.6 2.1 4.5 6 4.5c2.2 0 3.6 1.2 4.4 2.4h3.2c.8-1.2 2.2-2.4 4.4-2.4 3.9 0 5.7 4.1 4 7.3C19.5 16.4 12 21 12 21z')
   : null
 
-// The heart (favourite) bottom left and a play mark (video) bottom right, like Photos'.
-function drawBadges(ctx, p, x, w, h, dpr) {
+// The heart (favourite) bottom left and a play mark (video) bottom right, like Photos'. A selected
+// photo has its check where the play mark would be.
+function drawBadges(ctx, p, x, w, h, dpr, picked) {
   const s = Math.min(16, Math.max(11, w / dpr / 9)) * dpr
   const m = 6 * dpr
   ctx.save()
@@ -187,7 +191,7 @@ function drawBadges(ctx, p, x, w, h, dpr) {
     ctx.fill(heart)
     ctx.setTransform(1, 0, 0, 1, 0, 0)
   }
-  if (p.isVideo) {
+  if (p.isVideo && !picked) {
     const cx = x + w - m - s / 2
     const cy = h - m - s / 2
     ctx.beginPath()
@@ -197,6 +201,38 @@ function drawBadges(ctx, p, x, w, h, dpr) {
     ctx.closePath()
     ctx.fill()
   }
+  ctx.restore()
+}
+
+// Select mode's check, bottom right, sized like the app's `PhotoGridSelectionBadges`: a white ring
+// around a blue disc with a white tick.
+function drawCheck(ctx, x, w, h, dpr, tile) {
+  const side = Math.min(24, Math.max(tile * 0.36, 10)) * dpr
+  const inset = (tile > 60 ? 5 : 2) * dpr
+  const r = side / 2
+  const cx = x + w - inset - r
+  const cy = h - inset - r
+  ctx.save()
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.25)'
+  ctx.shadowBlur = 2 * dpr
+  ctx.fillStyle = '#fff'
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.shadowColor = 'transparent'
+  ctx.fillStyle = '#0a84ff'
+  ctx.beginPath()
+  ctx.arc(cx, cy, r * (40 / 48), 0, Math.PI * 2)
+  ctx.fill()
+  ctx.strokeStyle = '#fff'
+  ctx.lineWidth = Math.max(1.2 * dpr, side * 0.1)
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.beginPath()
+  ctx.moveTo(cx - r * 0.38, cy + r * 0.02)
+  ctx.lineTo(cx - r * 0.1, cy + r * 0.3)
+  ctx.lineTo(cx + r * 0.4, cy - r * 0.28)
+  ctx.stroke()
   ctx.restore()
 }
 
@@ -226,6 +262,8 @@ export class PhotoGrid {
   /**
    * scroller: the element that scrolls. opts:
    *  onOpen(index), onMenu(index, { clientX, clientY }), onLevel(level),
+   *  onToggle(index, event) — a tap in select mode (see `setSelection`),
+   *  onDrag(fromIndex, toIndex, first) — a mouse drag across photos in select mode, as it goes,
    *  onView({ first, last, atNewest }) — the photos on screen, for the title's dates,
    *  chipLabel(item, kind) — 'month' or 'year' label of a photo, for the dense grids' chips.
    */
@@ -252,6 +290,9 @@ export class PhotoGrid {
     this.frame = 0
     this.lastWantKey = ''
     this.lastView = ''
+    this.selection = null // select mode: the selected ids (a Set), else null
+    this.drag = null // a mouse drag selecting photos: { from, to }
+    this.dragMoved = false // that drag reached another photo, so its click isn't a tap
 
     this.spacer = document.createElement('div')
     this.spacer.className = 'pg-spacer'
@@ -307,6 +348,13 @@ export class PhotoGrid {
       this.setScrollTop(L.y(i) + keep.v * L.tile - keep.fy)
     }
     this.schedule()
+  }
+
+  /** Select mode on (a Set of the selected ids, drawn with a check) or off (null). Taps then
+   *  go to `onToggle` instead of opening or zooming. */
+  setSelection(ids) {
+    this.selection = ids
+    for (const layer of [this.current, this.session?.from]) layer?.redraw(layer.rows.keys())
   }
 
   /** A photo changed (favourite): draw its row again. */
@@ -925,6 +973,11 @@ export class PhotoGrid {
     this.onClick = e => {
       const i = this.indexAt(e.clientX, e.clientY)
       if (i < 0) return
+      if (this.selection) {
+        if (!this.dragMoved) this.opts.onToggle?.(i, e)
+        this.dragMoved = false
+        return
+      }
       const to = this.tapLevel()
       if (to !== null) this.zoomTo(to, ...local(e.clientX, e.clientY))
       else this.opts.onOpen?.(i)
@@ -934,6 +987,33 @@ export class PhotoGrid {
       if (i < 0) return
       e.preventDefault()
       this.opts.onMenu?.(i, { clientX: e.clientX, clientY: e.clientY })
+    }
+
+    // Select mode with a mouse: pressing on a photo and dragging selects (or, starting on a
+    // selected one, deselects) every photo between it and the pointer, like dragging in the app.
+    this.onPointerDown = e => {
+      this.dragMoved = false
+      if (!this.selection || e.pointerType !== 'mouse' || e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey) return
+      const i = this.indexAt(e.clientX, e.clientY)
+      if (i < 0) return
+      this.drag = { from: i, to: i }
+      window.addEventListener('pointermove', this.onPointerMove)
+      window.addEventListener('pointerup', this.onPointerUp)
+    }
+    this.onPointerMove = e => {
+      const d = this.drag
+      if (!d) return
+      const i = this.indexAt(e.clientX, e.clientY)
+      if (i < 0 || i === d.to) return
+      d.to = i
+      const first = !this.dragMoved
+      this.dragMoved = true
+      this.opts.onDrag?.(d.from, i, first)
+    }
+    this.onPointerUp = () => {
+      this.drag = null
+      window.removeEventListener('pointermove', this.onPointerMove)
+      window.removeEventListener('pointerup', this.onPointerUp)
     }
 
     // Trackpad pinch: Chrome and Firefox send it as wheel events with ctrlKey.
@@ -988,6 +1068,7 @@ export class PhotoGrid {
     }
 
     el.addEventListener('click', this.onClick)
+    el.addEventListener('pointerdown', this.onPointerDown)
     el.addEventListener('contextmenu', this.onContext)
     el.addEventListener('wheel', this.onWheel, { passive: false })
     el.addEventListener('gesturestart', this.onGestureStart)
@@ -1000,6 +1081,8 @@ export class PhotoGrid {
     const el = this.scroller
     el.removeEventListener('scroll', this.onScroll)
     el.removeEventListener('click', this.onClick)
+    el.removeEventListener('pointerdown', this.onPointerDown)
+    this.onPointerUp()
     el.removeEventListener('contextmenu', this.onContext)
     el.removeEventListener('wheel', this.onWheel)
     el.removeEventListener('gesturestart', this.onGestureStart)
