@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted } from 'vue'
+import PdfViewer from '@ui/PdfViewer.vue'
 
 const props = defineProps({
   filename: String,
@@ -10,6 +11,7 @@ const props = defineProps({
 const isImage = computed(() => props.contentType?.startsWith('image/'))
 const isVideo = computed(() => props.contentType?.startsWith('video/'))
 const isAudio = computed(() => props.contentType?.startsWith('audio/'))
+const isPdf = computed(() => props.contentType === 'application/pdf' || /\.pdf$/i.test(props.filename || ''))
 
 onMounted(() => { document.title = props.filename })
 onUnmounted(() => { document.title = 'Shared · TPCloud' })
@@ -20,6 +22,7 @@ onUnmounted(() => { document.title = 'Shared · TPCloud' })
     <img v-if="isImage" :src="fileUrl" :alt="filename" class="viewer-img" />
     <video v-else-if="isVideo" :src="fileUrl" controls autoplay class="viewer-video" />
     <audio v-else-if="isAudio" :src="fileUrl" controls autoplay class="viewer-audio" />
+    <PdfViewer v-else-if="isPdf" :url="fileUrl" />
     <iframe v-else :src="fileUrl" class="viewer-frame" />
   </div>
 </template>
