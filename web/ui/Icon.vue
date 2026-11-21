@@ -51,6 +51,11 @@ const paths = {
   terminal: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="m7.5 9.5 3 2.5-3 2.5M12.5 15h4"/>',
   faceid: '<path d="M4 8.5V6.5A2.5 2.5 0 0 1 6.5 4h2M15.5 4h2A2.5 2.5 0 0 1 20 6.5v2M20 15.5v2a2.5 2.5 0 0 1-2.5 2.5h-2M8.5 20h-2A2.5 2.5 0 0 1 4 17.5v-2M9 9.5v1.5M15 9.5v1.5M12 9.5v3.5h-1M9.5 16a3.5 3.5 0 0 0 5 0"/>',
   refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3l2.2 2.1"/><path d="M19.5 4.5v4.3h-4.3"/>',
+  sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15M5.8 8h1.6M5.8 11h1.6M5.8 14h1.6"/>',
+  magnifyingglass: '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/>',
+  download: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
+  list: '<path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01"/>',
+  pages: '<rect x="4" y="3.5" width="10" height="13" rx="1.8"/><path d="M10 7.5h7.2a1.8 1.8 0 0 1 1.8 1.8v9.4a1.8 1.8 0 0 1-1.8 1.8H11.8a1.8 1.8 0 0 1-1.8-1.8"/>',
 }
 
 const props = defineProps({

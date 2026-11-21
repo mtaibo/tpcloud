@@ -23,7 +23,7 @@ onUnmounted(() => { document.title = t('Files · TPCloud', 'Archivos · TPCloud'
     <img v-if="isImage" :src="fileUrl" :alt="filename" class="viewer-img" />
     <video v-else-if="isVideo" :src="fileUrl" controls autoplay class="viewer-video" />
     <audio v-else-if="isAudio" :src="fileUrl" controls autoplay class="viewer-audio" />
-    <PdfViewer v-else-if="isPdf" :url="fileUrl" />
+    <PdfViewer v-else-if="isPdf" :url="fileUrl" :name="filename" />
     <iframe v-else :src="fileUrl" class="viewer-frame" />
   </div>
 </template>

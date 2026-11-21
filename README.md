@@ -58,9 +58,9 @@ My replacement for Google Drive and iCloud Photos, on my own disk: file operatio
 <td width="50%" valign="top">
 
 ### 🔑 [`web/`](web/)
-Every web app, drawn after iOS (grouped lists, large titles, sheets, light and dark) from one shared [`web/ui`](web/ui/): `login`, `accounts` (profile, passkeys, 2FA, devices, activity, users for admins), `cloud` (the dashboard), `store` (a Finder-like file browser), `photos` (the gallery), `share` (public share links) and `home` (the house's control panel, with a live floor plan).
+Every web app, drawn after iOS (grouped lists, large titles, sheets, light and dark) from one shared [`web/ui`](web/ui/): `login`, `accounts` (profile, passkeys, 2FA, devices, activity, users for admins), `cloud` (the dashboard), `store` (a Finder-like file browser, with its own PDF viewer: selectable text, search, thumbnails, the outline and pinch zoom, the same in every browser), `photos` (the gallery), `share` (public share links) and `home` (the house's control panel, with a live floor plan).
 
-**Vue 3 · Vite · served by the gateway**
+**Vue 3 · Vite · pdf.js · served by the gateway**
 
 </td>
 </tr>

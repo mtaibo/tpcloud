@@ -3,13 +3,14 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ChevronLeft, ChevronRight, Download, ExternalLink, Eye, FolderDown, ImageDown, LayoutGrid, List, MoreHorizontal } from 'lucide-vue-next'
 import Spinner from '@ui/Spinner.vue'
 import { openMenu } from '../menu.js'
-import { kindName } from '../fileTypes.js'
+import { kindName, kindOf } from '../fileTypes.js'
 import { formatDate, formatSize } from '../utils/formatSize.js'
 import { canSaveToPhotos, downloadLink, isMedia, isVideo, shareFileUrls } from '../media.js'
 import { vLongPress } from '../longPress.js'
 import FileIcon from './FileIcon.vue'
 import ShareGalleryThumb from './ShareGalleryThumb.vue'
 import MediaViewer from './MediaViewer.vue'
+import PdfViewer from '@ui/PdfViewer.vue'
 import SaveToPhotos from './SaveToPhotos.vue'
 
 // A shared folder as its visitors see it: the folder up top with what they can do with it,
@@ -34,6 +35,7 @@ const history = ref([''])
 const historyIndex = ref(0)
 
 const viewerIndex = ref(null)
+const pdfEntry = ref(null) // a PDF open in TPCloud's own viewer
 const saveItems = ref(null)
 
 const rootLabel = computed(() => props.shareInfo?.label || props.token)
@@ -115,6 +117,7 @@ function back() {
 function activate(entry) {
   if (entry.type === 'directory') return openFolder(entry)
   if (isMedia(entry)) viewerIndex.value = media.value.indexOf(entry)
+  else if (kindOf(entry) === 'pdf') pdfEntry.value = { entry, url: urls.view(entry) }
   else openInTab(entry)
 }
 
@@ -198,7 +201,7 @@ function onPress(entry, point) {
 function onScroll(e) { scrolled.value = e.target.scrollTop > 60 }
 
 function onKey(e) {
-  if (viewerIndex.value !== null || saveItems.value || document.querySelector('.menu')) return
+  if (viewerIndex.value !== null || pdfEntry.value || saveItems.value || document.querySelector('.menu')) return
   if ((e.key === 'Backspace' || (e.metaKey && e.key === 'ArrowUp')) && parentPath.value !== null) back()
 }
 
@@ -349,6 +352,14 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
       </div>
     </main>
 
+    <PdfViewer
+      v-if="pdfEntry"
+      :key="pdfEntry.url"
+      :url="pdfEntry.url"
+      :name="pdfEntry.entry.name"
+      :on-close="() => (pdfEntry = null)"
+      :on-download="() => download(pdfEntry.entry)"
+    />
     <MediaViewer
       v-if="viewerIndex !== null"
       :items="media"

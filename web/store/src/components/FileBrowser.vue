@@ -20,6 +20,7 @@ import {
 import ItemIcon from './ItemIcon.vue'
 import FileIcon from './FileIcon.vue'
 import QuickLook from './QuickLook.vue'
+import PdfViewer from '@ui/PdfViewer.vue'
 import { shareMediaUrls, storeMediaUrls } from '../mediaUrls.js'
 import MoveSheet from './MoveSheet.vue'
 import ShareSheet from './ShareSheet.vue'
@@ -54,6 +55,7 @@ const moveMode = ref('move')
 const shareEntry = ref(null)
 const iconEntry = ref(null)
 const lookEntry = ref(null)
+const pdfEntry = ref(null) // a PDF open in TPCloud's own viewer
 
 // Browsing inside a share link from the Compartido folder
 const shareMode = ref(null) // { token, label, path, history, historyIndex } | null
@@ -332,6 +334,10 @@ async function viewItem(entry) {
     lookEntry.value = entry
     return
   }
+  if (kindOf(entry) === 'pdf') {
+    pdfEntry.value = { entry, url: viewSrc(entry) }
+    return
+  }
   if (shareMode.value) {
     window.open(viewSrc(entry), '_blank')
     return
@@ -441,7 +447,7 @@ function iconColumns() {
 }
 
 function onKey(e) {
-  if (lookEntry.value || document.querySelector('.overlay, .menu')) return
+  if (lookEntry.value || pdfEntry.value || document.querySelector('.overlay, .menu')) return
   if (e.target.closest?.('input, textarea')) {
     if (e.key === 'Escape') { query.value = ''; e.target.blur() }
     return
@@ -1047,6 +1053,14 @@ onUnmounted(() => {
       <span class="status">{{ status }}</span>
     </footer>
 
+    <PdfViewer
+      v-if="pdfEntry"
+      :key="pdfEntry.url"
+      :url="pdfEntry.url"
+      :name="pdfEntry.entry.name"
+      :on-close="() => (pdfEntry = null)"
+      :on-download="() => downloadItem(pdfEntry.entry)"
+    />
     <QuickLook
       v-if="lookEntry"
       :items="media"
