@@ -73,12 +73,15 @@ fn spawn(service: &Service) -> Result<Child> {
     cmd.spawn().with_context(|| format!("starting {}", service.name))
 }
 
-fn prepare() -> Result<()> {
+fn prepare(settings: &Settings) -> Result<()> {
     let state = paths::state_dir();
     for dir in ["data/auth", "data/store", "home/db/firmwares", "home/mosquitto", "gateway-extra", "caddy", "logs", "run"] {
         std::fs::create_dir_all(state.join(dir))?;
     }
     std::fs::write(state.join("run/mosquitto.conf"), services::mosquitto_conf())?;
+    // The gateway's other addresses and the tunnel's ingress come from the settings too.
+    crate::network::write_sites(settings)?;
+    crate::cloudflare::write_config(settings)?;
     // Owners and permissions (Mosquitto, started as root, drops to `nobody` and keeps its
     // database in home/mosquitto; auth and home-api run as `tpcloud`).
     crate::harden::secure_state();
@@ -126,8 +129,8 @@ pub fn serve() -> Result<()> {
         libc::signal(libc::SIGTERM, on_signal as libc::sighandler_t);
         libc::signal(libc::SIGINT, on_signal as libc::sighandler_t);
     }
-    prepare()?;
     let settings = Settings::load();
+    prepare(&settings)?;
     let mut running: Vec<Running> = services::plan(&settings)
         .into_iter()
         .map(|service| Running {
@@ -161,6 +164,8 @@ pub fn serve() -> Result<()> {
             }
         }
     });
+
+    let announcement = crate::discovery::announce(&settings);
 
     let mut last_status = Instant::now() - Duration::from_secs(60);
     while !STOPPING.load(Ordering::SeqCst) {
@@ -207,6 +212,8 @@ pub fn serve() -> Result<()> {
     }
 
     println!("tpcloud: stopping");
+    // Gone from the local network first, so no app tries it while it stops.
+    drop(announcement);
     // The gateway and tunnel first, so nothing new comes in while the rest stops.
     for r in running.iter_mut().rev() {
         if let Some(child) = r.child.as_mut() {

@@ -7,6 +7,7 @@
 //! - `APP_DIR`, `STATE_DIR`, `BIN_DIR`: where the runtime, the state and the command live.
 //! - `service`: install, enable, start, stop, restart the background service and ask if it runs.
 //! - `accounts`: the `tpcloud` group and system user, and adding a person to the group.
+//! - `discovery`: whether the OS has its own mDNS responder, and announcing a service through it.
 
 #[cfg(target_os = "linux")]
 mod linux;

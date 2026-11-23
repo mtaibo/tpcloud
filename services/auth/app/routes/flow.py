@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlmodel import Session as DBSession
 
-from config import NEXT_COOKIE, PUBLIC_URL
+from config import NEXT_COOKIE
 from database import get_session
 from dependencies import _get_db_session_and_user
 from security import clear_cookie, safe_path, set_session_cookie, set_short_cookie
@@ -18,7 +18,9 @@ NEXT_COOKIE_AGE = 15 * 60
 def redirect_to_login(next_path: str | None) -> RedirectResponse:
     """To the login page at its plain address, remembering where to come back to in a cookie
     instead of in the URL."""
-    response = RedirectResponse(url=f"{PUBLIC_URL}/login", status_code=302)
+    # Relative: whichever of the network's addresses the page was opened on, the login is there
+    # too (the session cookie belongs to that host).
+    response = RedirectResponse(url="/login", status_code=302)
     path = safe_path(next_path)
     if path != "/":
         set_short_cookie(response, NEXT_COOKIE, path, NEXT_COOKIE_AGE)

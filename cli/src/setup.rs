@@ -62,10 +62,6 @@ pub fn lan_ip() -> Option<String> {
     Some(socket.local_addr().ok()?.ip().to_string())
 }
 
-fn hostname() -> String {
-    std::fs::read_to_string("/etc/hostname").map(|h| h.trim().to_string()).ok().filter(|h| !h.is_empty()).unwrap_or_else(|| "tpcloud".into())
-}
-
 fn read_line() -> Result<String> {
     let mut line = String::new();
     if std::io::stdin().lock().read_line(&mut line)? == 0 {
@@ -193,47 +189,83 @@ pub fn run() -> Result<()> {
     let store = ask_yes("Store (files, photo backup from the app, share links)?", first || modules.iter().any(|m| m == "store"))?;
     let home = ask_yes("Home (blinds and lights with tphome's switches)?", modules.iter().any(|m| m == "home"))?;
 
-    heading("How you'll reach it");
-    let host = hostname();
+    let host = format!("{}.local", network::host_label());
     let was = current("TPCLOUD_URL");
-    let default_access = if !current("TUNNEL_TOKEN").is_empty() { 2 } else if was.ends_with(".local") { 0 } else if was.contains(".ts.net") { 1 } else if first { 0 } else { 3 };
-    let access = choose(
-        "From where?",
-        &[
-            ("Only at home", &format!("https://{host}.local, on this network")),
-            ("Anywhere, privately", "with Tailscale (installed and signed in on this machine)"),
-            ("Your domain, through Cloudflare", "a Cloudflare Tunnel, no ports opened"),
-            ("Your domain, with an open port", "port 443 forwarded to this machine"),
-        ],
-        default_access,
-    )?;
-    let (url, site, tls, https_publish, mut tunnel_token) = match access {
-        0 => (format!("https://{host}.local"), format!("https://{host}.local"), "internal", "443", String::new()),
-        1 => {
-            let name = tailscale_name()?;
-            (format!("https://{name}"), ":80".into(), "none", "", String::new())
-        }
-        _ => {
-            let domain = ask("Address (e.g. cloud.example.com)", was.trim_start_matches("https://"))?;
-            let domain = domain.trim_start_matches("https://").trim_end_matches('/').to_string();
-            if access == 2 {
-                (format!("https://{domain}"), format!("http://{domain}"), "none", "", current("TUNNEL_TOKEN"))
-            } else {
-                (format!("https://{domain}"), domain.clone(), "none", "443", String::new())
+    let (url, site, tls, https_publish, reach) = loop {
+        heading("At home");
+        println!("  {}", ui::dim(&format!("On this network the apps find it by themselves, at https://{host}, with this machine's")));
+        println!("  {}", ui::dim("own certificate (the apps trust it when they add the network)."));
+        let local = ask_yes("Answer on this network?", first || current(network::LOCAL) == "on")?;
+        let mut local_names = String::new();
+        if local {
+            println!("  {}", ui::dim("If your router's DNS gives this machine a name of its own (e.g. cloud.casa), type it; - for none."));
+            let was_names = current(network::LOCAL_NAMES);
+            let answer = ask("Other name", if was_names.is_empty() { "-" } else { &was_names })?;
+            if answer != "-" {
+                local_names = answer.split(',').map(|n| n.trim().trim_start_matches("https://").trim_end_matches('/').to_lowercase()).filter(|n| !n.is_empty()).collect::<Vec<_>>().join(",");
             }
         }
+
+        heading("From outside");
+        let ts = ask_yes("Through Tailscale (private: only your tailnet's devices)?", !current(network::TAILSCALE).is_empty() || was.contains(".ts.net"))?;
+        let ts_name = if ts { Some(tailscale_name()?) } else { None };
+        let had_domain = !current(network::TUNNEL_HOSTNAME).is_empty() || !current("TUNNEL_TOKEN").is_empty() || (!first && !was.contains(".ts.net") && !was.ends_with(".local") && !was.is_empty());
+        let default_domain = if !current(network::TUNNEL_HOSTNAME).is_empty() || !current("TUNNEL_TOKEN").is_empty() { 1 } else if had_domain { 2 } else { 0 };
+        let domain_mode = choose(
+            "At your own domain?",
+            &[
+                ("No", ""),
+                ("Through Cloudflare", "a tunnel, no ports opened; you sign in to Cloudflare once"),
+                ("With an open port", "port 443 forwarded to this machine"),
+            ],
+            default_domain,
+        )?;
+        let mut domain = String::new();
+        let mut tunnel = TunnelChoice::None;
+        if domain_mode > 0 {
+            let was_domain = if was.contains(".ts.net") || was.ends_with(".local") { String::new() } else { was.trim_start_matches("https://").to_string() };
+            let answer = ask("Address (e.g. cloud.example.com)", &was_domain)?;
+            domain = answer.trim_start_matches("https://").trim_end_matches('/').to_lowercase();
+            if !domain.contains('.') {
+                ui::warn("That needs to be a full address, like cloud.example.com.");
+                continue;
+            }
+        }
+        if domain_mode == 1 {
+            let managed = !current(network::TUNNEL_ID).is_empty() && crate::cloudflare::credentials().exists();
+            tunnel = if !managed && !current("TUNNEL_TOKEN").is_empty() {
+                match choose(
+                    "Which tunnel?",
+                    &[
+                        ("The one you have", "made in Cloudflare's dashboard, its token already here"),
+                        ("A new one", "made from here, after signing in to Cloudflare"),
+                    ],
+                    0,
+                )? {
+                    0 => TunnelChoice::Token,
+                    _ => TunnelChoice::Managed,
+                }
+            } else {
+                TunnelChoice::Managed
+            };
+        }
+        if !local && ts_name.is_none() && domain.is_empty() {
+            ui::warn("Then nothing could reach it: pick at least one.");
+            continue;
+        }
+
+        // The main address (links, sign-in, passkeys): the domain, else Tailscale's, else home's.
+        let choice = if domain_mode == 1 {
+            (format!("https://{domain}"), format!("http://{domain}"), "none", "")
+        } else if domain_mode == 2 {
+            (format!("https://{domain}"), domain.clone(), "none", "443")
+        } else if let Some(name) = &ts_name {
+            (format!("https://{name}"), format!("https://{name}"), "none", "443")
+        } else {
+            (format!("https://{host}"), format!("https://{host}"), "internal", "443")
+        };
+        break (choice.0, choice.1, choice.2, choice.3, Reach { local, local_names, ts_name, domain, tunnel });
     };
-    if access == 2 {
-        println!("  {}", ui::dim("Cloudflare → Zero Trust → Networks → Tunnels → create one, copy its token,"));
-        println!("  {}", ui::dim("and point its public hostname at HTTP localhost:8080."));
-        let token = ask_secret(if tunnel_token.is_empty() { "Tunnel token" } else { "Tunnel token (enter keeps the current one)" })?;
-        if !token.is_empty() {
-            tunnel_token = token;
-        }
-        if tunnel_token.is_empty() {
-            bail!("a tunnel needs its token");
-        }
-    }
 
     let need_owner = first || users::count().unwrap_or(0) == 0;
     let mut owner = None;
@@ -272,12 +304,47 @@ pub fn run() -> Result<()> {
     if home {
         module_list.push("home".to_string());
     }
-    if access == 2 {
+    if !matches!(reach.tunnel, TunnelChoice::None) {
         profiles.push("tunnel".into());
     }
     let set = |k: &str, v: &str| envfile::set(&env, k, v);
     set(network::NAME, &network_name)?;
     network::ensure(&env)?;
+    // The tunnel first: it's the step that can fail (a sign-in left halfway, a taken name), and
+    // then nothing else has changed.
+    match reach.tunnel {
+        TunnelChoice::Managed => {
+            heading("Cloudflare");
+            let id = current(network::ID);
+            crate::cloudflare::login()?;
+            let tunnel_id = crate::cloudflare::create(&format!("tpcloud-{}", &id[..id.len().min(8)]), Some(&current(network::TUNNEL_ID)))?;
+            // A domain the sign-in didn't pick fails here: forget that sign-in, so the next setup asks
+            // for the right one.
+            let routed = crate::cloudflare::route(&tunnel_id, &reach.domain, false).map_err(|err| {
+                crate::cloudflare::logout();
+                err.context("sign in again picking that address's domain (run setup again)")
+            })?;
+            match routed {
+                crate::cloudflare::Route::Done => {}
+                crate::cloudflare::Route::Taken => {
+                    if !ask_yes(&format!("{} already points somewhere else. Point it at this machine instead?", reach.domain), false)? {
+                        bail!("{} was left as it was: run setup again with another address", reach.domain);
+                    }
+                    crate::cloudflare::route(&tunnel_id, &reach.domain, true)?;
+                }
+            }
+            set(network::TUNNEL_ID, &tunnel_id)?;
+            set(network::TUNNEL_HOSTNAME, &reach.domain)?;
+            ui::done(&format!("Tunnel ready: {} → this machine.", reach.domain));
+        }
+        TunnelChoice::Token | TunnelChoice::None => {
+            // A token tunnel keeps its ingress in Cloudflare's dashboard; nothing of ours to run.
+            set(network::TUNNEL_HOSTNAME, "")?;
+        }
+    }
+    set(network::LOCAL, if reach.local { "on" } else { "off" })?;
+    set(network::LOCAL_NAMES, &reach.local_names)?;
+    set(network::TAILSCALE, reach.ts_name.as_deref().unwrap_or(""))?;
     set("TPCLOUD_URL", &url)?;
     set("TPCLOUD_SITE", &site)?;
     set("TPCLOUD_TLS", tls)?;
@@ -287,9 +354,6 @@ pub fn run() -> Result<()> {
     envfile::set_list(&env, "COMPOSE_PROFILES", &profiles)?;
     set("EXTERNAL_DISK_PATH", &storage)?;
     set("TPCLOUD_BACKUP_DIR", &backup_dir)?;
-    if !tunnel_token.is_empty() {
-        set("TUNNEL_TOKEN", &tunnel_token)?;
-    }
     if home {
         let home_env = paths::home_env_file();
         if !home_env.exists() {
@@ -299,27 +363,54 @@ pub fn run() -> Result<()> {
         install::restrict(&home_env)?;
     }
     install::sync_links()?;
-    if access == 1 {
-        let status = std::process::Command::new("tailscale").args(["serve", "--bg", "--https=443", "http://127.0.0.1:8080"]).status();
-        if !status.map(|s| s.success()).unwrap_or(false) {
-            ui::warn("Couldn't run `tailscale serve`: turn HTTPS on for your tailnet and run `tailscale serve --bg --https=443 http://127.0.0.1:8080`.");
-        }
+    if reach.ts_name.is_some() {
+        // The gateway answers on Tailscale itself now; a `tailscale serve` on 443 from an older
+        // setup would take the port from it.
+        let _ = std::process::Command::new("tailscale")
+            .args(["serve", "--https=443", "off"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
     if let Some((email, password)) = owner {
         users::create_owner(&email, &password)?;
     }
     ui::done(&format!("Saved. TPCloud will answer at {}.", ui::accent(&url)));
+    let others: Vec<String> = network::addresses(&crate::services::Settings::load()).into_iter().filter(|a| *a != url).collect();
+    if !others.is_empty() {
+        println!("  {}", ui::dim(&format!("And at {}.", others.join(", "))));
+    }
     if !backup_dir.is_empty() {
         println!("  {}", ui::dim(&format!("Backups: every night to {} (`sudo tpcloud backup` makes one now).", backup_dir)));
     }
-    if access == 0 {
-        println!("  {}", ui::dim("Each device has to trust this machine's certificate once: Caddy's local authority, in"));
-        println!("  {}", ui::dim(&format!("{}", paths::state_dir().join("caddy/data/caddy/pki/authorities/local/root.crt").display())));
+    if reach.local {
+        println!("  {}", ui::dim("The apps trust this machine's certificate by themselves. A browser at home has to trust it"));
+        println!("  {}", ui::dim(&format!("once: download it from https://{host}/auth/network/ca.crt and add it to the system's certificates.")));
+    }
+    if reach.ts_name.is_some() {
+        println!("  {}", ui::dim("Tailscale gives the certificate: MagicDNS and HTTPS have to be on for your tailnet."));
     }
     if home {
         println!("  {}", ui::dim(&format!("Home's switches will find this machine at {} (MQTT on port 1883).", lan_ip().unwrap_or_default())));
     }
     Ok(())
+}
+
+/// Where the setup's answers say the network should answer.
+struct Reach {
+    local: bool,
+    local_names: String,
+    ts_name: Option<String>,
+    domain: String,
+    tunnel: TunnelChoice,
+}
+
+enum TunnelChoice {
+    None,
+    /// A tunnel made by hand in Cloudflare's dashboard, run from the token already in the settings.
+    Token,
+    /// One made from the setup in the owner's account.
+    Managed,
 }
 
 fn tailscale_name() -> Result<String> {

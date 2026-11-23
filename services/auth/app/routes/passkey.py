@@ -7,7 +7,7 @@ from database import get_session
 from sqlmodel import Session as DBSession, select
 from models import PasskeyCredential, Session as SessionModel, User
 
-from config import MODULES, ORIGIN, RP_ID
+from config import MODULES, ORIGINS, RP_ID
 from routes.flow import redirect_to_login
 from security import ExpiringDict, clear_session_cookie, ip_failures, session_token, set_session_cookie
 from sessions import start_session
@@ -115,7 +115,7 @@ def login_complete(
             credential=request_body,
             expected_challenge=challenge,
             expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
+            expected_origin=ORIGINS,
             credential_public_key=b64url_decode(stored_credential.public_key),
             credential_current_sign_count=0,
             require_user_verification=True,

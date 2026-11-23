@@ -3,6 +3,7 @@
 //! in tpcloud.env; auth hands them out at /.well-known/tpcloud with the addresses and, for local
 //! addresses, the fingerprint of the host's own certificate authority.
 
+use crate::services::Settings;
 use crate::{envfile, paths};
 use anyhow::{Context, Result};
 use std::io::Read;
@@ -10,6 +11,18 @@ use std::path::{Path, PathBuf};
 
 pub const ID: &str = "TPCLOUD_NETWORK_ID";
 pub const NAME: &str = "TPCLOUD_NETWORK_NAME";
+/// `on`: also answer at home, on https://<hostname>.local (and LOCAL_NAMES) with the host's own
+/// certificate authority, announced on the network. Hosts from before 0.4 get `off` (it takes
+/// port 443), new ones choose in the setup.
+pub const LOCAL: &str = "TPCLOUD_LOCAL";
+/// More names for the local site, e.g. one set in the router's DNS (cloud.casa).
+pub const LOCAL_NAMES: &str = "TPCLOUD_LOCAL_NAMES";
+/// This machine's Tailscale name (host.tailnet.ts.net); the gateway answers there itself, with
+/// the certificate Tailscale gives it.
+pub const TAILSCALE: &str = "TPCLOUD_TAILSCALE";
+/// A tunnel the setup made in the owner's Cloudflare account: its id and public hostname.
+pub const TUNNEL_ID: &str = "TPCLOUD_TUNNEL_ID";
+pub const TUNNEL_HOSTNAME: &str = "TPCLOUD_TUNNEL_HOSTNAME";
 
 /// Gives the settings an id and a name if they have none (a new host, or one set up before 0.4).
 /// The id is never replaced once there.
@@ -20,6 +33,109 @@ pub fn ensure(env: &Path) -> Result<()> {
     if envfile::get(env, NAME).map_or(true, |v| v.is_empty()) {
         envfile::set(env, NAME, &default_name())?;
     }
+    if envfile::get(env, LOCAL).is_none() {
+        // Already local-only before 0.4: that's the local site, keep it.
+        let was_local = envfile::get(env, "TPCLOUD_TLS").as_deref() == Some("internal");
+        envfile::set(env, LOCAL, if was_local { "on" } else { "off" })?;
+    }
+    Ok(())
+}
+
+/// The machine's name as a local address label: lowercase letters, digits and dashes.
+pub fn host_label() -> String {
+    let name: String = default_name()
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let name = name.trim_matches('-').to_string();
+    if name.is_empty() { "tpcloud".into() } else { name }
+}
+
+fn host_of(url_or_site: &str) -> &str {
+    let rest = url_or_site.split_once("://").map_or(url_or_site, |(_, r)| r);
+    let rest = rest.split('/').next().unwrap_or(rest);
+    rest.rsplit_once(':').filter(|(_, p)| p.chars().all(|c| c.is_ascii_digit())).map_or(rest, |(h, _)| h)
+}
+
+fn push(list: &mut Vec<String>, item: String) {
+    if !item.is_empty() && !list.contains(&item) {
+        list.push(item);
+    }
+}
+
+/// The names of the local site: <hostname>.local first (the one announced on the network), then
+/// any the owner set in their own DNS. Empty when the local site is off.
+pub fn local_names(s: &Settings) -> Vec<String> {
+    let mut names = Vec::new();
+    if s.get(LOCAL) != Some("on") {
+        return names;
+    }
+    push(&mut names, format!("{}.local", host_label()));
+    for name in s.list(LOCAL_NAMES) {
+        push(&mut names, host_of(&name).to_lowercase());
+    }
+    names
+}
+
+/// Every address the network answers on, the main one (TPCLOUD_URL) first: the tunnel's, then
+/// Tailscale's, then the local ones, then any set by hand. What the network card lists.
+pub fn addresses(s: &Settings) -> Vec<String> {
+    let mut list = Vec::new();
+    push(&mut list, s.get("TPCLOUD_URL").unwrap_or("").trim_end_matches('/').to_string());
+    if let Some(host) = s.get(TUNNEL_HOSTNAME) {
+        push(&mut list, format!("https://{host}"));
+    }
+    if let Some(host) = s.get(TAILSCALE) {
+        push(&mut list, format!("https://{host}"));
+    }
+    for name in local_names(s) {
+        push(&mut list, format!("https://{name}"));
+    }
+    for extra in s.list("TPCLOUD_ADDRESSES") {
+        push(&mut list, extra.trim_end_matches('/').to_string());
+    }
+    list
+}
+
+/// Caddy sites for the addresses beyond the main one (TPCLOUD_SITE), all serving the same
+/// TPCloud: the local names with the host's own authority, Tailscale's name with Tailscale's
+/// certificate. Written to run/caddy-sites/ before the gateway starts.
+pub fn extra_sites(s: &Settings) -> String {
+    let main = host_of(s.get("TPCLOUD_SITE").unwrap_or("")).to_lowercase();
+    let main_is_https = s.get("TPCLOUD_SITE").is_some_and(|site| !site.starts_with("http://") && !site.starts_with(':'));
+    let taken = |host: &str| main_is_https && host == main;
+    let mut out = String::from("# Written by `tpcloud serve` from the settings on every start: don't edit.\n");
+    let local: Vec<String> = local_names(s).into_iter().filter(|n| !taken(n)).map(|n| format!("https://{n}")).collect();
+    if !local.is_empty() {
+        out.push_str(&format!("\n{} {{\n\tbind 0.0.0.0\n\ttls internal\n\timport tpcloud\n}}\n", local.join(", ")));
+    }
+    if let Some(host) = s.get(TAILSCALE).filter(|h| !taken(h)) {
+        out.push_str(&format!("\nhttps://{host} {{\n\tbind 0.0.0.0\n\timport tpcloud\n}}\n"));
+    }
+    // The tunnel delivers to the plain-HTTP site: there must be one even when the main site is
+    // an HTTPS one.
+    if main_is_https && s.tunnel().is_some() {
+        let origin = crate::services::http_origin(s);
+        let hostport = origin.trim_start_matches("http://");
+        let (host, port) = hostport.rsplit_once(':').unwrap_or((hostport, "8080"));
+        out.push_str(&format!("\nhttp://:{port} {{\n\tbind {host}\n\timport tpcloud\n}}\n"));
+    }
+    out
+}
+
+pub fn caddy_sites_dir() -> PathBuf {
+    paths::state_dir().join("run/caddy-sites")
+}
+
+/// Writes the gateway's extra sites (see `extra_sites`).
+pub fn write_sites(s: &Settings) -> Result<()> {
+    let dir = caddy_sites_dir();
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("tpcloud.caddy"), extra_sites(s))?;
     Ok(())
 }
 
@@ -76,6 +192,59 @@ pub fn publish_ca() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    fn settings(pairs: &[(&str, &str)]) -> Settings {
+        Settings { cloud: pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), home: BTreeMap::new() }
+    }
+
+    #[test]
+    fn hosts() {
+        assert_eq!(host_of("https://cloud.example.com/"), "cloud.example.com");
+        assert_eq!(host_of("http://cloud.example.com:8080"), "cloud.example.com");
+        assert_eq!(host_of("tphome.local"), "tphome.local");
+        assert_eq!(host_of(":80"), "");
+    }
+
+    #[test]
+    fn pi_like_tunnel_only() {
+        let s = settings(&[("TPCLOUD_URL", "https://cloud.example.com"), ("TPCLOUD_SITE", "http://cloud.example.com"), (LOCAL, "off")]);
+        assert_eq!(addresses(&s), vec!["https://cloud.example.com"]);
+        assert!(!extra_sites(&s).contains("import tpcloud"));
+    }
+
+    #[test]
+    fn tunnel_plus_local_plus_tailscale() {
+        let s = settings(&[
+            ("TPCLOUD_URL", "https://cloud.example.com"),
+            ("TPCLOUD_SITE", "http://cloud.example.com"),
+            (TUNNEL_HOSTNAME, "cloud.example.com"),
+            (TAILSCALE, "box.tail1.ts.net"),
+            (LOCAL, "on"),
+            (LOCAL_NAMES, "cloud.casa, https://cloud.casa/"),
+        ]);
+        let local = format!("https://{}.local", host_label());
+        assert_eq!(addresses(&s), vec!["https://cloud.example.com".to_string(), "https://box.tail1.ts.net".into(), local.clone(), "https://cloud.casa".into()]);
+        let sites = extra_sites(&s);
+        assert!(sites.contains(&format!("{local}, https://cloud.casa {{\n\tbind 0.0.0.0\n\ttls internal")), "{sites}");
+        assert!(sites.contains("https://box.tail1.ts.net {\n\tbind 0.0.0.0\n\timport tpcloud"), "{sites}");
+    }
+
+    #[test]
+    fn a_tunnel_always_has_its_plain_site() {
+        let s = settings(&[("TPCLOUD_SITE", "https://box.local"), ("TPCLOUD_TLS", "internal"), ("COMPOSE_PROFILES", "tunnel"), ("TUNNEL_TOKEN", "t")]);
+        assert!(extra_sites(&s).contains("http://:8080 {\n\tbind 127.0.0.1\n\timport tpcloud"), "{}", extra_sites(&s));
+        let s = settings(&[("TPCLOUD_SITE", "http://cloud.example.com"), ("COMPOSE_PROFILES", "tunnel"), ("TUNNEL_TOKEN", "t")]);
+        assert!(!extra_sites(&s).contains("http://:"));
+    }
+
+    #[test]
+    fn local_only_main_site_isnt_repeated() {
+        let local = format!("{}.local", host_label());
+        let s = settings(&[("TPCLOUD_URL", &format!("https://{local}")), ("TPCLOUD_SITE", &format!("https://{local}")), ("TPCLOUD_TLS", "internal"), (LOCAL, "on")]);
+        assert_eq!(addresses(&s), vec![format!("https://{local}")]);
+        assert!(!extra_sites(&s).contains("import tpcloud"));
+    }
 
     #[test]
     fn uuid_is_version_4() {

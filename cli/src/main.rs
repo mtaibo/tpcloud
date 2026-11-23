@@ -3,6 +3,8 @@
 //! terminal app; called as `tphome` (a link made while Home is on), it controls the house.
 
 mod backup;
+mod cloudflare;
+mod discovery;
 mod envfile;
 mod harden;
 mod home;

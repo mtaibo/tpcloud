@@ -8,7 +8,7 @@ from sqlmodel import Session as DBSession, select
 
 from database import get_session
 from dependencies import require_login
-from config import ORIGIN, RP_ID, RP_NAME
+from config import ORIGINS, RP_ID, RP_NAME
 from models import LoginEvent, PasskeyCredential, Session as SessionModel, User
 from security import ExpiringDict, session_token, user_failures
 from sessions import session_json
@@ -238,7 +238,7 @@ def add_passkey_complete(
             credential=request_body,
             expected_challenge=challenge,
             expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
+            expected_origin=ORIGINS,
         )
     except Exception:
         raise HTTPException(status_code=400, detail=say(user, "The passkey couldn't be verified", "Verificación fallida"))

@@ -44,3 +44,14 @@ ADDRESSES = list(dict.fromkeys(
 
 # The host's own certificate authority (Caddy's, for local addresses), so apps can pin it.
 CA_CERT = os.environ.get("TPCLOUD_CA_CERT", "")
+
+# Passkeys work wherever the browser allows them: on the addresses under RP_ID (a .local or
+# *.ts.net address can't use a passkey made for the public domain, and the browser says so).
+ORIGINS = [ORIGIN] + [
+    o for o in (f"{urlsplit(a).scheme}://{urlsplit(a).netloc}" for a in ADDRESSES[1:])
+    if (h := urlsplit(o).hostname or "") and (h == RP_ID or h.endswith("." + RP_ID)) and o != ORIGIN
+]
+
+# Which of them are only reachable at home (the local site's names, whatever they look like:
+# cloud.casa is as local as tphome.local), as the `tpcloud` command knows.
+LOCAL_ADDRESSES = {a.strip().rstrip("/") for a in os.environ.get("TPCLOUD_LOCAL_ADDRESSES", "").split(",") if a.strip()}

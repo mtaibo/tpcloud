@@ -14,6 +14,9 @@
 # TPCLOUD_CADDY_EXTRA variables point it at local ports and folders instead.
 {
 	admin off
+	# `tls internal` (the local site) makes a certificate authority of its own; the apps and
+	# browsers are told to trust it, the server itself doesn't need it in its system store.
+	skip_install_trust
 	servers {
 		# Requests arrive through cloudflared, `tailscale serve` or Docker's own proxy, all from
 		# private addresses. Only from those is the client's real IP taken from these headers.
@@ -74,9 +77,9 @@
 	tls internal
 }
 
-{$TPCLOUD_SITE} {
-	bind {$TPCLOUD_BIND:0.0.0.0}
-	import tls_{$TPCLOUD_TLS}
+# Everything TPCloud serves, the same on every address it answers on: the main site below and the
+# ones the `tpcloud` command adds (e.g. https://<host>.local at home, beside the tunnel's).
+(tpcloud) {
 	import security_headers
 	encode zstd gzip
 
@@ -183,6 +186,12 @@
 	}
 }
 
+{$TPCLOUD_SITE} {
+	bind {$TPCLOUD_BIND:0.0.0.0}
+	import tls_{$TPCLOUD_TLS}
+	import tpcloud
+}
+
 # OTA downloads for tphome's switches. They fetch http://<server LAN IP>/firmware with no session,
 # so this listener sits on its own port (published on the LAN only, never through the tunnel) and
 # serves that one path only.
@@ -195,6 +204,10 @@
 		respond 404
 	}
 }
+
+# More addresses for the same TPCloud, written by the `tpcloud` command from the settings (none in
+# Docker mode).
+import {$TPCLOUD_CADDY_SITES:sites}/*.caddy
 
 # Site blocks for this one server only (gitignored), e.g. old addresses that now redirect here.
 import {$TPCLOUD_CADDY_EXTRA:extra}/*.caddy

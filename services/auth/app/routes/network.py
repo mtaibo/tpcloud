@@ -5,9 +5,10 @@ import os
 from functools import lru_cache
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
-from config import ADDRESSES, CA_CERT, MODULES, NETWORK_ID, NETWORK_NAME, VERSION
+from config import ADDRESSES, CA_CERT, LOCAL_ADDRESSES, MODULES, NETWORK_ID, NETWORK_NAME, VERSION
 
 router = APIRouter(prefix="/auth")
 
@@ -17,6 +18,8 @@ CARD_VERSION = 1
 
 def address_kind(url: str) -> str:
     """local (only reachable at home), tailscale or public, so an app knows which to try first."""
+    if url in LOCAL_ADDRESSES:
+        return "local"
     host = urlsplit(url).hostname or ""
     if host.endswith(".ts.net"):
         return "tailscale"
@@ -72,3 +75,20 @@ def network_card():
         "modules": MODULES,
         "ca_sha256": _ca_fingerprint(CA_CERT),
     }
+
+
+@router.get("/network/ca.crt")
+def network_ca():
+    """The host's own certificate authority, for a browser at home to trust once. Public, like
+    any CA certificate: it lets nobody in, it only lets devices check this host."""
+    try:
+        pem = open(CA_CERT).read() if CA_CERT else ""
+    except OSError:
+        pem = ""
+    if "BEGIN CERTIFICATE" not in pem:
+        raise HTTPException(status_code=404, detail="This network has no certificate of its own.")
+    return Response(
+        pem,
+        media_type="application/x-x509-ca-cert",
+        headers={"Content-Disposition": 'attachment; filename="tpcloud-ca.crt"'},
+    )

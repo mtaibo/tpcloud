@@ -89,3 +89,46 @@ pub mod accounts {
         let _ = Command::new("usermod").args(["-aG", group, user]).status();
     }
 }
+
+pub mod discovery {
+    use super::*;
+
+    fn service_file() -> PathBuf {
+        std::env::var_os("TPCLOUD_AVAHI_SERVICE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/etc/avahi/services/tpcloud.service"))
+    }
+
+    /// avahi-daemon is running: it owns mDNS here and already answers for <hostname>.local.
+    pub fn system_responder() -> bool {
+        Command::new("systemctl").args(["is-active", "--quiet", "avahi-daemon"]).status().map(|s| s.success()).unwrap_or(false)
+    }
+
+    fn xml(text: &str) -> String {
+        text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
+    }
+
+    /// A static service file avahi picks up on its own (it watches the folder).
+    pub fn publish(name: &str, service: &str, port: u16, txt: &[(String, String)]) -> Result<()> {
+        let records: String = txt.iter().map(|(k, v)| format!("    <txt-record>{}={}</txt-record>\n", xml(k), xml(v))).collect();
+        let body = format!(
+            "<?xml version=\"1.0\" standalone='no'?>\n<!DOCTYPE service-group SYSTEM \"avahi-service.dtd\">\n\
+             <!-- Written by `tpcloud serve` while TPCloud runs: don't edit. -->\n<service-group>\n  <name>{}</name>\n  <service>\n\
+             \x20   <type>{service}</type>\n    <port>{port}</port>\n{records}  </service>\n</service-group>\n",
+            xml(name)
+        );
+        let path = service_file();
+        if std::fs::read_to_string(&path).ok().as_deref() == Some(body.as_str()) {
+            return Ok(());
+        }
+        let dir = path.parent().context("no folder for avahi's service file")?;
+        if !dir.is_dir() {
+            bail!("{} doesn't exist", dir.display());
+        }
+        std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))
+    }
+
+    pub fn withdraw() {
+        let _ = std::fs::remove_file(service_file());
+    }
+}

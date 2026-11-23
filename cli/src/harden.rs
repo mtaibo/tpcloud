@@ -96,6 +96,9 @@ pub fn secure_state() {
     set(&state.join("home/mosquitto"), 0o700, NOBODY);
     chown_tree(&state.join("home/mosquitto"), NOBODY);
     set(&state.join("cloudflared"), 0o700, svc);
+    chown_tree(&state.join("cloudflared"), svc);
+    // The Cloudflare login can manage every tunnel of the domain: root's only.
+    set(&state.join("cloudflare"), 0o700, root);
 
     // Store keeps every user apart itself; nobody else on the machine should read them.
     if let Some(files) = envfile::get(&paths::env_file(), "EXTERNAL_DISK_PATH").filter(|f| !f.is_empty()) {

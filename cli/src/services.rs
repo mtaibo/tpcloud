@@ -29,11 +29,11 @@ impl Settings {
         Settings { cloud: read_all(&paths::env_file()), home: read_all(&paths::home_env_file()) }
     }
 
-    fn get(&self, key: &str) -> Option<&str> {
+    pub fn get(&self, key: &str) -> Option<&str> {
         self.cloud.get(key).map(String::as_str).filter(|v| !v.is_empty())
     }
 
-    fn list(&self, key: &str) -> Vec<String> {
+    pub fn list(&self, key: &str) -> Vec<String> {
         self.get(key).unwrap_or("").split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
     }
 
@@ -45,13 +45,18 @@ impl Settings {
         self.modules().iter().any(|m| m == module)
     }
 
-    /// The tunnel runs when its profile is on (the compose files' name for it) and there's a token.
-    pub fn tunnel(&self) -> Option<String> {
-        if self.list("COMPOSE_PROFILES").iter().any(|p| p == "tunnel") {
-            self.get("TUNNEL_TOKEN").map(str::to_string)
-        } else {
-            None
+    /// The tunnel runs when its profile is on (the compose files' name for it) and there's a
+    /// tunnel made by the setup (its credentials on disk) or a token.
+    pub fn tunnel(&self) -> Option<Tunnel> {
+        if !self.list("COMPOSE_PROFILES").iter().any(|p| p == "tunnel") {
+            return None;
         }
+        if let (Some(id), Some(hostname)) = (self.get(crate::network::TUNNEL_ID), self.get(crate::network::TUNNEL_HOSTNAME)) {
+            if crate::cloudflare::credentials().exists() {
+                return Some(Tunnel::Managed { id: id.to_string(), hostname: hostname.to_string() });
+            }
+        }
+        self.get("TUNNEL_TOKEN").map(|t| Tunnel::Token(t.to_string()))
     }
 }
 
@@ -84,9 +89,10 @@ fn split_publish(value: &str, default: (&str, u16)) -> (String, u16) {
     }
 }
 
-/// The gateway's site address and bind host. A plain-HTTP site (behind a tunnel or `tailscale
-/// serve`) listened on port 80 inside its container, published on the host as
-/// TPCLOUD_HTTP_PUBLISH; here Caddy listens there directly. An HTTPS site binds 80 and 443 itself.
+/// The gateway's site address and bind host. A plain-HTTP site (behind a tunnel) listened on
+/// port 80 inside its container, published on the host as TPCLOUD_HTTP_PUBLISH; here Caddy
+/// listens there directly, for whatever name the request carries (only the tunnel and other
+/// local proxies reach it, and a network has several names). An HTTPS site binds 80 and 443.
 pub fn gateway_site(settings: &Settings) -> (String, String) {
     let site = settings.get("TPCLOUD_SITE").unwrap_or(":80").to_string();
     let (bind, port) = split_publish(settings.get("TPCLOUD_HTTP_PUBLISH").unwrap_or(""), ("127.0.0.1", 8080));
@@ -94,11 +100,22 @@ pub fn gateway_site(settings: &Settings) -> (String, String) {
     if !plain {
         return (site, "0.0.0.0".into());
     }
-    let without_port = match site.strip_prefix("http://") {
-        Some(host) => format!("http://{}", host.split(':').next().unwrap_or(host)),
-        None => String::new(),
-    };
-    (format!("{without_port}:{port}"), bind)
+    (format!(":{port}"), bind)
+}
+
+/// Where a proxy on this machine (the tunnel) reaches the gateway's plain-HTTP site.
+pub fn http_origin(settings: &Settings) -> String {
+    let (bind, port) = split_publish(settings.get("TPCLOUD_HTTP_PUBLISH").unwrap_or(""), ("127.0.0.1", 8080));
+    let host = if bind == "0.0.0.0" || bind.is_empty() { "127.0.0.1".to_string() } else { bind };
+    format!("http://{host}:{port}")
+}
+
+/// How the Cloudflare tunnel runs, if it does.
+pub enum Tunnel {
+    /// One made by hand in Cloudflare's dashboard (its ingress lives there): just its token.
+    Token(String),
+    /// One the setup made in the owner's account, run from its credentials with our own ingress.
+    Managed { id: String, hostname: String },
 }
 
 pub fn plan(settings: &Settings) -> Vec<Service> {
@@ -145,8 +162,11 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
     }
     env.insert("DATABASE_URL".into(), format!("sqlite:///{}", state.join("data/auth/tpauth.db").display()));
     env.insert("TPCLOUD_VERSION".into(), env!("CARGO_PKG_VERSION").into());
+    env.insert("TPCLOUD_ADDRESSES".into(), crate::network::addresses(settings).join(","));
+    let local: Vec<String> = crate::network::local_names(settings).iter().map(|n| format!("https://{n}")).collect();
+    env.insert("TPCLOUD_LOCAL_ADDRESSES".into(), local.join(","));
     // Only a site served with the host's own authority has a certificate for apps to pin.
-    if settings.get("TPCLOUD_TLS") == Some("internal") {
+    if settings.get("TPCLOUD_TLS") == Some("internal") || !crate::network::local_names(settings).is_empty() {
         env.insert("TPCLOUD_CA_CERT".into(), crate::network::published_ca().display().to_string());
     }
     services.push(Service {
@@ -224,6 +244,7 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
     env.insert("TPCLOUD_HOME_UPSTREAM".into(), format!("127.0.0.1:{HOME_PORT}"));
     env.insert("TPCLOUD_WEB_ROOT".into(), rt.join("web").display().to_string());
     env.insert("TPCLOUD_CADDY_EXTRA".into(), state.join("gateway-extra").display().to_string());
+    env.insert("TPCLOUD_CADDY_SITES".into(), crate::network::caddy_sites_dir().display().to_string());
     services.push(Service {
         name: "gateway",
         program: rt.join("bin/caddy"),
@@ -233,14 +254,23 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
         user: None,
     });
 
-    if let Some(token) = settings.tunnel() {
+    if let Some(tunnel) = settings.tunnel() {
         let mut env = BTreeMap::new();
-        env.insert("TUNNEL_TOKEN".into(), token);
         env.insert("HOME".into(), state.join("cloudflared").display().to_string());
+        let mut args: Vec<String> = ["tunnel", "--no-autoupdate"].iter().map(|s| s.to_string()).collect();
+        match tunnel {
+            Tunnel::Token(token) => {
+                env.insert("TUNNEL_TOKEN".into(), token);
+            }
+            Tunnel::Managed { .. } => {
+                args.extend(["--config".into(), crate::cloudflare::config_path().display().to_string()]);
+            }
+        }
+        args.push("run".into());
         services.push(Service {
             name: "cloudflared",
             program: rt.join("bin/cloudflared"),
-            args: ["tunnel", "--no-autoupdate", "run"].iter().map(|s| s.to_string()).collect(),
+            args,
             env,
             cwd: state.join("cloudflared"),
             user: harden::service_ids(),
@@ -267,7 +297,7 @@ mod tests {
 
     #[test]
     fn plain_sites_listen_where_the_container_was_published() {
-        assert_eq!(gateway_site(&settings(&[("TPCLOUD_SITE", "http://cloud.example.com")])), ("http://cloud.example.com:8080".into(), "127.0.0.1".into()));
+        assert_eq!(gateway_site(&settings(&[("TPCLOUD_SITE", "http://cloud.example.com")])), (":8080".into(), "127.0.0.1".into()));
         assert_eq!(gateway_site(&settings(&[("TPCLOUD_SITE", ":80")])), (":8080".into(), "127.0.0.1".into()));
         assert_eq!(gateway_site(&settings(&[("TPCLOUD_SITE", ":80"), ("TPCLOUD_HTTP_PUBLISH", "0.0.0.0:80")])), (":80".into(), "0.0.0.0".into()));
         assert_eq!(gateway_site(&settings(&[("TPCLOUD_SITE", "cloud.example.com")])), ("cloud.example.com".into(), "0.0.0.0".into()));
