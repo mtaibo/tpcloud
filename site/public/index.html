@@ -16,20 +16,51 @@
 </head>
 <body>
   <div class="wrap"><header class="top"><a class="brand" href="/"><span class="plate"><svg viewBox="0 0 1024 1024" aria-hidden="true"><rect x="224" y="272" width="576" height="128" rx="64"/><circle cx="512" cy="592" r="96"/><circle cx="512" cy="800" r="70"/></svg></span>TPCloud</a>
-    <nav class="links"><a href="#what">What it is</a><a href="#how">How it installs</a><a href="https://github.com/mtaibo/tpcloud">GitHub</a></nav></header></div>
+    <nav class="links"><a href="#get">Download</a><a href="#what">What it is</a><a href="#how">How it installs</a><a href="https://github.com/mtaibo/tpcloud">GitHub</a></nav></header></div>
   <main class="wrap heroS">
     <div class="heroS-text">
     <h1>Your own cloud,<br>in one file.</h1>
     <p class="lede">Files, photos and your house on a machine at home. <b>One download, nothing else to install.</b></p>
       <div class="actions">
-        <a class="btn primary" data-dl="main"><span class="label">Download</span><small></small></a>
-        <span class="other">or for <a data-dl="other"></a></span>
+        <a class="btn primary" href="#get" data-hero="main"><span class="label">Get TPCloud</span></a>
+        <a class="btn" href="#apps" data-hero="apps">Get the app</a>
       </div>
-      <div class="cmd"><code data-copy="curl -fsSL https://tpcloud.migueltaibo.com/install | sh"><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/install | sh</code><button class="copy" type="button">Copy</button></div>
       <p class="hint" data-note></p>
     </div>
     <div class="visual" id="visual" aria-hidden="true"></div>
   </main>
+
+  <section class="block get" id="get"><div class="wrap">
+    <h2>Two things: the machine that is your cloud, and the devices you use it from.</h2>
+    <div class="paths">
+      <div class="path" id="server">
+        <span class="n">1</span>
+        <h3>The machine that is your cloud</h3>
+        <p class="sub">A Raspberry Pi or a PC with Linux, at home. On it, run:</p>
+        <div class="cmd"><code data-copy="curl -fsSL https://tpcloud.migueltaibo.com/install | sh"><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/install | sh</code><button class="copy" type="button">Copy</button></div>
+        <p class="sub">It picks the file for that machine and asks how you want to set it up: right there, or from the app or a browser at <span class="mono">http://tpcloud.local</span>.</p>
+        <div class="files">
+          <span class="sub">Or the file itself:</span>
+          <a class="btn small" href="/download/linux/arm64">Raspberry Pi <small>arm64 · 71 MB</small></a>
+          <a class="btn small" href="/download/linux/amd64">PC <small>amd64 · 80 MB</small></a>
+        </div>
+        <p class="note">Then <span class="mono">sudo ./tpcloud-linux-&lt;arch&gt; install</span>. On NixOS, the installer gives you the lines for configuration.nix first.</p>
+      </div>
+      <div class="path" id="apps">
+        <span class="n">2</span>
+        <h3>Your devices</h3>
+        <p class="sub">Sign in to your cloud from any of them. They find it on your Wi-Fi by themselves.</p>
+        <ul class="devices" data-devices>
+          <li data-os="linux"><div><b>Linux</b><span>Files, photos and your home, native. One file, no install.</span></div><a class="btn small primary" data-app="linux">Download <small></small></a></li>
+          <li data-os="ios"><div><b>iPhone and iPad</b><span>With photo backup in the background.</span></div><em>Coming to the App Store</em></li>
+          <li data-os="mac"><div><b>Mac</b><span>The same app as the iPhone’s.</span></div><em>Coming to the App Store</em></li>
+          <li data-os="browser"><div><b>Any browser</b><span>Open your cloud’s address: <span class="mono">tpcloud.local</span> at home, or your own domain.</span></div><em>Nothing to download</em></li>
+          <li data-os="windows android"><div><b>Windows and Android</b><span>Apps of their own later; the browser works today.</span></div><em>Later</em></li>
+        </ul>
+        <p class="note" data-linux-note>On Linux: <span class="mono">chmod +x tpcloud-app-linux-*</span> and open it. On NixOS it needs nix-ld.</p>
+      </div>
+    </div>
+  </div></section>
   <section class="block" id="what"><div class="wrap">
     <h2>Your files, your photos and your house, on a machine at home.</h2>
     <p class="intro">Instead of somebody else’s servers. One sign-in for all of it, at your own address, from the browser or the TPCloud app.</p>
@@ -43,8 +74,8 @@
     <h2>Three steps, on a Raspberry Pi or an old PC.</h2>
     <div class="steps">
       <div class="step"><h3>Run the command</h3><p>On the machine itself: <code>curl -fsSL https://tpcloud.migueltaibo.com/install | sh</code>. It picks the file for that machine.</p></div>
-      <div class="step"><h3>Answer a few questions</h3><p>Where files go, whether you want the house, how you’ll reach it (at home, Tailscale, your own domain or all of them) and your account.</p></div>
-      <div class="step"><h3>Open it</h3><p>From the browser or the app. On the server, <code>tpcloud</code> shows what’s running, accounts, modules and logs.</p></div>
+      <div class="step"><h3>Answer a few questions</h3><p>In the terminal, the app or a browser: where files go (a folder, or empty disks it makes a mirror of), whether you want the house, how you’ll reach it (at home, Tailscale, your own domain or all of them) and your account.</p></div>
+      <div class="step"><h3>Open it</h3><p>From the apps or a browser, at <code>tpcloud.local</code> at home or your own address. On the server, <code>tpcloud</code> shows what’s running, accounts, disks and logs.</p></div>
     </div>
     <div class="facts">
       <div class="fact"><b>~75 MB</b><span>One file, everything inside</span></div>
@@ -53,5 +84,5 @@
       <div class="fact"><b>2</b><span>Builds: arm64 for a Raspberry Pi, amd64 for a PC</span></div>
     </div>
   </div></section>
-  <div class="wrap"><footer class="bottom"><span>TPCloud 0.3</span><a href="https://github.com/mtaibo/tpcloud">Source on GitHub</a><a href="https://migueltaibo.com">Made by Miguel Taibo</a></footer></div>
+  <div class="wrap"><footer class="bottom"><span>TPCloud 0.4</span><a href="https://github.com/mtaibo/tpcloud">Source on GitHub</a><a href="https://migueltaibo.com">Made by Miguel Taibo</a></footer></div>
 </body></html>

@@ -1,4 +1,4 @@
-// C · The file: tpcloud, ~75 MB, opens into what it really carries, and the six processes come on.
+// C · The file: tpcloud, ~75 MB, opens into what it really carries (0.4.0, arm64), and the six processes come on.
 (() => {
   const v = document.getElementById('visual'); if (!v) return
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -11,7 +11,8 @@
   const procs = PROCS.map(p => { const e = make('div', 'proc'); e.append(make('i', 'vdot'), make('span', null, p)); grid.append(e); return e })
   // What's really inside, with the sizes of the arm64 build.
   const FILES = [['python/', 'CPython 3.12.16'], ['py/auth/', 'FastAPI, SQLModel, webauthn'], ['py/store/', 'Pillow, pillow-heif'], ['py/home/', 'paho-mqtt'], ['code/', 'auth, store, home'],
-    ['web/', 'seven web apps · 1.6 MB'], ['bin/caddy', '46 MB'], ['bin/mosquitto', '456 KB'], ['bin/ffmpeg', '11 MB'], ['bin/ffprobe', '11 MB'], ['bin/rsync', '980 KB'], ['bin/cloudflared', '36 MB'], ['', '6,922 files']]
+    ['web/', 'eight web apps · 13 MB'], ['bin/caddy', '46 MB'], ['bin/mosquitto', '456 KB'], ['bin/ffmpeg', '10 MB'], ['bin/ffprobe', '10 MB'], ['bin/rsync', '980 KB'], ['bin/cloudflared', '37 MB'],
+    ['bin/btrfs', '1.4 MB'], ['bin/cryptsetup', '4.9 MB'], ['bin/smartctl', '2 MB'], ['', '7,341 files']]
   const sleep = ms => new Promise(r => setTimeout(r, reduced ? 0 : ms))
   ;(async () => {
     for (;;) {

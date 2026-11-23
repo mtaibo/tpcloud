@@ -1,32 +1,39 @@
-// The download for this machine, and the copy button.
+// What to download from here: this device first, the right file for it, and the copy button.
 (async () => {
-  const BASE = 'https://tpcloud.migueltaibo.com/download/linux/'
   const ua = navigator.userAgent
-  const os = /iPhone|iPad/.test(ua) ? 'ios' : /Mac/.test(ua) ? 'mac' : /Windows/.test(ua) ? 'windows' : /Android/.test(ua) ? 'android' : /Linux/.test(ua) ? 'linux' : 'other'
-  let arch = /aarch64|arm64|armv8/i.test(ua) ? 'arm64' : /x86_64|amd64/i.test(ua) ? 'amd64' : null
+  const os = /iPhone|iPad/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1) ? 'ios'
+    : /Android/.test(ua) ? 'android' : /Mac/.test(ua) ? 'mac' : /Windows/.test(ua) ? 'windows' : /Linux|X11|CrOS/.test(ua) ? 'linux' : 'other'
+  let arch = /aarch64|arm64|armv8/i.test(ua) ? 'arm64' : /x86_64|amd64|Win64|x64/i.test(ua) ? 'amd64' : null
   try {
     const v = await navigator.userAgentData?.getHighEntropyValues?.(['architecture'])
     if (v?.architecture === 'arm') arch = 'arm64'; else if (v?.architecture === 'x86') arch = 'amd64'
   } catch {}
-  const NAMES = { arm64: 'Raspberry Pi and ARM', amd64: 'PCs (Intel and AMD)' }
-  // On a Linux machine we know which file; anywhere else the Pi's is the likely one.
-  const main = os === 'linux' && arch ? arch : 'arm64'
-  const other = main === 'arm64' ? 'amd64' : 'arm64'
-  for (const el of document.querySelectorAll('[data-dl="main"]')) {
-    el.href = BASE + main
-    el.querySelector('.label').textContent = os === 'linux' && arch ? 'Download for this machine' : 'Download for Raspberry Pi'
-    el.querySelector('small').textContent = `Linux ${main} · ~75 MB`
+
+  // The desktop app for Linux: this machine's architecture, a PC's when it can't be told.
+  const appArch = arch || 'amd64'
+  const SIZES = { arm64: '20 MB', amd64: '22 MB' }
+  for (const a of document.querySelectorAll('[data-app="linux"]')) {
+    a.href = `/download/app/linux/${appArch}`
+    a.querySelector('small').textContent = `${appArch} · ${SIZES[appArch]}`
   }
-  for (const el of document.querySelectorAll('[data-dl="other"]')) { el.href = BASE + other; el.textContent = `${NAMES[other]} (${other})` }
-  for (const el of document.querySelectorAll('[data-dl]:not([data-dl="main"]):not([data-dl="other"])')) el.href = BASE + el.dataset.dl
+
+  // This device's row goes first and says so.
+  const list = document.querySelector('[data-devices]')
+  const row = list && [...list.children].find(li => li.dataset.os.split(' ').includes(os))
+  if (row) { row.classList.add('here'); list.prepend(row) }
+
+  // The hero's second button goes straight to what this device needs.
+  const apps = document.querySelector('[data-hero="apps"]')
+  if (apps && os === 'linux') { apps.href = `/download/app/linux/${appArch}`; apps.textContent = 'Download the app for Linux' }
+
   const note = document.querySelector('[data-note]')
   if (note) note.textContent = {
-    ios: 'This goes on the machine at home that will be your cloud. On your iPhone you’ll use the TPCloud app, coming to the App Store.',
-    mac: 'This goes on the machine at home that will be your cloud: a Raspberry Pi or an old PC with Linux. The Mac app is coming to the App Store.',
-    windows: 'This goes on a Raspberry Pi or an old PC with Linux. A Windows server comes later.',
-    android: 'This goes on the machine at home that will be your cloud: a Raspberry Pi or an old PC with Linux.',
-    linux: 'Run the command on the machine itself. It asks a few questions and starts everything.',
-    other: 'This goes on the machine at home that will be your cloud: a Raspberry Pi or an old PC with Linux.',
+    ios: 'Your cloud lives on a Raspberry Pi or a Linux PC at home; on this iPhone you’ll use the TPCloud app.',
+    android: 'Your cloud lives on a Raspberry Pi or a Linux PC at home; on this phone, its address in the browser.',
+    mac: 'Your cloud lives on a Raspberry Pi or a Linux PC at home; on this Mac, the TPCloud app.',
+    windows: 'Your cloud lives on a Raspberry Pi or a Linux PC at home; on this PC, its address in the browser.',
+    linux: 'On the machine that will be your cloud, the command below. On this computer, the app.',
+    other: 'Your cloud lives on a Raspberry Pi or a Linux PC at home.',
   }[os]
 
   for (const btn of document.querySelectorAll('.copy')) btn.addEventListener('click', async () => {
