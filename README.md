@@ -68,7 +68,7 @@ Every web app, drawn after iOS (grouped lists, large titles, sheets, light and d
 <td width="50%" valign="top">
 
 ### 📱 [`apple/`](apple/)
-The native iOS and macOS app, installed as **TPCloud**: files, photos with background backup of the iPhone library, the house's floor plan and the account, against the same backends as the web.
+The native iOS and macOS app, installed as **TPCloud**: files, photos with background backup of the iPhone library, the house's floor plan and the account, against the same backends as the web. It keeps a list of networks (found on the Wi-Fi or added by address), sets up new hosts, and trusts a host's own certificate only once it checks out.
 
 **Swift · SwiftUI · Swift Package Manager · XcodeGen**
 
@@ -107,6 +107,7 @@ The `tpcloud` command: one static Linux file that carries everything above, its 
 ```
 tpcloud/
 ├── apple/              native iOS and macOS app (Swift package + XcodeGen project)
+├── desktop/            native Linux app (Rust, iced): networks, Files, Photos, Home
 ├── services/
 │   ├── auth/           sign-in, sessions, users
 │   ├── gateway/        Caddyfile (+ extra/ for blocks of one server only)
@@ -282,4 +283,4 @@ Store runs behind the `store` profile and Home's control panel behind `home` (`C
 
 Beyond localhost the gateway only publishes what `.env` asks for: port 443 for your own domain or the home network, and, where tphome is installed, port 80 on the local network for nothing but `/firmware`, so its switches can download OTA updates.
 
-The app is built from [`apple/`](apple/) with Xcode; see its [README](apple/README.md).
+The app is built from [`apple/`](apple/) with Xcode; see its [README](apple/README.md). The Linux desktop app is `desktop/build.sh` (or `tpcloud-app-linux-<arch>` from a release): one file, nothing to install.
