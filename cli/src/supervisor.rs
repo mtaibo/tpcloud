@@ -135,8 +135,14 @@ pub fn serve() -> Result<()> {
     }
     let settings = Settings::load();
     if settings.get("TPCLOUD_SETUP") == Some("pending") {
-        // Nothing set up yet: the setup page instead of TPCloud, until it's done.
-        crate::setup_server::serve()?;
+        // Nothing set up yet: the setup page instead of TPCloud, until it's done. A tunnel made in
+        // Cloudflare's dashboard keeps running meanwhile: it may carry other sites of the owner's.
+        let mut tunnel = services::plan(&settings).into_iter().find(|s| s.name == "cloudflared" && s.env.contains_key("TUNNEL_TOKEN")).and_then(|s| spawn(&s).ok());
+        let result = crate::setup_server::serve();
+        if let Some(child) = tunnel.as_mut() {
+            stop_child(child);
+        }
+        result?;
         if stopping() {
             return Ok(());
         }

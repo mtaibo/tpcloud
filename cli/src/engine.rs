@@ -59,8 +59,11 @@ pub struct Facts {
 pub fn facts() -> Facts {
     let env = paths::env_file();
     let accounts = users::count().unwrap_or(0);
+    // Never set up: no settings, or only the template's (its example address). A host set up
+    // before and waiting to be set up again starts from what it has, not from the template's.
+    let url = envfile::get(&env, "TPCLOUD_URL").unwrap_or_default();
     Facts {
-        first: !env.exists() || envfile::get(&env, "TPCLOUD_SETUP").as_deref() == Some("pending"),
+        first: !env.exists() || url.is_empty() || url.contains("cloud.example.com"),
         host: format!("{}.local", network::host_label()),
         disks: crate::platform::storage::disks().unwrap_or_default(),
         pool: storage::status_line(&env).map(|(l, _)| l),

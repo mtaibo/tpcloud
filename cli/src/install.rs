@@ -69,12 +69,18 @@ fn install_this(adopt: Option<PathBuf>, start: bool) -> Result<()> {
         // Uninstalled before (or moved here from another machine's backup): everything's kept.
         let accounts = crate::users::count().unwrap_or(0);
         println!("TPCloud was set up here before: its {accounts} account(s), files and settings are all still here.");
-        print!("Go through the setup again, with what's set now as the answers? [Y/n]: ");
-        std::io::Write::flush(&mut std::io::stdout())?;
-        let mut answer = String::new();
-        std::io::stdin().read_line(&mut answer)?;
-        if !answer.trim().eq_ignore_ascii_case("n") {
-            setup::run()?;
+        match setup::choose(
+            "What now?",
+            &[
+                ("Carry on as it was", "nothing asked"),
+                ("Go through the setup here", "in this terminal, with what's set now as the answers"),
+                ("Go through the setup from another device", "the TPCloud app or a browser, with what's set now as the answers"),
+            ],
+            1,
+        )? {
+            1 => setup::run()?,
+            2 => return wait_for_setup(start),
+            _ => {}
         }
     }
     if !paths::env_file().exists() {
@@ -143,7 +149,10 @@ pub fn write_unit() -> Result<()> {
 /// tells where to find it.
 fn wait_for_setup(start: bool) -> Result<()> {
     let env = paths::env_file();
-    std::fs::write(&env, setup::default_env())?;
+    // A host set up before keeps everything; the setup starts from it.
+    if !env.exists() {
+        std::fs::write(&env, setup::default_env())?;
+    }
     envfile::set(&env, "TPCLOUD_SETUP", "pending")?;
     crate::network::ensure(&env)?;
     restrict(&env)?;
