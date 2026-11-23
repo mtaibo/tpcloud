@@ -1,7 +1,7 @@
 //! `tpcloud setup`: the guided configuration, as questions in the terminal. Run again, it offers the
 //! current values as answers, so changing one thing is just pressing enter through the rest.
 
-use crate::{envfile, install, network, paths, ui, users};
+use crate::{engine, envfile, install, network, paths, storage, ui};
 use anyhow::{bail, Result};
 use std::io::{BufRead, Write};
 
@@ -132,86 +132,80 @@ pub fn run() -> Result<()> {
     install::require_root("Setting TPCloud up")?;
     std::fs::create_dir_all(paths::state_dir())?;
     let env = paths::env_file();
-    let first = !env.exists();
-    if first {
+    if !env.exists() {
         std::fs::write(&env, TPCLOUD_ENV)?;
     }
     install::restrict(&env)?;
+    let f = engine::facts();
+    let mut a = engine::current(&f);
     let current = |key: &str| envfile::get(&env, key).unwrap_or_default();
 
-    let default_name = network::default_name();
     println!("\n{}", ui::accent(&ui::bold("TPCloud setup")));
     println!("{}", ui::dim("Enter keeps the value in brackets. Nothing changes until the end."));
 
     heading("Network");
     println!("  {}", ui::dim("What this TPCloud is called in the apps, e.g. Home or the family's name."));
-    let network_name = loop {
-        let was = current(network::NAME);
-        let answer = ask("Name", if was.is_empty() { &default_name } else { &was })?;
-        if answer.chars().count() > 64 {
-            ui::warn("64 characters at most.");
-            continue;
+    a.name = loop {
+        let answer = ask("Name", &a.name)?;
+        match engine::check_name(&answer) {
+            Some(m) => ui::warn(&m),
+            None => break answer,
         }
-        // The settings file would read the rest as a comment.
-        if answer.contains(" #") {
-            ui::warn("No # after a space.");
-            continue;
-        }
-        break answer;
     };
 
     heading("Files");
     println!("  {}", ui::dim("Where Store keeps everyone's files and photos: a big disk is best."));
-    let storage = ask("Folder", &if first { "/var/lib/tpcloud/files".into() } else { current("EXTERNAL_DISK_PATH") })?;
+    a.files = ask_storage(&env, &f, &a.files)?;
 
     heading("Backups");
     println!("  {}", ui::dim("Every night, a copy of TPCloud's own data (accounts, the photo index, albums, share"));
     println!("  {}", ui::dim("links, the house, settings; a few MB) to a folder, best on another disk. Not your files:"));
     println!("  {}", ui::dim("back that disk up on its own. Type none for no backups."));
-    let backup_dir = loop {
-        let answer = ask("Folder", &if current("TPCLOUD_BACKUP_DIR").is_empty() { "none".into() } else { current("TPCLOUD_BACKUP_DIR") })?;
-        if answer == "none" || answer == "-" {
-            break String::new();
+    a.backup_dir = loop {
+        let answer = ask("Folder", if a.backup_dir.is_empty() { "none" } else { &a.backup_dir })?;
+        let answer = if answer == "none" || answer == "-" { String::new() } else { answer };
+        match engine::check_backup_dir(&answer) {
+            Some(m) => ui::warn(&m),
+            None => break answer,
         }
-        if !answer.starts_with('/') {
-            ui::warn("Give the full path, starting with /.");
-            continue;
-        }
-        if std::path::Path::new(&answer).starts_with(paths::state_dir()) {
-            ui::warn(&format!("Not inside {}: it would copy itself.", paths::state_dir().display()));
-            continue;
-        }
-        break answer;
     };
 
     heading("Modules");
-    let modules = envfile::get_list(&env, "TPCLOUD_MODULES");
-    let store = ask_yes("Store (files, photo backup from the app, share links)?", first || modules.iter().any(|m| m == "store"))?;
-    let home = ask_yes("Home (blinds and lights with tphome's switches)?", modules.iter().any(|m| m == "home"))?;
+    a.store = ask_yes("Store (files, photo backup from the app, share links)?", a.store)?;
+    a.home = ask_yes("Home (blinds and lights with tphome's switches)?", a.home)?;
 
-    let host = format!("{}.local", network::host_label());
-    let was = current("TPCLOUD_URL");
-    let (url, site, tls, https_publish, reach) = loop {
+    let host = f.host.clone();
+    loop {
         heading("At home");
         println!("  {}", ui::dim(&format!("On this network the apps find it by themselves, at https://{host}, with this machine's")));
         println!("  {}", ui::dim("own certificate (the apps trust it when they add the network)."));
-        let local = ask_yes("Answer on this network?", first || current(network::LOCAL) == "on")?;
-        let mut local_names = String::new();
-        if local {
+        a.local = ask_yes("Answer on this network?", a.local)?;
+        if a.local {
             println!("  {}", ui::dim("If your router's DNS gives this machine a name of its own (e.g. cloud.casa), type it; - for none."));
-            let was_names = current(network::LOCAL_NAMES);
-            let answer = ask("Other name", if was_names.is_empty() { "-" } else { &was_names })?;
-            if answer != "-" {
-                local_names = answer.split(',').map(|n| n.trim().trim_start_matches("https://").trim_end_matches('/').to_lowercase()).filter(|n| !n.is_empty()).collect::<Vec<_>>().join(",");
+            let was = a.local_names.join(",");
+            let answer = ask("Other name", if was.is_empty() { "-" } else { &was })?;
+            a.local_names = if answer == "-" {
+                vec![]
+            } else {
+                answer.split(',').map(|n| n.trim().trim_start_matches("https://").trim_end_matches('/').to_lowercase()).filter(|n| !n.is_empty()).collect()
+            };
+            if let Some(m) = a.local_names.iter().find_map(|n| engine::check_hostname(n)) {
+                ui::warn(&m);
+                continue;
             }
+        } else {
+            a.local_names.clear();
         }
 
         heading("From outside");
-        let ts = ask_yes("Through Tailscale (private: only your tailnet's devices)?", !current(network::TAILSCALE).is_empty() || was.contains(".ts.net"))?;
-        let ts_name = if ts { Some(tailscale_name()?) } else { None };
-        let had_domain = !current(network::TUNNEL_HOSTNAME).is_empty() || !current("TUNNEL_TOKEN").is_empty() || (!first && !was.contains(".ts.net") && !was.ends_with(".local") && !was.is_empty());
-        let default_domain = if !current(network::TUNNEL_HOSTNAME).is_empty() || !current("TUNNEL_TOKEN").is_empty() { 1 } else if had_domain { 2 } else { 0 };
-        let domain_mode = choose(
+        let ts = ask_yes("Through Tailscale (private: only your tailnet's devices)?", a.tailscale.is_some())?;
+        a.tailscale = if ts { Some(engine::tailscale_name()?) } else { None };
+        let default_domain = match a.domain {
+            engine::Domain::None => 0,
+            engine::Domain::Cloudflare { .. } => 1,
+            engine::Domain::OpenPort { .. } => 2,
+        };
+        let mode = choose(
             "At your own domain?",
             &[
                 ("No", ""),
@@ -220,56 +214,44 @@ pub fn run() -> Result<()> {
             ],
             default_domain,
         )?;
-        let mut domain = String::new();
-        let mut tunnel = TunnelChoice::None;
-        if domain_mode > 0 {
-            let was_domain = if was.contains(".ts.net") || was.ends_with(".local") { String::new() } else { was.trim_start_matches("https://").to_string() };
-            let answer = ask("Address (e.g. cloud.example.com)", &was_domain)?;
-            domain = answer.trim_start_matches("https://").trim_end_matches('/').to_lowercase();
-            if !domain.contains('.') {
-                ui::warn("That needs to be a full address, like cloud.example.com.");
+        let was_host = match &a.domain {
+            engine::Domain::Cloudflare { hostname, .. } | engine::Domain::OpenPort { hostname } => hostname.clone(),
+            engine::Domain::None => String::new(),
+        };
+        a.domain = if mode == 0 {
+            engine::Domain::None
+        } else {
+            let answer = ask("Address (e.g. cloud.example.com)", &was_host)?;
+            let hostname = answer.trim_start_matches("https://").trim_end_matches('/').to_lowercase();
+            if let Some(m) = engine::check_hostname(&hostname) {
+                ui::warn(&m);
                 continue;
             }
-        }
-        if domain_mode == 1 {
-            let managed = !current(network::TUNNEL_ID).is_empty() && crate::cloudflare::credentials().exists();
-            tunnel = if !managed && !current("TUNNEL_TOKEN").is_empty() {
-                match choose(
-                    "Which tunnel?",
-                    &[
-                        ("The one you have", "made in Cloudflare's dashboard, its token already here"),
-                        ("A new one", "made from here, after signing in to Cloudflare"),
-                    ],
-                    0,
-                )? {
-                    0 => TunnelChoice::Token,
-                    _ => TunnelChoice::Managed,
-                }
+            if mode == 2 {
+                engine::Domain::OpenPort { hostname }
             } else {
-                TunnelChoice::Managed
-            };
-        }
-        if !local && ts_name.is_none() && domain.is_empty() {
+                let managed = !current(network::TUNNEL_ID).is_empty() && crate::cloudflare::credentials().exists();
+                let new = managed
+                    || !f.has_token
+                    || choose(
+                        "Which tunnel?",
+                        &[
+                            ("The one you have", "made in Cloudflare's dashboard, its token already here"),
+                            ("A new one", "made from here, after signing in to Cloudflare"),
+                        ],
+                        0,
+                    )? == 1;
+                engine::Domain::Cloudflare { hostname, new }
+            }
+        };
+        if !a.local && a.tailscale.is_none() && a.domain == engine::Domain::None {
             ui::warn("Then nothing could reach it: pick at least one.");
             continue;
         }
+        break;
+    }
 
-        // The main address (links, sign-in, passkeys): the domain, else Tailscale's, else home's.
-        let choice = if domain_mode == 1 {
-            (format!("https://{domain}"), format!("http://{domain}"), "none", "")
-        } else if domain_mode == 2 {
-            (format!("https://{domain}"), domain.clone(), "none", "443")
-        } else if let Some(name) = &ts_name {
-            (format!("https://{name}"), format!("https://{name}"), "none", "443")
-        } else {
-            (format!("https://{host}"), format!("https://{host}"), "internal", "443")
-        };
-        break (choice.0, choice.1, choice.2, choice.3, Reach { local, local_names, ts_name, domain, tunnel });
-    };
-
-    let need_owner = first || users::count().unwrap_or(0) == 0;
-    let mut owner = None;
-    if need_owner {
+    if f.needs_owner {
         heading("Your account");
         println!("  {}", ui::dim("The first account, and the server's admin."));
         let email = loop {
@@ -290,136 +272,137 @@ pub fn run() -> Result<()> {
             }
             ui::warn("They don't match.");
         };
-        owner = Some((email, password));
+        a.owner = Some((email, password));
     }
 
-    // Everything asked: write it.
-    std::fs::create_dir_all(&storage)?;
-    let mut module_list = Vec::new();
-    let mut profiles: Vec<String> = Vec::new();
-    if store {
-        module_list.push("store".to_string());
-        profiles.push("store".into());
+    println!();
+    let outcome = engine::apply(&a, &mut Terminal)?;
+    ui::done(&format!("Saved. TPCloud will answer at {}.", ui::accent(&outcome.url)));
+    if !outcome.others.is_empty() {
+        println!("  {}", ui::dim(&format!("And at {}.", outcome.others.join(", "))));
     }
-    if home {
-        module_list.push("home".to_string());
+    if !a.backup_dir.is_empty() {
+        println!("  {}", ui::dim(&format!("Backups: every night to {} (`sudo tpcloud backup` makes one now).", a.backup_dir)));
     }
-    if !matches!(reach.tunnel, TunnelChoice::None) {
-        profiles.push("tunnel".into());
-    }
-    let set = |k: &str, v: &str| envfile::set(&env, k, v);
-    set(network::NAME, &network_name)?;
-    network::ensure(&env)?;
-    // The tunnel first: it's the step that can fail (a sign-in left halfway, a taken name), and
-    // then nothing else has changed.
-    match reach.tunnel {
-        TunnelChoice::Managed => {
-            heading("Cloudflare");
-            let id = current(network::ID);
-            crate::cloudflare::login()?;
-            let tunnel_id = crate::cloudflare::create(&format!("tpcloud-{}", &id[..id.len().min(8)]), Some(&current(network::TUNNEL_ID)))?;
-            // A domain the sign-in didn't pick fails here: forget that sign-in, so the next setup asks
-            // for the right one.
-            let routed = crate::cloudflare::route(&tunnel_id, &reach.domain, false).map_err(|err| {
-                crate::cloudflare::logout();
-                err.context("sign in again picking that address's domain (run setup again)")
-            })?;
-            match routed {
-                crate::cloudflare::Route::Done => {}
-                crate::cloudflare::Route::Taken => {
-                    if !ask_yes(&format!("{} already points somewhere else. Point it at this machine instead?", reach.domain), false)? {
-                        bail!("{} was left as it was: run setup again with another address", reach.domain);
-                    }
-                    crate::cloudflare::route(&tunnel_id, &reach.domain, true)?;
-                }
-            }
-            set(network::TUNNEL_ID, &tunnel_id)?;
-            set(network::TUNNEL_HOSTNAME, &reach.domain)?;
-            ui::done(&format!("Tunnel ready: {} → this machine.", reach.domain));
-        }
-        TunnelChoice::Token | TunnelChoice::None => {
-            // A token tunnel keeps its ingress in Cloudflare's dashboard; nothing of ours to run.
-            set(network::TUNNEL_HOSTNAME, "")?;
-        }
-    }
-    set(network::LOCAL, if reach.local { "on" } else { "off" })?;
-    set(network::LOCAL_NAMES, &reach.local_names)?;
-    set(network::TAILSCALE, reach.ts_name.as_deref().unwrap_or(""))?;
-    set("TPCLOUD_URL", &url)?;
-    set("TPCLOUD_SITE", &site)?;
-    set("TPCLOUD_TLS", tls)?;
-    set("TPCLOUD_HTTPS_PUBLISH", https_publish)?;
-    set("TPCLOUD_OTA_PUBLISH", if home { "80" } else { "" })?;
-    envfile::set_list(&env, "TPCLOUD_MODULES", &module_list)?;
-    envfile::set_list(&env, "COMPOSE_PROFILES", &profiles)?;
-    set("EXTERNAL_DISK_PATH", &storage)?;
-    set("TPCLOUD_BACKUP_DIR", &backup_dir)?;
-    if home {
-        let home_env = paths::home_env_file();
-        if !home_env.exists() {
-            std::fs::create_dir_all(home_env.parent().unwrap())?;
-            std::fs::write(&home_env, default_home_env())?;
-        }
-        install::restrict(&home_env)?;
-    }
-    install::sync_links()?;
-    if reach.ts_name.is_some() {
-        // The gateway answers on Tailscale itself now; a `tailscale serve` on 443 from an older
-        // setup would take the port from it.
-        let _ = std::process::Command::new("tailscale")
-            .args(["serve", "--https=443", "off"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-    }
-    if let Some((email, password)) = owner {
-        users::create_owner(&email, &password)?;
-    }
-    ui::done(&format!("Saved. TPCloud will answer at {}.", ui::accent(&url)));
-    let others: Vec<String> = network::addresses(&crate::services::Settings::load()).into_iter().filter(|a| *a != url).collect();
-    if !others.is_empty() {
-        println!("  {}", ui::dim(&format!("And at {}.", others.join(", "))));
-    }
-    if !backup_dir.is_empty() {
-        println!("  {}", ui::dim(&format!("Backups: every night to {} (`sudo tpcloud backup` makes one now).", backup_dir)));
-    }
-    if reach.local {
+    if a.local {
         println!("  {}", ui::dim("The apps trust this machine's certificate by themselves. A browser at home has to trust it"));
         println!("  {}", ui::dim(&format!("once: download it from https://{host}/auth/network/ca.crt and add it to the system's certificates.")));
     }
-    if reach.ts_name.is_some() {
+    if a.tailscale.is_some() {
         println!("  {}", ui::dim("Tailscale gives the certificate: MagicDNS and HTTPS have to be on for your tailnet."));
     }
-    if home {
+    if a.home {
         println!("  {}", ui::dim(&format!("Home's switches will find this machine at {} (MQTT on port 1883).", lan_ip().unwrap_or_default())));
     }
     Ok(())
 }
 
-/// Where the setup's answers say the network should answer.
-struct Reach {
-    local: bool,
-    local_names: String,
-    ts_name: Option<String>,
-    domain: String,
-    tunnel: TunnelChoice,
-}
+/// The terminal's way of showing the setup as it's applied.
+struct Terminal;
 
-enum TunnelChoice {
-    None,
-    /// A tunnel made by hand in Cloudflare's dashboard, run from the token already in the settings.
-    Token,
-    /// One made from the setup in the owner's account.
-    Managed,
-}
-
-fn tailscale_name() -> Result<String> {
-    let out = std::process::Command::new("tailscale").args(["status", "--json"]).output();
-    let Ok(out) = out else { bail!("Tailscale isn't installed here: install it, sign in, and run setup again") };
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
-    match json["Self"]["DNSName"].as_str() {
-        Some(name) if !name.is_empty() => Ok(name.trim_end_matches('.').to_string()),
-        _ => bail!("Tailscale isn't signed in here: run `sudo tailscale up` and setup again"),
+impl engine::Progress for Terminal {
+    fn step(&mut self, text: &str) {
+        ui::step(text);
     }
+    fn done(&mut self, text: &str) {
+        ui::done(text);
+    }
+    fn sign_in(&mut self, url: &str) {
+        println!("  {}", ui::dim("Open this link on any device, sign in to Cloudflare and pick your domain:"));
+        println!("\n      {}\n", ui::accent(url));
+    }
+    fn recovery_key(&mut self, key: &str) {
+        println!();
+        println!("  {}", ui::bold("Recovery key"));
+        println!("  {}", ui::dim("This machine opens the disks by itself. If it breaks, this key opens them anywhere"));
+        println!("  {}", ui::dim("(`cryptsetup open` on any Linux). It's shown only now: write it down and keep it safe."));
+        println!("\n      {}\n", ui::accent(key));
+        let _ = ask("Press enter once it's written down", "");
+    }
+    fn replace_dns(&mut self, hostname: &str) -> bool {
+        ask_yes(&format!("{hostname} already points somewhere else. Point it at this machine instead?"), false).unwrap_or(false)
+    }
+}
+
+/// Where Store's files go: a folder (nothing erased), or a new pool on empty disks.
+fn ask_storage(env: &std::path::Path, f: &engine::Facts, was: &engine::Files) -> Result<engine::Files> {
+    let default_folder = match was {
+        engine::Files::Folder(p) => p.clone(),
+        engine::Files::Pool { .. } => format!("{}/files", storage::DEFAULT_MOUNT),
+    };
+    let free: Vec<&storage::Disk> = f.disks.iter().filter(|d| d.busy.is_none()).collect();
+    if let Some(line) = &f.pool {
+        println!("  {}", ui::dim(&format!("Storage pool: {line}.")));
+    }
+    let new_pool = storage::configured(env).is_none()
+        && !free.is_empty()
+        && choose(
+            "Where?",
+            &[
+                ("A folder", "on a disk that's already set up; nothing is erased"),
+                ("New storage on empty disks", &format!("{} disk(s) here could be used: TPCloud formats them", free.len())),
+            ],
+            0,
+        )? == 1;
+    if !new_pool {
+        loop {
+            let folder = ask("Folder", &default_folder)?;
+            if !folder.starts_with('/') {
+                ui::warn("Give the full path, starting with /.");
+                continue;
+            }
+            if let Some((free_bytes, total)) = storage::space(std::path::Path::new(&folder)) {
+                println!("  {}", ui::dim(&format!("{} free of {} there.", storage::human(free_bytes), storage::human(total))));
+            }
+            return Ok(engine::Files::Folder(folder));
+        }
+    }
+
+    for (i, d) in free.iter().enumerate() {
+        let on_it = if d.contents.is_empty() { ui::dim("empty") } else { ui::warn_text(&format!("has {}", d.contents.join(", "))) };
+        println!("    {} {}  {}", ui::accent(&format!("{}.", i + 1)), d.describe(), on_it);
+    }
+    let chosen: Vec<&storage::Disk> = loop {
+        let answer = ask("Disks (e.g. 1, or 1,2 for two)", if free.len() == 1 { "1" } else { "" })?;
+        let picks: Option<Vec<usize>> = answer.split(',').map(|s| s.trim().parse::<usize>().ok().filter(|n| (1..=free.len()).contains(n))).collect();
+        match picks {
+            Some(mut p) if !p.is_empty() => {
+                p.sort();
+                p.dedup();
+                break p.iter().map(|n| free[n - 1]).collect();
+            }
+            _ => ui::warn("Numbers from the list, separated by commas."),
+        }
+    };
+    let sizes: Vec<u64> = chosen.iter().map(|d| d.size).collect();
+    let levels = storage::levels_for(chosen.len());
+    let level = if levels.len() == 1 {
+        levels[0]
+    } else {
+        let texts: Vec<(String, String)> = levels
+            .iter()
+            .map(|l| {
+                let what = match l {
+                    storage::Level::Raid1 => "every file on two disks: one can fail",
+                    storage::Level::Raid10 => "mirrored pairs, faster: one per pair can fail",
+                    storage::Level::Single => "all the space, no copy: a failing disk loses its files",
+                };
+                (format!("{} ({} usable)", l.name(), storage::human(storage::usable(&sizes, *l))), what.to_string())
+            })
+            .collect();
+        let options: Vec<(&str, &str)> = texts.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        levels[choose("How?", &options, 0)?]
+    };
+    println!("  {}", ui::dim("Encrypted, a disk taken away alone can't be read; this machine opens it by itself."));
+    let encrypt = ask_yes("Encrypt them?", true)?;
+    println!();
+    for d in &chosen {
+        println!("  {} {}{}", ui::warn_dot(), d.describe(), if d.contents.is_empty() { String::new() } else { format!(" ({})", d.contents.join(", ")) });
+    }
+    let answer = ask("Everything on these disks will be erased at the end of the setup. Type ERASE to go on", "")?;
+    if answer != "ERASE" {
+        bail!("nothing was changed");
+    }
+    Ok(engine::Files::Pool { disks: chosen.iter().map(|d| d.path.clone()).collect(), level, encrypt })
 }
 

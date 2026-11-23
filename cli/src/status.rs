@@ -101,6 +101,9 @@ pub fn print() -> Result<()> {
     if !st.files.is_empty() {
         println!("{}  {}", ui::dim("Files  "), st.files);
     }
+    if let Some((line, ok)) = crate::storage::status_line(&paths::env_file()) {
+        println!("{}  {}", ui::dim("Pool   "), if ok { line } else { ui::warn_text(&line) });
+    }
     println!("{}  {}", ui::dim("Data   "), paths::state_dir().display());
     println!("{}  {}", ui::dim("Backup "), if st.backup_ok { st.backup.clone() } else { ui::warn_text(&st.backup) });
     if let Some(v) = &st.update {

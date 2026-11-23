@@ -7,7 +7,7 @@
 //! `cloudflare/` (root only); the tunnel process, run as `tpcloud`, only reads its own
 //! credentials in `cloudflared/`.
 
-use crate::{paths, services::Settings, ui};
+use crate::{paths, services::Settings};
 use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 use std::process::Command;
@@ -67,8 +67,8 @@ fn text(out: &std::process::Output) -> String {
 }
 
 /// Signs this machine in to the owner's Cloudflare account, unless it already is. cloudflared
-/// prints the link itself and waits until it's been approved in the browser.
-pub fn login() -> Result<()> {
+/// prints a link and waits until it's been approved in a browser: the link goes to `on_link`.
+pub fn login(on_link: &mut dyn FnMut(&str)) -> Result<()> {
     if origin_cert().exists() {
         return Ok(());
     }
@@ -77,14 +77,42 @@ pub fn login() -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(login_home(), std::fs::Permissions::from_mode(0o700))?;
     }
-    println!("  {}", ui::dim("Open the link below on any device, sign in to Cloudflare and pick your domain."));
-    let status = Command::new(cloudflared())
+    let mut child = Command::new(cloudflared())
         .args(["tunnel", "login"])
         .env("HOME", login_home())
-        .status()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .context("couldn't run cloudflared")?;
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    for stream in [child.stdout.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>), child.stderr.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>)].into_iter().flatten() {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            for line in std::io::BufReader::new(stream).lines().map_while(Result::ok) {
+                let _ = tx.send(line);
+            }
+        });
+    }
+    drop(tx);
+    let mut said = Vec::new();
+    let mut shown = false;
+    for line in rx {
+        if !shown {
+            if let Some(start) = line.find("https://") {
+                let url = line[start..].split_whitespace().next().unwrap_or("");
+                if url.contains("cloudflare") {
+                    on_link(url);
+                    shown = true;
+                    continue;
+                }
+            }
+        }
+        said.push(line);
+    }
+    let status = child.wait()?;
     if !status.success() || !origin_cert().exists() {
-        bail!("the Cloudflare sign-in didn't finish");
+        bail!("the Cloudflare sign-in didn't finish: {}", said.join(" ").trim());
     }
     Ok(())
 }

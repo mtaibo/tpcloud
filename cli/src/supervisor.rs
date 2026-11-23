@@ -158,6 +158,7 @@ pub fn serve() -> Result<()> {
                     Err(err) => eprintln!("tpcloud: backup failed: {err:#}"),
                 }
             }
+            crate::storage::scrub_if_due();
             if looked.map_or(true, |t| t.elapsed() > Duration::from_secs(24 * 3600)) {
                 crate::update::check_quietly();
                 looked = Some(Instant::now());

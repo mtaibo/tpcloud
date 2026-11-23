@@ -4,6 +4,8 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+pub mod storage;
+
 pub const APP_DIR: &str = "/opt/tpcloud";
 pub const STATE_DIR: &str = "/var/lib/tpcloud";
 pub const BIN_DIR: &str = "/usr/local/bin";
@@ -19,10 +21,12 @@ pub mod service {
             .unwrap_or_else(|| PathBuf::from("/etc/systemd/system/tpcloud.service"))
     }
 
-    /// systemd runs `<program> serve`, which runs everything else.
-    pub fn install(program: &Path) -> Result<()> {
+    /// systemd runs `<program> serve`, which runs everything else, once the folders it needs are
+    /// mounted (Store's files: with their disk missing it would fill the system disk instead).
+    pub fn install(program: &Path, needs: &[PathBuf]) -> Result<()> {
+        let mounts: String = needs.iter().map(|p| format!("RequiresMountsFor={}\n", p.display())).collect();
         let unit = format!(
-            "[Unit]\nDescription=TPCloud\nAfter=network-online.target\nWants=network-online.target\n\n\
+            "[Unit]\nDescription=TPCloud\nAfter=network-online.target\nWants=network-online.target\n{mounts}\n\
              [Service]\nExecStart={} serve\nRestart=always\nRestartSec=3\n\
              # SIGTERM to tpcloud, which stops its processes in order; anything left is killed after the timeout.\n\
              KillMode=mixed\nTimeoutStopSec=30\nLimitNOFILE=65536\n\
@@ -56,6 +60,20 @@ pub mod service {
 
     pub fn restart() -> Result<()> {
         systemctl(&["restart", NAME])
+    }
+
+    /// Stopped, not started at boot, and its unit gone.
+    pub fn remove() -> Result<()> {
+        let _ = Command::new("systemctl").args(["disable", "--now", NAME]).status();
+        let unit = unit_path();
+        if unit.exists() {
+            std::fs::remove_file(&unit)?;
+        }
+        systemctl(&["daemon-reload"])
+    }
+
+    pub fn installed() -> bool {
+        unit_path().exists()
     }
 
     pub fn running() -> bool {

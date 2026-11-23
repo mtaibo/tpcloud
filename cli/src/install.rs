@@ -65,6 +65,18 @@ fn install_this(adopt: Option<PathBuf>, start: bool) -> Result<()> {
         adopt_clones(&from)?;
     }
 
+    if paths::env_file().exists() && !platform::service::installed() && std::io::stdin().is_terminal() {
+        // Uninstalled before (or moved here from another machine's backup): everything's kept.
+        let accounts = crate::users::count().unwrap_or(0);
+        println!("TPCloud was set up here before: its {accounts} account(s), files and settings are all still here.");
+        print!("Go through the setup again, with what's set now as the answers? [Y/n]: ");
+        std::io::Write::flush(&mut std::io::stdout())?;
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer)?;
+        if !answer.trim().eq_ignore_ascii_case("n") {
+            setup::run()?;
+        }
+    }
     if !paths::env_file().exists() {
         if std::io::stdin().is_terminal() {
             setup::run()?;
@@ -87,6 +99,10 @@ fn install_this(adopt: Option<PathBuf>, start: bool) -> Result<()> {
     }
     sync_links()?;
     write_unit()?;
+    // A pool's boot units come from this version too.
+    if let Some(pool) = crate::storage::configured(&paths::env_file()) {
+        platform::storage::write_units(&pool.mount, &pool.uuid, &pool.luks)?;
+    }
     crate::harden::secure_state();
     if start {
         ui::step("Starting TPCloud");
@@ -112,8 +128,50 @@ fn install_binary() -> Result<()> {
 }
 
 /// The background service that runs `tpcloud serve`, which runs everything else.
-fn write_unit() -> Result<()> {
-    platform::service::install(&paths::bin_dir().join("tpcloud"))
+pub fn write_unit() -> Result<()> {
+    let files = envfile::get(&paths::env_file(), "EXTERNAL_DISK_PATH").filter(|f| f.starts_with('/'));
+    let needs: Vec<PathBuf> = files.map(PathBuf::from).into_iter().collect();
+    platform::service::install(&paths::bin_dir().join("tpcloud"), &needs)
+}
+
+/// `sudo tpcloud uninstall`: the program, its runtime and its service go; every account, file,
+/// photo, setting and backup stays where it is, so installing again picks them all up.
+pub fn uninstall() -> Result<()> {
+    require_root("Uninstalling")?;
+    let state = paths::state_dir();
+    let files = envfile::get(&paths::env_file(), "EXTERNAL_DISK_PATH").unwrap_or_default();
+    ui::step("Stopping TPCloud");
+    platform::service::remove()?;
+    platform::discovery::withdraw();
+    ui::step("Removing the program");
+    for name in ["tpcloud", "tphome"] {
+        let path = paths::bin_dir().join(name);
+        if path.symlink_metadata().is_ok() {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    let app = paths::app_dir();
+    if app.exists() {
+        std::fs::remove_dir_all(&app)?;
+    }
+    ui::done("TPCloud is uninstalled.");
+    println!("  {}", ui::dim("Kept, untouched:"));
+    println!("  {}", ui::dim(&format!("  {}  accounts, settings, the photo index, albums, share links, the house", state.display())));
+    if !files.is_empty() {
+        println!("  {}", ui::dim(&format!("  {files}  everyone's files and photos")));
+    }
+    if let Some(dir) = crate::backup::dir() {
+        println!("  {}", ui::dim(&format!("  {}  backups", dir.display())));
+    }
+    if storage_pool_here() {
+        println!("  {}", ui::dim("  the storage pool, still mounted at every boot"));
+    }
+    println!("  {}", ui::dim("Installing TPCloud again finds all of it and carries on."));
+    Ok(())
+}
+
+fn storage_pool_here() -> bool {
+    crate::storage::configured(&paths::env_file()).is_some()
 }
 
 /// Takes over a server that ran from clones of tpcloud and tphome side by side in `from`, with

@@ -5,6 +5,7 @@
 mod backup;
 mod cloudflare;
 mod discovery;
+mod engine;
 mod envfile;
 mod harden;
 mod home;
@@ -17,6 +18,7 @@ mod runtime;
 mod services;
 mod setup;
 mod status;
+mod storage;
 mod supervisor;
 mod tui;
 mod ui;
@@ -104,6 +106,13 @@ enum Command {
         #[command(subcommand)]
         action: Option<UsersAction>,
     },
+    /// The disks here and the storage pool's state.
+    Storage {
+        #[command(subcommand)]
+        action: Option<StorageAction>,
+    },
+    /// Remove TPCloud from this machine, keeping every account, file and setting: needs sudo.
+    Uninstall,
     /// Control the house (the same as the `tphome` command).
     #[command(disable_help_flag = true)]
     Home {
@@ -123,6 +132,21 @@ enum ModuleAction {
     Enable { module: String },
     /// Turn a module off, keeping its data: needs sudo.
     Disable { module: String },
+}
+
+#[derive(Subcommand)]
+enum StorageAction {
+    /// The disks and the pool (the same as `tpcloud storage`).
+    List,
+    /// Add an empty disk to the pool (erases it): needs sudo.
+    Add { disk: String },
+    /// Check every block of the pool now and repair what a mirror can: needs sudo.
+    Scrub,
+    /// Set the pool's error counts back to zero, once its disks have been checked: needs sudo.
+    Clear,
+    /// Open the encrypted pool's disks (what the boot does).
+    #[command(hide = true)]
+    Unlock,
 }
 
 #[derive(Subcommand)]
@@ -206,6 +230,14 @@ fn run() -> Result<()> {
                 users::add(&email, &password, admin)
             }
         },
+        Some(Command::Storage { action }) => match action {
+            None | Some(StorageAction::List) => storage::print(),
+            Some(StorageAction::Add { disk }) => storage::add(&disk),
+            Some(StorageAction::Scrub) => storage::scrub_now(),
+            Some(StorageAction::Clear) => storage::clear(),
+            Some(StorageAction::Unlock) => storage::unlock(),
+        },
+        Some(Command::Uninstall) => install::uninstall(),
         Some(Command::Home { args: rest }) => home::run(std::iter::once("tphome".to_string()).chain(rest)),
         Some(Command::Serve) => supervisor::serve(),
     }

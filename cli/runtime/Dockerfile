@@ -7,7 +7,8 @@
 #     py/{auth,store,home}/   each service's pinned packages (pip --target)
 #     code/{auth,store,home}/ each service's code
 #     web/<app>/         the seven web apps, built
-#     bin/               caddy, mosquitto, cloudflared, ffmpeg, ffprobe, rsync (static)
+#     bin/               caddy, mosquitto, cloudflared, ffmpeg, ffprobe, rsync, and for disks
+#                        btrfs, mkfs.btrfs, cryptsetup, smartctl (static)
 #     Caddyfile, mosquitto.conf
 
 ARG PY_RELEASE=20261110
@@ -19,6 +20,10 @@ ARG RSYNC_VERSION=3.5.2
 ARG FFMPEG_VERSION=8.0
 ARG ZIMG_VERSION=3.0.6
 ARG X264_COMMIT=b35605ace3ddf7c1a5d67a2eb553f034aef41d55
+ARG BTRFS_VERSION=6.14
+ARG CRYPTSETUP_VERSION=2.7.5
+ARG JSONC_VERSION=0.18
+ARG SMARTMONTOOLS_VERSION=7.5
 # SHA-256 of every download, checked before it's unpacked: a changed or tampered file stops the
 # build instead of ending up in the release. Changing a version above means updating its sum here
 # (`curl -fsSL <url> | shasum -a 256`; Python's and Caddy's are also published with their releases).
@@ -27,6 +32,10 @@ ARG RSYNC_SHA256=a10d591825251e070f74c98df3daad195def4ed81b4a2de16169026aea33f6c
 ARG ZIMG_SHA256=be89390f13a5c9b2388ce0f44a5e89364a20c1c57ce46d382b1fcc3967057577
 ARG X264_SHA256=cd71a7515b0e9a012e1ac9b1f8415bebcaf6fc97d4db32286642ac4c0fbe24f9
 ARG FFMPEG_SHA256=b2751fccb6cc4c77708113cd78b561059b6fa904b24162fa0be2d60273d27b8e
+ARG BTRFS_SHA256=df5ab804fcb36e291c42ad8361f801ad1e10241b43bd304fe50ce3df9e7e3da1
+ARG CRYPTSETUP_SHA256=d2be4395b8f503b0ebf4b2d81db90c35a97050a358ee21fe62a0dfb66e5d5522
+ARG JSONC_SHA256=876ab046479166b869afc6896d288183bbc0e5843f141200c677b3e8dfb11724
+ARG SMARTMONTOOLS_SHA256=690b83ca331378da9ea0d9d61008c4b22dde391387b9bbad7f29387f2595f76e
 ARG PY_SHA256_arm64=b6a41defec4975d94b4ff1950236e7383e5c02ba40ea48c9ec33c66087a35aab
 ARG PY_SHA256_amd64=6a9e62dad033790aef722dbd370e0ce76ce17b73627ba3ae679f537049350b39
 ARG CADDY_SHA256_arm64=5e377cff994fc9362a6fcf695c53f226cfca3a3ef85bd3a3687cf252d6310165
@@ -63,6 +72,48 @@ WORKDIR /tmp/rsync-${RSYNC_VERSION}
 RUN ./configure --disable-openssl --disable-xxhash --disable-zstd --disable-lz4 --disable-md2man --disable-idn \
       LDFLAGS="-static" >/dev/null \
  && make -j"$(nproc)" >/dev/null && strip rsync && cp rsync /rsync && /rsync --version | head -1
+
+# ── Disks: what the setup needs to make a storage pool (Btrfs, optionally on LUKS) and check its
+#    disks' health, so a machine doesn't need any of it installed. All static. Alpine's static
+#    libblkid needs libeconf, which its pkg-config file doesn't say: added by hand to the links. ──
+FROM alpine:3.22 AS btrfs
+ARG BTRFS_VERSION
+ARG BTRFS_SHA256
+RUN apk add --no-cache build-base curl linux-headers util-linux-dev util-linux-static zlib-dev zlib-static lzo-dev zstd-dev zstd-static e2fsprogs-dev libeconf-dev pkgconf
+RUN curl -fsSL -o /tmp/src.tar.xz https://mirrors.edge.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/btrfs-progs-v${BTRFS_VERSION}.tar.xz \
+ && echo "${BTRFS_SHA256}  /tmp/src.tar.xz" | sha256sum -c - && tar -xJf /tmp/src.tar.xz -C /tmp
+WORKDIR /tmp/btrfs-progs-v${BTRFS_VERSION}
+RUN ./configure --disable-documentation --disable-python --disable-libudev --disable-convert --disable-zoned --disable-backtrace >/dev/null \
+ && make -j"$(nproc)" btrfs.static mkfs.btrfs.static STATIC_LIBS_COMP="-lzstd -llzo2 -lz -leconf" >/dev/null \
+ && strip btrfs.static mkfs.btrfs.static && cp btrfs.static /btrfs && cp mkfs.btrfs.static /mkfs.btrfs && /btrfs --version
+
+FROM alpine:3.22 AS cryptsetup
+ARG CRYPTSETUP_VERSION
+ARG CRYPTSETUP_SHA256
+ARG JSONC_VERSION
+ARG JSONC_SHA256
+RUN apk add --no-cache build-base curl cmake linux-headers util-linux-dev util-linux-static lvm2-dev device-mapper-static popt-dev popt-static openssl-dev openssl-libs-static argon2-dev argon2-static libeconf-dev pkgconf
+# json-c has no static library in Alpine.
+RUN curl -fsSL -o /tmp/jsonc.tar.gz https://s3.amazonaws.com/json-c_releases/releases/json-c-${JSONC_VERSION}.tar.gz \
+ && echo "${JSONC_SHA256}  /tmp/jsonc.tar.gz" | sha256sum -c - && tar -xzf /tmp/jsonc.tar.gz -C /tmp \
+ && cmake -S /tmp/json-c-${JSONC_VERSION} -B /tmp/json-c-build -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DDISABLE_EXTRA_LIBS=ON >/dev/null \
+ && cmake --build /tmp/json-c-build -j"$(nproc)" >/dev/null && cmake --install /tmp/json-c-build >/dev/null
+RUN curl -fsSL -o /tmp/src.tar.xz https://www.kernel.org/pub/linux/utils/cryptsetup/v${CRYPTSETUP_VERSION%.*}/cryptsetup-${CRYPTSETUP_VERSION}.tar.xz \
+ && echo "${CRYPTSETUP_SHA256}  /tmp/src.tar.xz" | sha256sum -c - && tar -xJf /tmp/src.tar.xz -C /tmp
+WORKDIR /tmp/cryptsetup-${CRYPTSETUP_VERSION}
+RUN LIBS=-leconf ./configure --enable-static-cryptsetup --disable-asciidoc --disable-ssh-token --disable-nls --disable-external-tokens \
+      --disable-veritysetup --disable-integritysetup --with-crypto_backend=openssl --enable-libargon2 >/dev/null \
+ && make -j"$(nproc)" cryptsetup.static >/dev/null && strip cryptsetup.static && cp cryptsetup.static /cryptsetup && /cryptsetup --version
+
+FROM alpine:3.22 AS smartctl
+ARG SMARTMONTOOLS_VERSION
+ARG SMARTMONTOOLS_SHA256
+RUN apk add --no-cache build-base curl linux-headers
+RUN curl -fsSL -o /tmp/src.tar.gz https://github.com/smartmontools/smartmontools/releases/download/RELEASE_${SMARTMONTOOLS_VERSION%.*}_${SMARTMONTOOLS_VERSION#*.}/smartmontools-${SMARTMONTOOLS_VERSION}.tar.gz \
+ && echo "${SMARTMONTOOLS_SHA256}  /tmp/src.tar.gz" | sha256sum -c - && tar -xzf /tmp/src.tar.gz -C /tmp
+WORKDIR /tmp/smartmontools-${SMARTMONTOOLS_VERSION}
+RUN ./configure LDFLAGS=-static --without-libsystemd --without-nvme-devicescan >/dev/null \
+ && make -j"$(nproc)" smartctl >/dev/null && strip smartctl && cp smartctl /smartctl && /smartctl --version | head -1
 
 # ── ffmpeg and ffprobe, static, with only what Store uses (~10 MB each instead of ~125): read
 #    iPhone HEVC/H.264 clips, tone-map HDR with zscale, write JPEG posters and H.264/AAC previews ──
@@ -150,6 +201,9 @@ RUN caddy_sum=$([ "$TARGETARCH" = arm64 ] && echo "$CADDY_SHA256_arm64" || echo 
 COPY --from=ffmpeg /ffmpeg /ffprobe ./
 COPY --from=mosquitto /mosquitto ./mosquitto
 COPY --from=rsync /rsync ./rsync
+COPY --from=btrfs /btrfs /mkfs.btrfs ./
+COPY --from=cryptsetup /cryptsetup ./cryptsetup
+COPY --from=smartctl /smartctl ./smartctl
 COPY --from=python /opt/python /runtime/python
 COPY --from=python /opt/py /runtime/py
 COPY --from=web /src/login/dist /runtime/web/login
