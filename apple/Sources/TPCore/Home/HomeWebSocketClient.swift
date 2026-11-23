@@ -3,19 +3,22 @@ import Foundation
 /// Push-only WebSocket stream for tphome device events. Matches the web client's `socket.js`:
 /// flat 3-second reconnect delay on any drop, no backoff/jitter.
 public final class HomeWebSocketClient: Sendable {
-    private let url: URL
+    private let fixedURL: URL?
     private let session: URLSession
 
-    public init(url: URL, session: URLSession = .shared) {
-        self.url = url
+    /// `url` nil: the network in use, read again on every reconnection.
+    public init(url: URL? = nil, session: URLSession = TPConnection.shared.session) {
+        self.fixedURL = url
         self.session = session
     }
+
+    private var url: URL { fixedURL ?? TPServer.current.homeWebSocketURL }
 
     public func events() -> AsyncStream<HomeEvent> {
         AsyncStream { continuation in
             let task = Task {
                 while !Task.isCancelled {
-                    await Self.runConnection(url: url, session: session, continuation: continuation)
+                    await Self.runConnection(url: self.url, session: session, continuation: continuation)
                     try? await Task.sleep(for: .seconds(3))
                 }
             }
@@ -28,7 +31,7 @@ public final class HomeWebSocketClient: Sendable {
         session: URLSession,
         continuation: AsyncStream<HomeEvent>.Continuation
     ) async {
-        let webSocketTask = session.webSocketTask(with: url)
+        let webSocketTask = session.webSocketTask(with: TPConnection.shared.request(url))
         webSocketTask.resume()
         defer { webSocketTask.cancel(with: .goingAway, reason: nil) }
 

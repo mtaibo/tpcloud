@@ -228,7 +228,7 @@ enum PhotoShareDownloads {
                 let name = photo.originalFilename.isEmpty ? "\(photo.id).jpg" : photo.originalFilename
                 let destination = folder.appendingPathComponent("\(index)-\(name)")
                 group.addTask {
-                    guard let (temp, response) = try? await URLSession.shared.download(from: url),
+                    guard let (temp, response) = try? await TPConnection.shared.session.download(for: TPConnection.shared.request(url)),
                           let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return (index, nil) }
                     try? FileManager.default.moveItem(at: temp, to: destination)
                     return (index, destination)

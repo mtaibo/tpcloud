@@ -81,13 +81,27 @@ private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @u
 }
 
 public struct HTTPClient: Sendable {
-    public let baseURL: URL
+    private let fixedURL: URL?
+    private let module: TPServer.Module
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    public init(baseURL: URL, session: URLSession = .shared) {
-        self.baseURL = baseURL
+    /// Where requests go: the module's path on the network in use, read on every request (the
+    /// app can move to another network or address while running), or a fixed URL.
+    public var baseURL: URL { fixedURL ?? TPServer.current.url(for: module) }
+
+    public init(_ module: TPServer.Module, session: URLSession = TPConnection.shared.session) {
+        self.init(fixedURL: nil, module: module, session: session)
+    }
+
+    public init(baseURL: URL, session: URLSession = TPConnection.shared.session) {
+        self.init(fixedURL: baseURL, module: .auth, session: session)
+    }
+
+    private init(fixedURL: URL?, module: TPServer.Module, session: URLSession) {
+        self.fixedURL = fixedURL
+        self.module = module
         self.session = session
 
         let decoder = JSONDecoder()
@@ -276,7 +290,8 @@ public struct HTTPClient: Sendable {
         var request = URLRequest(url: components.url!)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(Self.clientPlatform, forHTTPHeaderField: "X-TP-Client")
+        request.setValue(TPConnection.clientPlatform, forHTTPHeaderField: "X-TP-Client")
+        TPConnection.shared.authorize(&request)
         request.httpBody = body
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -289,6 +304,11 @@ public struct HTTPClient: Sendable {
         guard let http = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
+        // A sign-in's session, for the app (cookies belong to one host; this works on every
+        // address of the network).
+        if let token = http.value(forHTTPHeaderField: "X-TP-Session"), !token.isEmpty {
+            TPConnection.shared.adopt(token: token)
+        }
         if (300..<400).contains(http.statusCode) {
             NotificationCenter.default.post(name: .tpSessionExpired, object: nil)
             throw APIError.sessionExpired
@@ -297,14 +317,6 @@ public struct HTTPClient: Sendable {
             throw APIError.server(status: http.statusCode, message: errorDetail(from: data()))
         }
     }
-
-    #if os(iOS)
-    private static let clientPlatform = "ios"
-    #elseif os(macOS)
-    private static let clientPlatform = "macos"
-    #else
-    private static let clientPlatform = "native"
-    #endif
 
     private static func errorDetail(from data: Data) -> String? {
         struct ErrorBody: Decodable { let detail: String? }

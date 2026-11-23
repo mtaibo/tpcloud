@@ -236,7 +236,7 @@ private struct ZoomablePhoto: View {
     /// at max zoom. Not kept in `ImagePipeline`'s memory cache for the same reason.
     @concurrent
     private static func loadOriginal(_ url: URL) async -> Image? {
-        guard let (data, response) = try? await URLSession.shared.data(from: url),
+        guard let (data, response) = try? await TPConnection.shared.session.data(for: TPConnection.shared.request(url)),
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
         #if os(iOS)
         guard let image = UIImage(data: data) else { return nil }

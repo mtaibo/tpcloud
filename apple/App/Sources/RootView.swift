@@ -10,6 +10,7 @@ private enum AppTab: Hashable {
 }
 
 struct RootView: View {
+    @ObservedObject var networks: NetworkStore
     @ObservedObject var session: AuthSession
     let accountClient: CloudAccountClient
     let storeClient: StoreClient
@@ -32,7 +33,7 @@ struct RootView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .signedOut, .totpRequired:
-                LoginView(session: session)
+                LoginView(session: session, networks: networks)
             case .signedIn(let profile):
                 tabs(for: profile)
             }
@@ -87,6 +88,7 @@ struct RootView: View {
             }
             Tab("More", systemImage: "ellipsis", value: AppTab.more) {
                 MoreView(
+                    networks: networks,
                     session: session,
                     profile: profile,
                     accountClient: accountClient,
@@ -120,24 +122,4 @@ struct RootView: View {
             }
         )
     }
-}
-
-#Preview {
-    let server = TPServer.current
-    let authURL = server.authURL
-    let storeURL = server.storeURL
-    let homeURL = server.homeURL
-    let photosClient = PhotosClient(client: HTTPClient(baseURL: storeURL))
-    RootView(
-        session: AuthSession(baseURL: authURL),
-        accountClient: CloudAccountClient(client: HTTPClient(baseURL: authURL)),
-        storeClient: StoreClient(client: HTTPClient(baseURL: storeURL)),
-        homeStore: HomeStore(
-            client: HomeClient(client: HTTPClient(baseURL: homeURL)),
-            wsClient: HomeWebSocketClient(url: server.homeWebSocketURL)
-        ),
-        photosClient: photosClient,
-        photoGalleryStore: PhotoGalleryStore(client: photosClient),
-        photoSyncStore: PhotoSyncStore(client: photosClient)
-    )
 }

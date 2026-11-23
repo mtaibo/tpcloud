@@ -3,6 +3,8 @@ import TPCore
 
 struct LoginView: View {
     @ObservedObject var session: AuthSession
+    @ObservedObject var networks: NetworkStore
+    @State private var isChoosingNetwork = false
 
     @State private var email = ""
     @State private var password = ""
@@ -53,6 +55,24 @@ struct LoginView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            Button {
+                isChoosingNetwork = true
+            } label: {
+                Label(networks.current?.name ?? "Choose a Network", systemImage: "network")
+                    .font(.subheadline.weight(.medium))
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .sheet(isPresented: $isChoosingNetwork) {
+                NavigationStack {
+                    NetworksView(networks: networks)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done", systemImage: "checkmark") { isChoosingNetwork = false }
+                            }
+                        }
+                }
+            }
         }
     }
 
@@ -198,8 +218,4 @@ private extension View {
             .padding(.vertical, 14)
             .background(.fill.tertiary, in: .rect(cornerRadius: 14))
     }
-}
-
-#Preview {
-    LoginView(session: AuthSession(baseURL: TPServer.current.authURL))
 }

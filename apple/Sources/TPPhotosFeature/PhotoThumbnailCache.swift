@@ -274,7 +274,7 @@ public enum PhotoThumbnailCache {
     @concurrent
     private static func download(_ photo: Photo, client: PhotosClient) async -> Data? {
         let url = client.thumbnailURL(for: photo, size: serverPixelSize)
-        guard let (data, response) = try? await URLSession.shared.data(from: url),
+        guard let (data, response) = try? await TPConnection.shared.session.data(for: TPConnection.shared.request(url)),
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               !data.isEmpty else { return nil }
         store(data, checksum: photo.checksum)

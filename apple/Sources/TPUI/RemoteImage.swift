@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import TPCore
 #if os(macOS)
 import AppKit
 #else
@@ -48,7 +49,7 @@ public final class ImagePipeline: Sendable {
 
     @concurrent
     private static func fetch(_ url: URL) async -> Data? {
-        guard let (data, response) = try? await URLSession.shared.data(from: url),
+        guard let (data, response) = try? await TPConnection.shared.session.data(for: TPConnection.shared.request(url)),
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
         return data
     }

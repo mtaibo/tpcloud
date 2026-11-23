@@ -33,7 +33,7 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
     /// isn't corrupt, just incomplete, and the next wake continues where this one stopped.
     static let refillBatchSize = 12
 
-    static let storeBaseURL = TPServer.current.storeURL
+    static var storeBaseURL: URL { TPServer.current.storeURL }
     private static let backgroundSessionIdentifier = "com.migueltaibo.tpcloud.photos.upload"
     private static let ownerEmailDefaultsKey = "PhotoBackgroundUploader.ownerEmail"
 
@@ -292,7 +292,7 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
         var request = URLRequest(url: components.url!)
         request.httpMethod = "POST"
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        request.setValue("ios", forHTTPHeaderField: "X-TP-Client")
+        TPConnection.shared.authorize(&request)
 
         let info = ChunkTaskInfo(uploadId: upload.uploadId, chunkIndex: index, chunkFileURL: chunkFileURL.path)
         let task = session.uploadTask(with: request, fromFile: chunkFileURL)
@@ -356,6 +356,16 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
 }
 
 extension PhotoBackgroundUploader: URLSessionDataDelegate {
+    /// The network's own certificate authority, for a local address (see `TPTrustDelegate`).
+    public func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        let (disposition, credential) = TPTrustDelegate.evaluate(challenge)
+        completionHandler(disposition, credential)
+    }
+
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         bufferResponse(data, for: dataTask.taskIdentifier)
     }

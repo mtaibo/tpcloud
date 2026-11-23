@@ -10,24 +10,28 @@ public struct HTTPCookieSessionStore: SessionCookieStore {
     public static let cookieName = "__Host-tpcloud_session"
 
     private let storage: HTTPCookieStorage
-    private let host: String
+    private let fixedHost: String?
 
-    public init(storage: HTTPCookieStorage = .shared, host: String = TPServer.current.host) {
+    /// `host` nil: the network in use, whichever it is when asked.
+    public init(storage: HTTPCookieStorage = .shared, host: String? = nil) {
         self.storage = storage
-        self.host = host
+        self.fixedHost = host
     }
 
+    /// A session to restore: the app's bearer token, or (from before tokens) the cookie.
     public var hasSessionCookie: Bool {
-        sessionCookies.contains { $0.name == Self.cookieName }
+        TPConnection.shared.token != nil || sessionCookies.contains { $0.name == Self.cookieName }
     }
 
     public func clear() {
+        TPConnection.shared.adopt(token: nil)
         for cookie in sessionCookies {
             storage.deleteCookie(cookie)
         }
     }
 
     private var sessionCookies: [HTTPCookie] {
-        (storage.cookies ?? []).filter { $0.domain == host }
+        let host = fixedHost ?? TPServer.current.host
+        return (storage.cookies ?? []).filter { $0.domain == host }
     }
 }

@@ -41,7 +41,7 @@ final class PhotoViewerImageLoader {
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         // A stalled request gives up instead of leaving a page on its thumbnail for a minute.
         configuration.timeoutIntervalForRequest = 15
-        session = URLSession(configuration: configuration)
+        session = URLSession(configuration: configuration, delegate: TPTrustDelegate.shared, delegateQueue: nil)
         // Decoded bitmaps: a 2048 px photo is ~12 MB, so this holds the current one and the
         // neighbours either side, plus an original being zoomed into.
         decoded.totalCostLimit = 160 << 20
@@ -158,7 +158,7 @@ final class PhotoViewerImageLoader {
     /// of what's only being fetched in case.
     nonisolated private static func load(_ url: URL, session: URLSession, priority: Float) async -> Data? {
         await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
-            let task = session.dataTask(with: url) { data, response, _ in
+            let task = session.dataTask(with: TPConnection.shared.request(url)) { data, response, _ in
                 let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
                 continuation.resume(returning: ok ? data : nil)
             }

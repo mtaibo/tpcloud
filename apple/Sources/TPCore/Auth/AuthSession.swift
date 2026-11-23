@@ -32,6 +32,17 @@ public final class AuthSession: ObservableObject {
         self.init(authenticator: PasswordTOTPAuthenticator(client: HTTPClient(baseURL: baseURL)), cookieStore: cookieStore)
     }
 
+    /// Signs in against whichever network is in use.
+    public convenience init(cookieStore: SessionCookieStore = HTTPCookieSessionStore()) {
+        self.init(authenticator: PasswordTOTPAuthenticator(client: HTTPClient(.auth)), cookieStore: cookieStore)
+    }
+
+    /// The app moved to another network: its own session, if it has one.
+    public func networkChanged() async {
+        state = .checkingSession
+        await restoreIfPossible()
+    }
+
     /// Call on app launch: restores a signed-in state from the persisted session cookie, if any, without prompting for credentials.
     public func restoreIfPossible() async {
         guard cookieStore.hasSessionCookie else {

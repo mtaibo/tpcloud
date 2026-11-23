@@ -4,11 +4,13 @@ import TPCore
 
 private enum MoreDestination: Hashable {
     case account
+    case networks
 }
 
 /// The fourth tab: who's signed in, Account and sign out — the screens that used to take up a
 /// tab of their own.
 struct MoreView: View {
+    @ObservedObject var networks: NetworkStore
     @ObservedObject var session: AuthSession
     let profile: UserProfile
     let accountClient: CloudAccountClient
@@ -44,6 +46,13 @@ struct MoreView: View {
                     NavigationLink(value: MoreDestination.account) {
                         Label("Account", systemImage: "person.crop.circle")
                     }
+                    NavigationLink(value: MoreDestination.networks) {
+                        LabeledContent {
+                            Text(networks.current?.name ?? "")
+                        } label: {
+                            Label("Network", systemImage: "network")
+                        }
+                    }
                 }
 
                 Section {
@@ -60,6 +69,7 @@ struct MoreView: View {
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
                 case .account: AccountView(accountClient: accountClient)
+                case .networks: NetworksView(networks: networks)
                 }
             }
             .confirmationDialog("Sign out of TPCloud?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {

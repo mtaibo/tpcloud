@@ -62,5 +62,17 @@
 			<string>com.migueltaibo.tpcloud.store-item</string>
 		</dict>
 	</array>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_tpcloud._tcp</string>
+		<string>_tpcloud-setup._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>TPCloud looks for your TPCloud on this network, and for machines waiting to be set up.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

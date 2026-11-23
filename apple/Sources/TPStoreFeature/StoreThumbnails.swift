@@ -143,10 +143,13 @@ final class VideoThumbnailer: Sendable {
     }
 
     private static func generate(from url: URL) async throws -> CGImage {
-        // AVFoundation loads remote media out of process, without the app's cookie store, so the
-        // session cookie the gateway checks has to be handed over explicitly.
+        // AVFoundation loads remote media out of process, without the app's cookie store or
+        // session, so what the gateway checks is handed over explicitly: the session token (and
+        // the cookie, for servers from before tokens). It can't use the app's pinned certificate
+        // either: on a local address with the host's own authority, video frames don't load.
         let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
-        let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        let headers = TPConnection.shared.request(url).allHTTPHeaderFields ?? [:]
+        let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies, "AVURLAssetHTTPHeaderFieldsKey": headers])
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 480, height: 480)
