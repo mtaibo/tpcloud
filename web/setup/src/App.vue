@@ -179,7 +179,7 @@ async function next() {
     }
     const first = problems.value[0]
     if (first) {
-      const where = { name: 'name', files: 'files', backup_dir: 'backups', local_names: 'home', domain: 'outside', reach: 'outside', owner_email: 'account', owner_password: 'account' }[first.field]
+      const where = { name: 'name', files: 'files', backup_dir: 'backups', local_host: 'home', local_names: 'home', domain: 'outside', reach: 'outside', owner_email: 'account', owner_password: 'account' }[first.field]
       if (where) step.value = where
       error.value = first.message
       return
@@ -305,8 +305,15 @@ onBeforeUnmount(() => clearTimeout(timer))
 
       <!-- At home -->
       <div v-else-if="step === 'home'" class="stack">
-        <ListSection :footer="`On this network the apps find it by themselves at https://${facts.host}, with this machine's own certificate.`">
+        <ListSection :footer="`On this network the apps find it by themselves at https://${answers.local_host || 'tpcloud'}.local, with this machine's own certificate.`">
           <ListRow title="Answer on this network"><template #trailing><Toggle v-model="answers.local" label="Answer on this network" /></template></ListRow>
+          <ListRow v-if="answers.local">
+            <span class="row-title row-label">Name</span>
+            <template #trailing>
+              <input v-model="answers.local_host" class="row-input trailing" spellcheck="false" autocapitalize="off" placeholder="tpcloud" aria-label="Name at home" />
+              <span class="secondary">.local</span>
+            </template>
+          </ListRow>
         </ListSection>
         <ListSection v-if="answers.local" footer="If your router's DNS gives this machine a name of its own (cloud.casa…). Optional.">
           <ListRow><input v-model="otherName" class="row-input" spellcheck="false" autocapitalize="off" placeholder="Another name" aria-label="Another name" /></ListRow>
@@ -347,7 +354,7 @@ onBeforeUnmount(() => clearTimeout(timer))
           <ListRow title="Files" :value="answers.files.kind === 'folder' ? answers.files.path : `${chosenDisks.length} disk(s), ${levels.find(l => l.value === answers.files.level)?.label}${answers.files.encrypt ? ', encrypted' : ''}`" wrap-value />
           <ListRow title="Backups" :value="answers.backup_dir || 'Off'" wrap-value />
           <ListRow title="Modules" :value="[answers.store && 'Store', answers.home && 'Home'].filter(Boolean).join(', ') || 'None'" />
-          <ListRow title="At home" :value="answers.local ? [facts.host, ...answers.local_names].join(', ') : 'Off'" wrap-value />
+          <ListRow title="At home" :value="answers.local ? [`${answers.local_host}.local`, ...answers.local_names].join(', ') : 'Off'" wrap-value />
           <ListRow title="Tailscale" :value="answers.tailscale ? facts.tailscale : 'Off'" wrap-value />
           <ListRow title="Domain" :value="answers.domain.kind === 'none' ? 'None' : `${answers.domain.hostname} (${answers.domain.kind === 'cloudflare' ? 'Cloudflare' : 'open port'})`" wrap-value />
           <ListRow v-if="answers.owner" title="Account" :value="answers.owner.email" wrap-value />

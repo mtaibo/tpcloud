@@ -195,6 +195,17 @@ struct SetupHostView: View {
                 Section {
                     Toggle("Answer on This Network", isOn: binding(\.local))
                     if answers!.local {
+                        LabeledContent("Name") {
+                            HStack(spacing: 2) {
+                                TextField("tpcloud", text: Binding(get: { answers!.localHost ?? "tpcloud" }, set: { answers!.localHost = $0.lowercased() }))
+                                    .multilineTextAlignment(.trailing)
+                                    .autocorrectionDisabled()
+                                    #if os(iOS)
+                                    .textInputAutocapitalization(.never)
+                                    #endif
+                                Text(".local").foregroundStyle(.secondary)
+                            }
+                        }
                         TextField("Another name (optional)", text: $otherNames)
                             .autocorrectionDisabled()
                             #if os(iOS)
@@ -204,7 +215,7 @@ struct SetupHostView: View {
                 } header: {
                     Text("At Home")
                 } footer: {
-                    Text("At https://\(facts.host), with this machine's own certificate. Another name: one your router's DNS gives it.")
+                    Text("At https://\(answers!.localHost ?? "tpcloud").local, with this machine's own certificate. Another name: one your router's DNS gives it.")
                 }
 
                 Section {

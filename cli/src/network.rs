@@ -17,6 +17,9 @@ pub const NAME: &str = "TPCLOUD_NETWORK_NAME";
 pub const LOCAL: &str = "TPCLOUD_LOCAL";
 /// More names for the local site, e.g. one set in the router's DNS (cloud.casa).
 pub const LOCAL_NAMES: &str = "TPCLOUD_LOCAL_NAMES";
+/// The network's name at home: `<this>.local` (default `tpcloud`), whatever the machine is called.
+pub const LOCAL_HOST: &str = "TPCLOUD_LOCAL_HOST";
+pub const DEFAULT_LOCAL_HOST: &str = "tpcloud";
 /// This machine's Tailscale name (host.tailnet.ts.net); the gateway answers there itself, with
 /// the certificate Tailscale gives it.
 pub const TAILSCALE: &str = "TPCLOUD_TAILSCALE";
@@ -41,9 +44,9 @@ pub fn ensure(env: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The machine's name as a local address label: lowercase letters, digits and dashes.
-pub fn host_label() -> String {
-    let name: String = default_name()
+/// A label for a `.local` name: lowercase letters, digits and dashes ("" if nothing's left).
+pub fn label(text: &str) -> String {
+    let name: String = text
         .split('.')
         .next()
         .unwrap_or("")
@@ -51,8 +54,13 @@ pub fn host_label() -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    let name = name.trim_matches('-').to_string();
-    if name.is_empty() { "tpcloud".into() } else { name }
+    name.trim_matches('-').to_string()
+}
+
+/// The network's address at home, `tpcloud.local` unless the setup chose another label.
+pub fn local_host() -> String {
+    let set = envfile::get(&paths::env_file(), LOCAL_HOST).map(|l| label(&l)).unwrap_or_default();
+    format!("{}.local", if set.is_empty() { DEFAULT_LOCAL_HOST.to_string() } else { set })
 }
 
 fn host_of(url_or_site: &str) -> &str {
@@ -74,7 +82,11 @@ pub fn local_names(s: &Settings) -> Vec<String> {
     if s.get(LOCAL) != Some("on") {
         return names;
     }
-    push(&mut names, format!("{}.local", host_label()));
+    let first = match s.get(LOCAL_HOST).map(label) {
+        Some(l) if !l.is_empty() => format!("{l}.local"),
+        _ => format!("{DEFAULT_LOCAL_HOST}.local"),
+    };
+    push(&mut names, first);
     for name in s.list(LOCAL_NAMES) {
         push(&mut names, host_of(&name).to_lowercase());
     }
@@ -223,7 +235,7 @@ mod tests {
             (LOCAL, "on"),
             (LOCAL_NAMES, "cloud.casa, https://cloud.casa/"),
         ]);
-        let local = format!("https://{}.local", host_label());
+        let local = "https://tpcloud.local".to_string();
         assert_eq!(addresses(&s), vec!["https://cloud.example.com".to_string(), "https://box.tail1.ts.net".into(), local.clone(), "https://cloud.casa".into()]);
         let sites = extra_sites(&s);
         assert!(sites.contains(&format!("{local}, https://cloud.casa {{\n\tbind 0.0.0.0\n\ttls internal")), "{sites}");
@@ -240,7 +252,7 @@ mod tests {
 
     #[test]
     fn local_only_main_site_isnt_repeated() {
-        let local = format!("{}.local", host_label());
+        let local = "tpcloud.local".to_string();
         let s = settings(&[("TPCLOUD_URL", &format!("https://{local}")), ("TPCLOUD_SITE", &format!("https://{local}")), ("TPCLOUD_TLS", "internal"), (LOCAL, "on")]);
         assert_eq!(addresses(&s), vec![format!("https://{local}")]);
         assert!(!extra_sites(&s).contains("import tpcloud"));

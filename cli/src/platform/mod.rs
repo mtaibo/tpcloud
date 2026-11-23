@@ -8,7 +8,7 @@
 //! - `service`: install, enable, start, stop, restart the background service and ask if it runs.
 //! - `accounts`: the `tpcloud` group and system user, and adding a person to the group.
 //! - `storage`: listing disks, making, opening, mounting and checking a storage pool.
-//! - `discovery`: whether the OS has its own mDNS responder, and announcing a service through it.
+//! - `discovery`: cleaning up what older versions left in avahi's folders.
 
 #[cfg(target_os = "linux")]
 mod linux;

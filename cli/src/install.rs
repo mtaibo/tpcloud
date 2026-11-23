@@ -47,6 +47,7 @@ pub fn install(adopt: Option<PathBuf>, start: bool, this_file: bool) -> Result<(
 
 fn install_this(adopt: Option<PathBuf>, start: bool) -> Result<()> {
     let state = paths::state_dir();
+    platform::service::preflight()?;
 
     ui::step("Installing the tpcloud command");
     install_binary()?;
@@ -199,6 +200,7 @@ pub fn uninstall() -> Result<()> {
     platform::service::remove()?;
     platform::discovery::withdraw("tpcloud");
     platform::discovery::withdraw("tpcloud-setup");
+    platform::discovery::withdraw_host();
     ui::step("Removing the program");
     for name in ["tpcloud", "tphome"] {
         let path = paths::bin_dir().join(name);

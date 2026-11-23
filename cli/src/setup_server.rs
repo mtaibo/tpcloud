@@ -49,7 +49,7 @@ pub fn port_file() -> std::path::PathBuf {
 
 pub fn address() -> String {
     let port = std::fs::read_to_string(port_file()).ok().and_then(|p| p.trim().parse::<u16>().ok()).unwrap_or(80);
-    let host = format!("{}.local", network::host_label());
+    let host = network::local_host();
     if port == 80 { format!("http://{host}") } else { format!("http://{host}:{port}") }
 }
 
@@ -228,7 +228,7 @@ fn handle(mut stream: TcpStream, peer: IpAddr, shared: &Arc<Mutex<Shared>>) -> R
             send_json(&mut stream, 200, json!({
                 "tpcloud": 1,
                 "version": env!("CARGO_PKG_VERSION"),
-                "host": format!("{}.local", network::host_label()),
+                "host": network::local_host(),
                 "claimed": s.token.is_some(),
                 "open": s.token.is_none() && s.started.elapsed() < OPEN_FOR,
             }))
@@ -399,6 +399,7 @@ pub fn answers_json(a: &Answers) -> Value {
         "store": a.store,
         "home": a.home,
         "local": a.local,
+        "local_host": a.local_host,
         "local_names": a.local_names,
         "tailscale": a.tailscale.is_some(),
         "domain": match &a.domain {
@@ -441,6 +442,7 @@ pub fn parse_answers(body: &[u8]) -> Result<Answers> {
         store: v["store"].as_bool().unwrap_or(true),
         home: v["home"].as_bool().unwrap_or(false),
         local: v["local"].as_bool().unwrap_or(true),
+        local_host: Some(s(&v["local_host"]).to_lowercase()).filter(|l| !l.is_empty()).unwrap_or_else(|| crate::network::DEFAULT_LOCAL_HOST.into()),
         local_names: v["local_names"].as_array().into_iter().flatten().map(host).filter(|n| !n.is_empty()).collect(),
         tailscale,
         domain,

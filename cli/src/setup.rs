@@ -174,13 +174,19 @@ pub fn run() -> Result<()> {
     a.store = ask_yes("Store (files, photo backup from the app, share links)?", a.store)?;
     a.home = ask_yes("Home (blinds and lights with tphome's switches)?", a.home)?;
 
-    let host = f.host.clone();
     loop {
         heading("At home");
-        println!("  {}", ui::dim(&format!("On this network the apps find it by themselves, at https://{host}, with this machine's")));
+        println!("  {}", ui::dim("On this network the apps find it by themselves, at https://<name>.local, with this machine's"));
         println!("  {}", ui::dim("own certificate (the apps trust it when they add the network)."));
         a.local = ask_yes("Answer on this network?", a.local)?;
         if a.local {
+            let answer = ask("Its name at home (…local)", &a.local_host)?;
+            let label = network::label(&answer);
+            if label.is_empty() || label != answer.trim_end_matches(".local") {
+                ui::warn("Letters, digits and dashes only, like tpcloud.");
+                continue;
+            }
+            a.local_host = label;
             println!("  {}", ui::dim("If your router's DNS gives this machine a name of its own (e.g. cloud.casa), type it; - for none."));
             let was = a.local_names.join(",");
             let answer = ask("Other name", if was.is_empty() { "-" } else { &was })?;
@@ -286,7 +292,7 @@ pub fn run() -> Result<()> {
     }
     if a.local {
         println!("  {}", ui::dim("The apps trust this machine's certificate by themselves. A browser at home has to trust it"));
-        println!("  {}", ui::dim(&format!("once: download it from https://{host}/auth/network/ca.crt and add it to the system's certificates.")));
+        println!("  {}", ui::dim(&format!("once: download it from https://{}.local/auth/network/ca.crt and add it to the system's certificates.", a.local_host)));
     }
     if a.tailscale.is_some() {
         println!("  {}", ui::dim("Tailscale gives the certificate: MagicDNS and HTTPS have to be on for your tailnet."));

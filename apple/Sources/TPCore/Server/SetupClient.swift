@@ -72,6 +72,8 @@ public actor SetupClient {
         public var store: Bool
         public var home: Bool
         public var local: Bool
+        /// The network's name at home, `<this>.local` (servers from before it was asked: nil).
+        public var localHost: String?
         public var localNames: [String]
         public var tailscale: Bool
         public var domain: Domain

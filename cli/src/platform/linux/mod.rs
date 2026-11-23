@@ -6,6 +6,12 @@ use std::process::Command;
 
 pub mod storage;
 
+/// NixOS: /etc/systemd/system is the system configuration's, read-only; services are declared
+/// in configuration.nix instead of written by programs.
+pub fn is_nixos() -> bool {
+    Path::new("/etc/NIXOS").exists()
+}
+
 pub const APP_DIR: &str = "/opt/tpcloud";
 pub const STATE_DIR: &str = "/var/lib/tpcloud";
 pub const BIN_DIR: &str = "/usr/local/bin";
@@ -23,6 +29,34 @@ pub mod service {
 
     /// systemd runs `<program> serve`, which runs everything else, once the folders it needs are
     /// mounted (Store's files: with their disk missing it would fill the system disk instead).
+    /// What NixOS needs in its configuration for TPCloud to run (the program can't write the unit).
+    pub const NIXOS_SNIPPET: &str = r#"  systemd.services.tpcloud = {
+    description = "TPCloud";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      ExecStart = "/usr/local/bin/tpcloud serve";
+      Restart = "always";
+      RestartSec = 3;
+      KillMode = "mixed";
+      TimeoutStopSec = 30;
+      LimitNOFILE = 65536;
+    };
+  };
+  environment.extraInit = ''export PATH="$PATH:/usr/local/bin"'';"#;
+
+    /// Before anything's installed: on NixOS the service must be declared first.
+    pub fn preflight() -> Result<()> {
+        if is_nixos() && !unit_path().exists() {
+            bail!(
+                "on NixOS, TPCloud's service goes in your configuration: nothing was installed.\n\n\
+                 Add this to configuration.nix, run `sudo nixos-rebuild switch`, then install again:\n\n{NIXOS_SNIPPET}\n"
+            );
+        }
+        Ok(())
+    }
+
     /// `setup_pending`: the setup may make a storage pool, whose kernel modules the sandboxed
     /// service can't load itself (ProtectKernelModules): loaded first, with full privileges.
     pub fn install(program: &Path, needs: &[PathBuf], setup_pending: bool) -> Result<()> {
@@ -38,17 +72,27 @@ pub mod service {
              [Install]\nWantedBy=multi-user.target\n",
             program.display()
         );
+        if is_nixos() {
+            // Declared in configuration.nix (preflight checked it's there).
+            return Ok(());
+        }
         std::fs::write(unit_path(), unit)?;
         systemctl(&["daemon-reload"])
     }
 
     /// Starts with the machine from now on (doesn't start it now).
     pub fn enable() -> Result<()> {
+        if is_nixos() {
+            return Ok(()); // wantedBy in configuration.nix
+        }
         systemctl(&["enable", NAME])
     }
 
     /// Enabled and started.
     pub fn start() -> Result<()> {
+        if is_nixos() {
+            return systemctl(&["start", NAME]);
+        }
         systemctl(&["enable", "--now", NAME])
     }
 
@@ -67,6 +111,11 @@ pub mod service {
 
     /// Stopped, not started at boot, and its unit gone.
     pub fn remove() -> Result<()> {
+        if is_nixos() {
+            let _ = Command::new("systemctl").args(["stop", NAME]).status();
+            eprintln!("Stopped. On NixOS, take `systemd.services.tpcloud` out of configuration.nix too.");
+            return Ok(());
+        }
         let _ = Command::new("systemctl").args(["disable", "--now", NAME]).status();
         let unit = unit_path();
         if unit.exists() {
@@ -120,36 +169,52 @@ pub mod discovery {
         dir.join(format!("{id}.service"))
     }
 
-    /// avahi-daemon is running: it owns mDNS here and already answers for <hostname>.local.
-    pub fn system_responder() -> bool {
-        Command::new("systemctl").args(["is-active", "--quiet", "avahi-daemon"]).status().map(|s| s.success()).unwrap_or(false)
-    }
-
-    fn xml(text: &str) -> String {
-        text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
-    }
-
-    /// A static service file avahi picks up on its own (it watches the folder).
-    pub fn publish(id: &str, name: &str, service: &str, port: u16, txt: &[(String, String)]) -> Result<()> {
-        let records: String = txt.iter().map(|(k, v)| format!("    <txt-record>{}={}</txt-record>\n", xml(k), xml(v))).collect();
-        let body = format!(
-            "<?xml version=\"1.0\" standalone='no'?>\n<!DOCTYPE service-group SYSTEM \"avahi-service.dtd\">\n\
-             <!-- Written by `tpcloud serve` while TPCloud runs: don't edit. -->\n<service-group>\n  <name>{}</name>\n  <service>\n\
-             \x20   <type>{service}</type>\n    <port>{port}</port>\n{records}  </service>\n</service-group>\n",
-            xml(name)
-        );
-        let path = service_file(id);
-        if std::fs::read_to_string(&path).ok().as_deref() == Some(body.as_str()) {
-            return Ok(());
-        }
-        let dir = path.parent().context("no folder for avahi's service file")?;
-        if !dir.is_dir() {
-            bail!("{} doesn't exist", dir.display());
-        }
-        std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))
-    }
-
     pub fn withdraw(id: &str) {
         let _ = std::fs::remove_file(service_file(id));
+    }
+
+    fn hosts_file() -> PathBuf {
+        std::env::var_os("TPCLOUD_AVAHI_HOSTS").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/etc/avahi/hosts"))
+    }
+
+    const BEGIN: &str = "# tpcloud: begin (written by `tpcloud serve`, don't edit)";
+    const END: &str = "# tpcloud: end";
+
+    /// Takes out the block an older version wrote in avahi's hosts file.
+    pub fn withdraw_host() {
+        let path = hosts_file();
+        let Ok(text) = std::fs::read_to_string(&path) else { return };
+        let kept = without_block(&text);
+        if kept != text && std::fs::write(&path, kept).is_ok() {
+            let _ = Command::new("systemctl").args(["reload", "avahi-daemon"]).status();
+        }
+    }
+
+    fn without_block(text: &str) -> String {
+        let mut out = String::new();
+        let mut inside = false;
+        for line in text.lines() {
+            if line == BEGIN {
+                inside = true;
+            } else if line == END {
+                inside = false;
+            } else if !inside {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        out
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn our_block_comes_and_goes_alone() {
+            let mine = format!("1.2.3.4 router.local\n{BEGIN}\n10.0.0.2 tpcloud.local\n{END}\n# theirs\n");
+            assert_eq!(without_block(&mine), "1.2.3.4 router.local\n# theirs\n");
+            assert_eq!(without_block("a\nb\n"), "a\nb\n");
+        }
     }
 }

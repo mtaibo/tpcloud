@@ -52,7 +52,9 @@ pub fn disks() -> Result<Vec<Disk>> {
         let (mut mounts, mut contents, mut holders) = (Vec::new(), Vec::new(), Vec::new());
         walk(&dev, &mut mounts, &mut contents, &mut holders);
         let system = mounts.iter().any(|m| SYSTEM_MOUNTS.contains(&m.as_str()));
-        let busy = if system {
+        let busy = if super::is_nixos() {
+            Some("new storage isn't available on NixOS yet: pick a folder".to_string())
+        } else if system {
             Some("the system's disk".to_string())
         } else if !mounts.is_empty() {
             Some(format!("in use, mounted at {}", mounts.join(", ")))

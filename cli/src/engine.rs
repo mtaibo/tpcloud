@@ -34,6 +34,8 @@ pub struct Answers {
     pub store: bool,
     pub home: bool,
     pub local: bool,
+    /// The network's name at home, `<this>.local`.
+    pub local_host: String,
     pub local_names: Vec<String>,
     /// This machine's Tailscale name, when it should answer there.
     pub tailscale: Option<String>,
@@ -64,7 +66,7 @@ pub fn facts() -> Facts {
     let url = envfile::get(&env, "TPCLOUD_URL").unwrap_or_default();
     Facts {
         first: !env.exists() || url.is_empty() || url.contains("cloud.example.com"),
-        host: format!("{}.local", network::host_label()),
+        host: network::local_host(),
         disks: crate::platform::storage::disks().unwrap_or_default(),
         pool: storage::status_line(&env).map(|(l, _)| l),
         tailscale: tailscale_name().ok(),
@@ -97,6 +99,7 @@ pub fn current(f: &Facts) -> Answers {
         store: f.first || modules.iter().any(|m| m == "store"),
         home: modules.iter().any(|m| m == "home"),
         local: f.first || get(network::LOCAL) == "on",
+        local_host: Some(network::label(&get(network::LOCAL_HOST))).filter(|l| !l.is_empty()).unwrap_or_else(|| network::DEFAULT_LOCAL_HOST.into()),
         local_names: envfile::get_list(&env, network::LOCAL_NAMES),
         tailscale: Some(get(network::TAILSCALE)).filter(|t| !t.is_empty()),
         domain,
@@ -182,6 +185,9 @@ pub fn check(a: &Answers, f: &Facts) -> Vec<Problem> {
     }
     if let Some(m) = check_backup_dir(&a.backup_dir) {
         out.push(problem("backup_dir", m));
+    }
+    if a.local && (a.local_host.is_empty() || network::label(&a.local_host) != a.local_host) {
+        out.push(problem("local_host", "Letters, digits and dashes only, like tpcloud."));
     }
     for n in &a.local_names {
         if let Some(m) = check_hostname(n) {
@@ -296,7 +302,7 @@ pub fn apply(a: &Answers, p: &mut dyn Progress) -> Result<Outcome> {
     }
 
     // The main address (links, sign-in, passkeys): the domain, else Tailscale's, else home's.
-    let host = &f.host;
+    let host = &format!("{}.local", a.local_host);
     let (url, site, tls, https_publish) = match &a.domain {
         Domain::Cloudflare { hostname, .. } => (format!("https://{hostname}"), format!("http://{hostname}"), "none", ""),
         Domain::OpenPort { hostname } => (format!("https://{hostname}"), hostname.clone(), "none", "443"),
@@ -318,6 +324,7 @@ pub fn apply(a: &Answers, p: &mut dyn Progress) -> Result<Outcome> {
         profiles.push("tunnel".to_string());
     }
     set(network::LOCAL, if a.local { "on" } else { "off" })?;
+    set(network::LOCAL_HOST, &a.local_host)?;
     envfile::set_list(&env, network::LOCAL_NAMES, &a.local_names)?;
     set(network::TAILSCALE, a.tailscale.as_deref().unwrap_or(""))?;
     set("TPCLOUD_URL", &url)?;
@@ -374,7 +381,7 @@ mod tests {
     use super::*;
 
     fn facts() -> Facts {
-        Facts { first: true, host: "box.local".into(), disks: vec![], pool: None, tailscale: None, has_token: false, needs_owner: true, accounts: 0 }
+        Facts { first: true, host: "tpcloud.local".into(), disks: vec![], pool: None, tailscale: None, has_token: false, needs_owner: true, accounts: 0 }
     }
 
     fn answers() -> Answers {
@@ -385,6 +392,7 @@ mod tests {
             store: true,
             home: false,
             local: true,
+            local_host: "tpcloud".into(),
             local_names: vec![],
             tailscale: None,
             domain: Domain::None,
