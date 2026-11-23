@@ -6,6 +6,7 @@ private enum MoreDestination: Hashable {
     case account
     case networks
     case server
+    case terminal
 }
 
 /// The fourth tab: who's signed in, Account and sign out — the screens that used to take up a
@@ -52,6 +53,9 @@ struct MoreView: View {
                             Label("Server", systemImage: "server.rack")
                         }
                     }
+                    NavigationLink(value: MoreDestination.terminal) {
+                        Label("Terminal", systemImage: "terminal")
+                    }
                     NavigationLink(value: MoreDestination.networks) {
                         LabeledContent {
                             Text(networks.current?.name ?? "")
@@ -77,6 +81,7 @@ struct MoreView: View {
                 case .account: AccountView(accountClient: accountClient)
                 case .networks: NetworksView(networks: networks)
                 case .server: ServerView(accountClient: accountClient)
+                case .terminal: TerminalView()
                 }
             }
             .confirmationDialog("Sign out of TPCloud?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
@@ -104,5 +109,42 @@ struct MoreView: View {
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         return "TPCloud \(version) (\(build))"
+    }
+}
+
+/// The `tpcloud` command for a Mac or Linux terminal: the same one-line install as the website's
+/// (this app can't put a command in the terminal by itself), so every way ends in one tpcloud.
+struct TerminalView: View {
+    static let command = "curl -fsSL https://tpcloud.migueltaibo.com/get | sh"
+    @State private var copied = false
+
+    var body: some View {
+        List {
+            Section {
+                Text(Self.command)
+                    .font(.callout.monospaced())
+                    .textSelection(.enabled)
+                Button {
+                    #if os(macOS)
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(Self.command, forType: .string)
+                    #else
+                    UIPasteboard.general.string = Self.command
+                    #endif
+                    copied = true
+                } label: {
+                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                }
+            } footer: {
+                Text("Paste it in Terminal on a Mac or a Linux computer. It installs the tpcloud command (and, on Linux, the TPCloud app); running it again updates it. Then: tpcloud login.")
+            }
+            Section("What it does") {
+                LabeledContent("tpcloud login", value: "sign in")
+                LabeledContent("tpcloud users", value: "accounts (admins)")
+                LabeledContent("tpcloud host update", value: "update the server")
+                LabeledContent("tphome", value: "the house")
+            }
+        }
+        .navigationTitle("Terminal")
     }
 }
