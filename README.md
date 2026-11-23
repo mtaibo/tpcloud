@@ -21,7 +21,7 @@ TPCloud is everything I self-host, in one repo. It's the front door that every r
 Every service I added to my server needed its own login, its own port and its own way of being reached from outside. I wanted it to feel like a single cloud instead:
 
 - **One login** — sign in once at `/login` and every module knows who you are
-- **Reached your way** — only at home, privately from anywhere through Tailscale, or at your own domain through a Cloudflare Tunnel; nothing is opened unless you choose to
+- **Reached your way** — at home, found on the network by itself with its own certificate; privately from anywhere through Tailscale; at your own domain through a Cloudflare Tunnel the setup makes for you. Any mix of them, and nothing is opened unless you choose to
 - **Plug in a module** — a new service is one more process the server runs and one more path in the gateway
 - **Modern auth** — passkeys on the web, password + TOTP for the native app, and sessions you can see and revoke
 
@@ -40,7 +40,7 @@ The authentication service behind everything. Passkeys (WebAuthn), password + TO
 <td width="50%" valign="top">
 
 ### 🌐 [`services/gateway`](services/gateway/)
-Caddy routes each path to its service, puts the protected ones behind `auth`, serves every web app's files itself and adds strict security headers to every answer. In front of it sits whatever way in was chosen: `cloudflared`, `tailscale serve`, or Caddy's own certificate.
+Caddy routes each path to its service, puts the protected ones behind `auth`, serves every web app's files itself and adds strict security headers to every answer. It answers on every address the server has at once: the tunnel's, Tailscale's (with Tailscale's certificate) and the home network's (with its own certificate authority, announced over Bonjour), and `/.well-known/tpcloud` tells the apps all of them.
 
 **Caddy · Cloudflare Tunnel · Tailscale**
 
@@ -128,9 +128,9 @@ tpcloud/
 ```
                     Internet · Tailscale · home network
                                  │
-                    ┌────────────▼────────────┐   Cloudflare Tunnel, tailscale serve
-                    │   one address, e.g.      │   or port 443 with Caddy's certificate
-                    │   cloud.example.com      │
+                    ┌────────────▼────────────┐   your domain (Cloudflare Tunnel or port 443),
+                    │  cloud.example.com       │   Tailscale's name, and <host>.local at home,
+                    │  box.tailnet.ts.net …    │   all at once
                     └────────────┬────────────┘
                                  │
                     ┌────────────▼────────────┐       ┌──────────────────┐
@@ -233,7 +233,7 @@ curl -fsSL https://tpcloud.migueltaibo.com/install | sh
 
 That downloads the right file for the machine and runs `sudo tpcloud install`. The file can also be downloaded by hand from [tpcloud.migueltaibo.com](https://tpcloud.migueltaibo.com) or the [releases](https://github.com/mtaibo/tpcloud/releases), then `sudo ./tpcloud-linux-arm64 install`.
 
-It's a single static binary (~75 MB) and needs nothing else: no Docker, no Python, nothing from the package manager. Inside it carries its own Python with every service, the built web apps, [tphome](https://github.com/mtaibo/tphome)'s API, and static builds of Caddy, Mosquitto, ffmpeg, rsync and cloudflared. Installing unpacks them to `/opt/tpcloud`, copies itself to `/usr/local/bin` and adds a systemd service, `tpcloud serve`, that runs each process and restarts it if it stops. The guided setup asks where Store keeps files, which modules to turn on, how it'll be reached (only at home, Tailscale, a Cloudflare Tunnel or your own domain on port 443) and creates your admin account.
+It's a single static binary (~75 MB) and needs nothing else: no Docker, no Python, nothing from the package manager. Inside it carries its own Python with every service, the built web apps, [tphome](https://github.com/mtaibo/tphome)'s API, and static builds of Caddy, Mosquitto, ffmpeg, rsync and cloudflared. Installing unpacks them to `/opt/tpcloud`, copies itself to `/usr/local/bin` and adds a systemd service, `tpcloud serve`, that runs each process and restarts it if it stops. The guided setup asks where Store keeps files, which modules to turn on, how it'll be reached (at home, Tailscale, your own domain through a Cloudflare Tunnel it makes by signing you in to Cloudflare, or on port 443; any mix) and creates your admin account.
 
 Settings, databases and caches live in `/var/lib/tpcloud` (`tpcloud.env`, `data/`, `home/`, `gateway-extra/`, `logs/`) and an update never touches them. `sudo tpcloud update` gets the latest release from GitHub (checked against its SHA-256) and installs it; `install` run from an older file does the same, unless it's given `--this-file`. The service looks for a new release once a day, and `tpcloud status` says when there is one. `install --adopt <folder>` takes over a server that ran with Docker from tpcloud and tphome clones in that folder, copying their settings and data, with about a second down.
 
