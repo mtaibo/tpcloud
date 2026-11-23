@@ -32,6 +32,8 @@ fn txt(settings: &Settings) -> Vec<(String, String)> {
         ("id".into(), settings.get(network::ID).unwrap_or("").into()),
         ("v".into(), env!("CARGO_PKG_VERSION").into()),
         ("path".into(), "/.well-known/tpcloud".into()),
+        // The name the certificate is for: the apps build https://<host> from it.
+        ("host".into(), format!("{}.local", network::host_label())),
     ]
 }
 
@@ -47,7 +49,12 @@ pub fn announce(settings: &Settings) -> Option<Announcement> {
 
 /// A host waiting to be set up, for the apps' «Set up a new host».
 pub fn announce_setup(port: u16) -> Option<Announcement> {
-    let txt = vec![("v".to_string(), env!("CARGO_PKG_VERSION").to_string()), ("path".to_string(), "/api/setup".to_string())];
+    let txt = vec![
+        ("v".to_string(), env!("CARGO_PKG_VERSION").to_string()),
+        ("path".to_string(), "/api/setup".to_string()),
+        ("host".to_string(), format!("{}.local", network::host_label())),
+        ("port".to_string(), port.to_string()),
+    ];
     start("tpcloud-setup", &network::default_name(), SETUP_SERVICE, port, &txt)
 }
 
