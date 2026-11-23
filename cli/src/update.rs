@@ -118,15 +118,58 @@ pub fn run_release(release: &Release, args: &[String]) -> Result<()> {
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
     }
     std::fs::rename(&tmp, &file)?;
+    write_state("installing", &release.version);
 
     use std::os::unix::process::CommandExt;
     let err = std::process::Command::new(&file).args(args).env(FROM_UPDATE, &file).exec();
     bail!("couldn't run the new version: {err}")
 }
 
+/// Where an update tells how it's going (read by auth for the apps' Server screen): `checking`,
+/// `downloading`, `installing`, then `done`, `latest` or `failed`.
+pub fn state_file() -> PathBuf {
+    paths::state_dir().join("run/update.json")
+}
+
+pub fn write_state(state: &str, detail: &str) {
+    let body = serde_json::json!({ "state": state, "detail": detail, "at": crate::backup::now_secs() });
+    let _ = std::fs::write(state_file(), body.to_string());
+}
+
+/// Where auth leaves an admin's request (`update`, `check`): a folder it may write in, nothing
+/// else; the supervisor, root, acts on it.
+pub fn requests_dir() -> PathBuf {
+    paths::state_dir().join("requests")
+}
+
+/// Called by the supervisor every few seconds: a check or an update an admin asked for from an
+/// app. The update runs as a unit of its own (`systemd-run`), so restarting this service at the
+/// end doesn't stop it halfway.
+pub fn serve_requests() {
+    let dir = requests_dir();
+    if std::fs::remove_file(dir.join("check")).is_ok() {
+        std::thread::spawn(check_quietly);
+    }
+    if std::fs::remove_file(dir.join("update")).is_ok() {
+        write_state("checking", "");
+        if let Err(err) = crate::platform::service::run_detached("tpcloud-update", &paths::bin_dir().join("tpcloud"), &["update"]) {
+            write_state("failed", &format!("{err:#}"));
+        }
+    }
+}
+
 /// `tpcloud update`.
 pub fn command(force: bool) -> Result<()> {
+    let result = command_inner(force);
+    if let Err(err) = &result {
+        write_state("failed", &format!("{err:#}"));
+    }
+    result
+}
+
+fn command_inner(force: bool) -> Result<()> {
     crate::install::require_root("Updating")?;
+    write_state("checking", "");
     let installed = runtime::installed_version();
     if installed.is_none() {
         bail!("TPCloud isn't installed here yet: `sudo ./tpcloud install`");
@@ -135,9 +178,11 @@ pub fn command(force: bool) -> Result<()> {
     ui::step("Looking for a newer TPCloud");
     let release = latest()?;
     if !force && !newer(&release.version, &installed) {
+        write_state("latest", &installed);
         ui::done(&format!("TPCloud {installed} is the latest."));
         return Ok(());
     }
+    write_state("downloading", &release.version);
     run_release(&release, &["install".to_string()])
 }
 

@@ -41,6 +41,10 @@ pub fn install(adopt: Option<PathBuf>, start: bool, this_file: bool) -> Result<(
     let result = install_this(adopt, start);
     if let Some(file) = downloaded {
         let _ = std::fs::remove_file(file);
+        match &result {
+            Ok(()) => update::write_state("done", env!("CARGO_PKG_VERSION")),
+            Err(err) => update::write_state("failed", &format!("{err:#}")),
+        }
     }
     result
 }

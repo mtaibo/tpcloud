@@ -250,7 +250,31 @@ pub struct Me {
     #[serde(default)]
     pub display_name: Option<String>,
     #[serde(default)]
+    pub is_admin: bool,
+    #[serde(default)]
     pub modules: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct HostUpdate {
+    pub state: String,
+    pub detail: Option<String>,
+}
+
+/// The server's version and how an update is going (admins).
+#[derive(Clone, Debug, Deserialize)]
+pub struct Host {
+    pub version: String,
+    pub latest: Option<String>,
+    pub available: bool,
+    pub update: Option<HostUpdate>,
+    pub can_update: bool,
+}
+
+impl Host {
+    pub fn updating(&self) -> bool {
+        matches!(self.update.as_ref().map(|u| u.state.as_str()), Some("checking" | "downloading" | "installing"))
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -361,6 +385,17 @@ impl Api {
 
     pub async fn logout(&self) {
         let _ = self.req(reqwest::Method::POST, "/auth/passkey/logout").send().await;
+    }
+
+    pub async fn host(&self) -> Result<Host> {
+        let res = self.req(reqwest::Method::GET, "/auth/admin/host").send().await.map_err(|e| e.to_string())?;
+        Self::check(res).await?.json().await.map_err(|e| e.to_string())
+    }
+
+    /// `check` (look for a newer TPCloud now) or `update` (install it on the host).
+    pub async fn host_action(&self, action: &str) -> Result<()> {
+        let res = self.req(reqwest::Method::POST, &format!("/auth/admin/host/{action}")).send().await.map_err(|e| e.to_string())?;
+        Self::check(res).await.map(|_| ())
     }
 
     pub async fn list(&self, path: &str) -> Result<Vec<Entry>> {

@@ -56,6 +56,7 @@ async function confirmSignOut() {
     <ListSection v-if="profile.is_admin" :header="t('Administration', 'Administración')">
       <ListRow to="/users" :chevron="!wide" icon="person-2" tint="indigo" :title="t('Users', 'Usuarios')" :class="{ selected: active('/users') }" />
       <ListRow to="/all-sessions" :chevron="!wide" icon="network" tint="teal" :title="t('All sessions', 'Todas las sesiones')" :class="{ selected: active('/all-sessions') }" />
+      <ListRow to="/server" :chevron="!wide" icon="server" tint="gray" :title="t('Server', 'Servidor')" :class="{ selected: active('/server') }" />
     </ListSection>
 
     <ListSection>

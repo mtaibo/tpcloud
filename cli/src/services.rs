@@ -162,6 +162,8 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
     }
     env.insert("DATABASE_URL".into(), format!("sqlite:///{}", state.join("data/auth/tpauth.db").display()));
     env.insert("TPCLOUD_VERSION".into(), env!("CARGO_PKG_VERSION").into());
+    // Where the host's update state and admins' requests live (the Server screen).
+    env.insert("TPCLOUD_STATE_DIR".into(), state.display().to_string());
     env.insert("TPCLOUD_ADDRESSES".into(), crate::network::addresses(settings).join(","));
     let local: Vec<String> = crate::network::local_names(settings).iter().map(|n| format!("https://{n}")).collect();
     env.insert("TPCLOUD_LOCAL_ADDRESSES".into(), local.join(","));

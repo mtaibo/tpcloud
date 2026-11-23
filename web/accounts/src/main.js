@@ -16,6 +16,7 @@ const router = createRouter({
     { path: '/language', component: () => import('./views/Language.vue') },
     { path: '/users', component: () => import('./views/Users.vue'), meta: { admin: true } },
     { path: '/all-sessions', component: () => import('./views/AllSessions.vue'), meta: { admin: true } },
+    { path: '/server', component: () => import('./views/Server.vue'), meta: { admin: true } },
     { path: '/approve/:id', component: () => import('./views/Approve.vue'), meta: { bare: true } },
     { path: '/:rest(.*)*', redirect: '/' },
   ],

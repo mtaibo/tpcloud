@@ -42,7 +42,38 @@ public struct CloudAccountClient: Sendable {
         let _: StatusResponse = try await client.delete("/auth/account/totp", body: TOTPCodeBody(code: code))
     }
 
+    // MARK: The host (admins): its version, a newer one, updating it
+
+    public func host() async throws -> HostStatus {
+        try await client.get("/auth/admin/host")
+    }
+
+    public func checkHost() async throws {
+        let _: [String: String] = try await client.post("/auth/admin/host/check")
+    }
+
+    public func updateHost() async throws {
+        let _: [String: String] = try await client.post("/auth/admin/host/update")
+    }
+
     public func revokeSession(_ id: Int) async throws {
         let _: StatusResponse = try await client.delete("/auth/account/session/\(id)")
     }
+}
+
+/// The server's version and how an update is going (`GET /auth/admin/host`).
+public struct HostStatus: Decodable, Sendable, Equatable {
+    public struct Update: Decodable, Sendable, Equatable {
+        /// checking, downloading, installing, done, latest or failed.
+        public let state: String
+        public let detail: String?
+    }
+
+    public let version: String
+    public let latest: String?
+    public let available: Bool
+    public let update: Update?
+    public let canUpdate: Bool
+
+    public var isUpdating: Bool { ["checking", "downloading", "installing"].contains(update?.state ?? "") }
 }

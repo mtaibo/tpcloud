@@ -84,6 +84,9 @@ pub fn secure_state() {
     set(&state.join("gateway-extra"), 0o750, group);
     set(&state.join("logs"), 0o750, group);
     set(&state.join("run"), 0o750, group);
+    // Auth (group tpcloud) leaves admins' requests here for the supervisor: only that.
+    std::fs::create_dir_all(state.join("requests")).ok();
+    set(&state.join("requests"), 0o770, group);
     set(&state.join("caddy"), 0o700, root);
     set(&state.join("data"), 0o711, root);
     set(&state.join("data/store"), 0o700, root);

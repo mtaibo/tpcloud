@@ -5,6 +5,7 @@ import TPCore
 private enum MoreDestination: Hashable {
     case account
     case networks
+    case server
 }
 
 /// The fourth tab: who's signed in, Account and sign out — the screens that used to take up a
@@ -46,6 +47,11 @@ struct MoreView: View {
                     NavigationLink(value: MoreDestination.account) {
                         Label("Account", systemImage: "person.crop.circle")
                     }
+                    if profile.isAdmin {
+                        NavigationLink(value: MoreDestination.server) {
+                            Label("Server", systemImage: "server.rack")
+                        }
+                    }
                     NavigationLink(value: MoreDestination.networks) {
                         LabeledContent {
                             Text(networks.current?.name ?? "")
@@ -70,6 +76,7 @@ struct MoreView: View {
                 switch destination {
                 case .account: AccountView(accountClient: accountClient)
                 case .networks: NetworksView(networks: networks)
+                case .server: ServerView(accountClient: accountClient)
                 }
             }
             .confirmationDialog("Sign out of TPCloud?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {

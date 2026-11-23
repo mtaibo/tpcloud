@@ -8,7 +8,7 @@ mod store;
 
 use iced::widget::{button, column, container, horizontal_space, image, row, scrollable, text, text_input, Column, Space};
 use iced::{Alignment, Element, Length, Task, Theme};
-use net::{Api, Blind, Entry, Me, Photo, PhotoPage};
+use net::{Api, Blind, Entry, Host, Me, Photo, PhotoPage};
 use std::collections::HashMap;
 use store::Store;
 
@@ -110,6 +110,7 @@ struct App {
     thumbs: HashMap<i64, image::Handle>,
     cursor: Option<String>,
     blinds: Vec<Blind>,
+    host: Option<Host>,
 }
 
 #[derive(Debug, Clone)]
@@ -148,6 +149,9 @@ enum Message {
     SignOut,
     MakeHost,
     HostStarted(Result<String, String>),
+    HostLoaded(Result<Host, String>),
+    HostAction(&'static str),
+    HostActed(Result<&'static str, String>),
 }
 
 impl App {
@@ -176,6 +180,7 @@ impl App {
             thumbs: HashMap::new(),
             cursor: None,
             blinds: vec![],
+            host: None,
         };
         let task = app.connect();
         (app, task)
@@ -237,7 +242,12 @@ impl App {
                 Task::perform(async move { api.photos(None).await }, Message::PhotosLoaded)
             }
             Tab::Home => Task::perform(async move { api.blinds().await }, Message::Blinds),
-            Tab::Account => Task::none(),
+            Tab::Account => {
+                if !self.me.as_ref().is_some_and(|m| m.is_admin) {
+                    return Task::none();
+                }
+                Task::perform(async move { api.host().await }, Message::HostLoaded)
+            }
         }
     }
 
@@ -456,8 +466,35 @@ impl App {
                 return Task::perform(async move { api.blind(&id, command).await }, Message::Done);
             }
             Message::Done(Ok(())) => {}
+            Message::HostLoaded(Ok(h)) => self.host = Some(h),
+            // While the server restarts it doesn't answer: keep what's shown and try again.
+            Message::HostLoaded(Err(e)) => {
+                if !self.host.as_ref().is_some_and(Host::updating) {
+                    self.error = Some(e);
+                }
+            }
+            Message::HostAction(action) => {
+                let Some(api) = self.api.clone() else { return Task::none() };
+                return Task::perform(async move { api.host_action(action).await.map(|_| action) }, Message::HostActed);
+            }
+            Message::HostActed(Ok(action)) => {
+                if action == "update" {
+                    if let Some(h) = self.host.as_mut() {
+                        h.update = Some(net::HostUpdate { state: "checking".into(), detail: None });
+                    }
+                }
+                let Some(api) = self.api.clone() else { return Task::none() };
+                return Task::perform(
+                    async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+                        api.host().await
+                    },
+                    Message::HostLoaded,
+                );
+            }
+            Message::HostActed(Err(e)) => self.error = Some(e),
             Message::Tick => {
-                if self.screen == Screen::Main && self.tab == Tab::Home {
+                if self.screen == Screen::Main && (self.tab == Tab::Home || (self.tab == Tab::Account && self.host.as_ref().is_some_and(Host::updating))) {
                     return self.load_tab();
                 }
             }
@@ -502,7 +539,9 @@ impl App {
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
-        if self.screen == Screen::Main && self.tab == Tab::Home {
+        if self.screen == Screen::Main && self.tab == Tab::Account && self.host.as_ref().is_some_and(Host::updating) {
+            iced::time::every(std::time::Duration::from_millis(1500)).map(|_| Message::Tick)
+        } else if self.screen == Screen::Main && self.tab == Tab::Home {
             iced::time::every(std::time::Duration::from_secs(4)).map(|_| Message::Tick)
         } else {
             iced::Subscription::none()
@@ -699,6 +738,29 @@ impl App {
 
     fn account_view(&self) -> Element<'_, Message> {
         let me = self.me.as_ref();
+        let server: Element<Message> = match &self.host {
+            Some(h) => {
+                let state = h.update.as_ref().map(|u| u.state.as_str());
+                let line = match state {
+                    Some("checking") => "Looking for the new version…".to_string(),
+                    Some("downloading") => "Downloading…".to_string(),
+                    Some("installing") => "Installing and restarting…".to_string(),
+                    Some("done") => format!("Updated to {}.", h.update.as_ref().and_then(|u| u.detail.clone()).unwrap_or_default()),
+                    Some("failed") => format!("The update failed: {}", h.update.as_ref().and_then(|u| u.detail.clone()).unwrap_or_default()),
+                    _ if h.available => format!("TPCloud {} is out.", h.latest.clone().unwrap_or_default()),
+                    _ => "This is the latest version.".to_string(),
+                };
+                let mut actions = row![].spacing(8);
+                if !h.updating() {
+                    actions = actions.push(button(text("Look for updates")).on_press(Message::HostAction("check")).style(button::secondary));
+                    if h.available && h.can_update {
+                        actions = actions.push(button(text(format!("Update to {}", h.latest.clone().unwrap_or_default()))).on_press(Message::HostAction("update")));
+                    }
+                }
+                column![text("Server").size(18), text(format!("TPCloud {}", h.version)).size(14), text(line).size(13), actions].spacing(6).into()
+            }
+            None => Space::with_height(0).into(),
+        };
         column![
             text("Account").size(26),
             text(me.and_then(|m| m.display_name.clone()).filter(|n| !n.is_empty()).unwrap_or_default()).size(18),
@@ -706,6 +768,8 @@ impl App {
             text(format!("Connected at {}", self.api.as_ref().map(|a| a.base.clone()).unwrap_or_default())).size(13),
             Space::with_height(12),
             row![button(text("Networks")).on_press(Message::ShowNetworks).style(button::secondary), button(text("Sign out")).on_press(Message::SignOut).style(button::danger)].spacing(8),
+            Space::with_height(20),
+            server,
         ]
         .spacing(8)
         .into()

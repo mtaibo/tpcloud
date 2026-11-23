@@ -1,3 +1,6 @@
+import json
+import os
+import time
 from datetime import datetime, timezone
 
 import bcrypt
@@ -8,6 +11,7 @@ from database import get_session
 from dependencies import require_admin
 from models import LoginEvent, PasskeyCredential, Session as SessionModel, User
 from sessions import session_json
+from config import VERSION
 from utils import iso, say
 
 router = APIRouter(prefix="/auth/admin")
@@ -159,3 +163,72 @@ def revoke_session(
     session.delete(db_session)
     session.commit()
     return {"status": "revocada"}
+
+
+# ── The host: its version, a newer one, and updating it from an app (`tpcloud` does the work) ──
+
+_STATE_DIR = os.environ.get("TPCLOUD_STATE_DIR", "")
+_UPDATING = {"checking", "downloading", "installing"}
+
+
+def _read_json(name: str) -> dict | None:
+    try:
+        with open(os.path.join(_STATE_DIR, "run", name)) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _newer(a: str, b: str) -> bool:
+    def parts(v: str) -> list[int]:
+        return [int(p) if p.isdigit() else 0 for p in v.split(".")]
+    return parts(a) > parts(b)
+
+
+def _request(name: str) -> None:
+    requests = os.path.join(_STATE_DIR, "requests")
+    if not _STATE_DIR or not os.path.isdir(requests):
+        raise HTTPException(status_code=501, detail="This server can't be updated from here (it isn't run by the tpcloud command).")
+    with open(os.path.join(requests, name), "w"):
+        pass
+
+
+@router.get("/host")
+def host(admin: User = Depends(require_admin)):
+    """This server's version, the newest TPCloud the host found, and how an update is going."""
+    latest = _read_json("latest.json") or {}
+    update = _read_json("update.json")
+    version = VERSION
+    newest = latest.get("version")
+    # Running the version it was installing: it's done (a version before 0.4.1 didn't say so).
+    if update and update.get("state") == "installing" and update.get("detail") == version:
+        update = {**update, "state": "done"}
+    # A finished update that's already running is history, not news.
+    if update and update.get("state") == "done" and update.get("detail") == version and time.time() - update.get("at", 0) > 600:
+        update = None
+    return {
+        "version": version,
+        "latest": newest,
+        "checked": latest.get("checked"),
+        "available": bool(newest and version and _newer(newest, version)),
+        "update": update,
+        "can_update": bool(_STATE_DIR and os.path.isdir(os.path.join(_STATE_DIR, "requests"))),
+    }
+
+
+@router.post("/host/check")
+def host_check(admin: User = Depends(require_admin)):
+    """Look for a newer TPCloud now (the host checks once a day by itself)."""
+    _request("check")
+    return {"status": "checking"}
+
+
+@router.post("/host/update")
+def host_update(admin: User = Depends(require_admin)):
+    """Update the host to the newest TPCloud: it downloads it, checks it against GitHub's checksum
+    and installs it, restarting in a few seconds."""
+    update = _read_json("update.json") or {}
+    if update.get("state") in _UPDATING and time.time() - update.get("at", 0) < 900:
+        raise HTTPException(status_code=409, detail="It's updating already.")
+    _request("update")
+    return {"status": "starting"}

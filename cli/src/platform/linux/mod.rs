@@ -128,6 +128,24 @@ pub mod service {
         unit_path().exists()
     }
 
+    /// Runs a command as a transient unit of its own, outside this service (so restarting the
+    /// service doesn't stop it). Refuses while one of that name is still running.
+    pub fn run_detached(unit: &str, program: &Path, args: &[&str]) -> Result<()> {
+        if Command::new("systemctl").args(["is-active", "--quiet", unit]).status().map(|s| s.success()).unwrap_or(false) {
+            bail!("{unit} is running already");
+        }
+        let status = Command::new("systemd-run")
+            .args(["--unit", unit, "--collect", "--quiet", "--description", "TPCloud update"])
+            .arg(program)
+            .args(args)
+            .status()
+            .context("couldn't run systemd-run")?;
+        if !status.success() {
+            bail!("systemd-run couldn't start {unit}");
+        }
+        Ok(())
+    }
+
     pub fn running() -> bool {
         Command::new("systemctl").args(["is-active", "--quiet", NAME]).status().map(|s| s.success()).unwrap_or(false)
     }
