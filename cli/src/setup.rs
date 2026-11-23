@@ -109,7 +109,7 @@ fn ask_secret(question: &str) -> Result<String> {
     answer
 }
 
-fn choose(question: &str, options: &[(&str, &str)], default: usize) -> Result<usize> {
+pub fn choose(question: &str, options: &[(&str, &str)], default: usize) -> Result<usize> {
     println!("  {question}");
     for (i, (name, what)) in options.iter().enumerate() {
         println!("    {} {}  {}", ui::accent(&format!("{}.", i + 1)), ui::bold(name), ui::dim(what));

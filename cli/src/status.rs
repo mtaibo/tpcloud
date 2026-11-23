@@ -97,6 +97,12 @@ pub fn print() -> Result<()> {
         ui::accent(if st.url.is_empty() { "(no address set)" } else { &st.url }),
         if st.active { ui::green("running") } else { ui::dim("stopped") }
     );
+    if envfile::get(&paths::env_file(), "TPCLOUD_SETUP").as_deref() == Some("pending") {
+        let code = std::fs::read_to_string(crate::setup_server::code_file()).map(|c| c.trim().to_string()).unwrap_or_else(|_| "(sudo tpcloud status shows it)".into());
+        println!("{}  {} · pairing code {}", ui::dim("Setup  "), ui::accent(&crate::setup_server::address()), ui::bold(&code));
+        println!("{}", ui::dim("         waiting to be set up from the TPCloud app or a browser; or `sudo tpcloud setup` here"));
+        return Ok(());
+    }
     println!("{}  {}", ui::dim("Modules"), if st.modules.is_empty() { "none".into() } else { st.modules.join(", ") });
     if !st.files.is_empty() {
         println!("{}  {}", ui::dim("Files  "), st.files);

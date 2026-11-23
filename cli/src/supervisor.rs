@@ -14,6 +14,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 static STOPPING: AtomicBool = AtomicBool::new(false);
 const LOG_LIMIT: u64 = 10 * 1024 * 1024;
 
+pub fn stopping() -> bool {
+    STOPPING.load(Ordering::SeqCst)
+}
+
 extern "C" fn on_signal(_: libc::c_int) {
     STOPPING.store(true, Ordering::SeqCst);
 }
@@ -130,6 +134,15 @@ pub fn serve() -> Result<()> {
         libc::signal(libc::SIGINT, on_signal as libc::sighandler_t);
     }
     let settings = Settings::load();
+    if settings.get("TPCLOUD_SETUP") == Some("pending") {
+        // Nothing set up yet: the setup page instead of TPCloud, until it's done.
+        crate::setup_server::serve()?;
+        if stopping() {
+            return Ok(());
+        }
+        // Set up: systemd starts the service again, now as TPCloud.
+        std::process::exit(0);
+    }
     prepare(&settings)?;
     let mut running: Vec<Running> = services::plan(&settings)
         .into_iter()

@@ -6,7 +6,7 @@
 #     python/            a portable CPython (python-build-standalone)
 #     py/{auth,store,home}/   each service's pinned packages (pip --target)
 #     code/{auth,store,home}/ each service's code
-#     web/<app>/         the seven web apps, built
+#     web/<app>/         the web apps, built (setup/: the page of a host not set up yet)
 #     bin/               caddy, mosquitto, cloudflared, ffmpeg, ffprobe, rsync, and for disks
 #                        btrfs, mkfs.btrfs, cryptsetup, smartctl (static)
 #     Caddyfile, mosquitto.conf
@@ -157,7 +157,7 @@ WORKDIR /src
 # Exact dependency versions from each app's package-lock.json (npm ci refuses a lockfile out of step
 # with package.json), so a release never picks up a package version nobody looked at.
 COPY tpcloud/web ./
-RUN for app in login accounts cloud home store photos share; do \
+RUN for app in login accounts cloud home store photos share setup; do \
       (cd $app && npm ci --no-audit --no-fund --loglevel=error && npm run build >/dev/null) || exit 1; \
     done
 
@@ -213,6 +213,7 @@ COPY --from=web /src/home/dist /runtime/web/home
 COPY --from=web /src/store/dist /runtime/web/store
 COPY --from=web /src/photos/dist /runtime/web/photos
 COPY --from=web /src/share/dist /runtime/web/share
+COPY --from=web /src/setup/dist /runtime/web/setup
 COPY tpcloud/services/auth/app /runtime/code/auth
 COPY tpcloud/services/store/app /runtime/code/store/app
 COPY tphome/api/app /runtime/code/home

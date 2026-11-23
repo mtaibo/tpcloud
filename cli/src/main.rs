@@ -17,6 +17,7 @@ mod platform;
 mod runtime;
 mod services;
 mod setup;
+mod setup_server;
 mod status;
 mod storage;
 mod supervisor;

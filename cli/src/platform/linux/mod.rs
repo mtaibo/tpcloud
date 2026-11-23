@@ -23,11 +23,14 @@ pub mod service {
 
     /// systemd runs `<program> serve`, which runs everything else, once the folders it needs are
     /// mounted (Store's files: with their disk missing it would fill the system disk instead).
-    pub fn install(program: &Path, needs: &[PathBuf]) -> Result<()> {
+    /// `setup_pending`: the setup may make a storage pool, whose kernel modules the sandboxed
+    /// service can't load itself (ProtectKernelModules): loaded first, with full privileges.
+    pub fn install(program: &Path, needs: &[PathBuf], setup_pending: bool) -> Result<()> {
         let mounts: String = needs.iter().map(|p| format!("RequiresMountsFor={}\n", p.display())).collect();
+        let modules = if setup_pending { "ExecStartPre=+/bin/sh -c 'modprobe -qa btrfs dm_crypt || true'\n" } else { "" };
         let unit = format!(
             "[Unit]\nDescription=TPCloud\nAfter=network-online.target\nWants=network-online.target\n{mounts}\n\
-             [Service]\nExecStart={} serve\nRestart=always\nRestartSec=3\n\
+             [Service]\n{modules}ExecStart={} serve\nRestart=always\nRestartSec=3\n\
              # SIGTERM to tpcloud, which stops its processes in order; anything left is killed after the timeout.\n\
              KillMode=mixed\nTimeoutStopSec=30\nLimitNOFILE=65536\n\
              NoNewPrivileges=yes\nPrivateTmp=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\n\
@@ -111,10 +114,10 @@ pub mod accounts {
 pub mod discovery {
     use super::*;
 
-    fn service_file() -> PathBuf {
-        std::env::var_os("TPCLOUD_AVAHI_SERVICE")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/etc/avahi/services/tpcloud.service"))
+    /// avahi's file for one of our services (`tpcloud`, `tpcloud-setup`).
+    fn service_file(id: &str) -> PathBuf {
+        let dir = std::env::var_os("TPCLOUD_AVAHI_SERVICES").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/etc/avahi/services"));
+        dir.join(format!("{id}.service"))
     }
 
     /// avahi-daemon is running: it owns mDNS here and already answers for <hostname>.local.
@@ -127,7 +130,7 @@ pub mod discovery {
     }
 
     /// A static service file avahi picks up on its own (it watches the folder).
-    pub fn publish(name: &str, service: &str, port: u16, txt: &[(String, String)]) -> Result<()> {
+    pub fn publish(id: &str, name: &str, service: &str, port: u16, txt: &[(String, String)]) -> Result<()> {
         let records: String = txt.iter().map(|(k, v)| format!("    <txt-record>{}={}</txt-record>\n", xml(k), xml(v))).collect();
         let body = format!(
             "<?xml version=\"1.0\" standalone='no'?>\n<!DOCTYPE service-group SYSTEM \"avahi-service.dtd\">\n\
@@ -135,7 +138,7 @@ pub mod discovery {
              \x20   <type>{service}</type>\n    <port>{port}</port>\n{records}  </service>\n</service-group>\n",
             xml(name)
         );
-        let path = service_file();
+        let path = service_file(id);
         if std::fs::read_to_string(&path).ok().as_deref() == Some(body.as_str()) {
             return Ok(());
         }
@@ -146,7 +149,7 @@ pub mod discovery {
         std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))
     }
 
-    pub fn withdraw() {
-        let _ = std::fs::remove_file(service_file());
+    pub fn withdraw(id: &str) {
+        let _ = std::fs::remove_file(service_file(id));
     }
 }

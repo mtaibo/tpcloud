@@ -78,16 +78,19 @@ fn install_this(adopt: Option<PathBuf>, start: bool) -> Result<()> {
         }
     }
     if !paths::env_file().exists() {
-        if std::io::stdin().is_terminal() {
+        let here = std::io::stdin().is_terminal()
+            && setup::choose(
+                "How do you want to set it up?",
+                &[
+                    ("Here, in this terminal", "a few questions, now"),
+                    ("From another device", "the TPCloud app on your phone or computer, or a browser"),
+                ],
+                0,
+            )? == 0;
+        if here {
             setup::run()?;
         } else {
-            std::fs::write(paths::env_file(), setup::default_env())?;
-            crate::network::ensure(&paths::env_file())?;
-            restrict(&paths::env_file())?;
-            ui::warn(&format!("No settings yet: run `sudo tpcloud setup`, or edit {}.", paths::env_file().display()));
-            sync_links()?;
-            write_unit()?;
-            return Ok(());
+            return wait_for_setup(start);
         }
     }
     // Hosts set up before 0.4 get their network id here, on the update that brings it.
@@ -131,7 +134,50 @@ fn install_binary() -> Result<()> {
 pub fn write_unit() -> Result<()> {
     let files = envfile::get(&paths::env_file(), "EXTERNAL_DISK_PATH").filter(|f| f.starts_with('/'));
     let needs: Vec<PathBuf> = files.map(PathBuf::from).into_iter().collect();
-    platform::service::install(&paths::bin_dir().join("tpcloud"), &needs)
+    let pending = envfile::get(&paths::env_file(), "TPCLOUD_SETUP").as_deref() == Some("pending");
+    let needs = if pending { Vec::new() } else { needs };
+    platform::service::install(&paths::bin_dir().join("tpcloud"), &needs, pending)
+}
+
+/// Installed with nothing set up: the service starts as the setup page (see setup_server.rs) and
+/// tells where to find it.
+fn wait_for_setup(start: bool) -> Result<()> {
+    let env = paths::env_file();
+    std::fs::write(&env, setup::default_env())?;
+    envfile::set(&env, "TPCLOUD_SETUP", "pending")?;
+    crate::network::ensure(&env)?;
+    restrict(&env)?;
+    sync_links()?;
+    write_unit()?;
+    crate::harden::secure_state();
+    let code = crate::setup_server::code()?;
+    if !start {
+        ui::done("TPCloud is installed. `sudo tpcloud start` opens its setup page on this network.");
+        return Ok(());
+    }
+    ui::step("Starting the setup page");
+    let _ = std::fs::remove_file(crate::setup_server::port_file());
+    platform::service::enable()?;
+    platform::service::restart()?;
+    for _ in 0..50 {
+        if crate::setup_server::port_file().exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let page = crate::setup_server::address();
+    ui::done("TPCloud is installed and waiting to be set up.");
+    println!();
+    println!("  On your phone or computer, open the TPCloud app → {}, or go to", ui::bold("Set up a new host"));
+    println!("      {}", ui::accent(&page));
+    if let Some(ip) = setup::lan_ip() {
+        let port = page.rsplit_once(':').filter(|(_, p)| p.chars().all(|c| c.is_ascii_digit())).map(|(_, p)| format!(":{p}")).unwrap_or_default();
+        println!("  {}", ui::dim(&format!("(or http://{ip}{port}) in a browser on this network.")));
+    }
+    println!();
+    println!("  Pairing code: {}", ui::accent(&ui::bold(&code)));
+    println!("  {}", ui::dim("`sudo tpcloud status` shows it again. Or set it up here: `sudo tpcloud setup`."));
+    Ok(())
 }
 
 /// `sudo tpcloud uninstall`: the program, its runtime and its service go; every account, file,
@@ -142,7 +188,8 @@ pub fn uninstall() -> Result<()> {
     let files = envfile::get(&paths::env_file(), "EXTERNAL_DISK_PATH").unwrap_or_default();
     ui::step("Stopping TPCloud");
     platform::service::remove()?;
-    platform::discovery::withdraw();
+    platform::discovery::withdraw("tpcloud");
+    platform::discovery::withdraw("tpcloud-setup");
     ui::step("Removing the program");
     for name in ["tpcloud", "tphome"] {
         let path = paths::bin_dir().join(name);
