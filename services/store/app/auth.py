@@ -13,8 +13,13 @@ _CACHE_TTL = 30.0
 _in_flight: dict[str, asyncio.Future] = {}
 
 
+def _credentials(request: Request) -> tuple[str, str]:
+    """What proves who's asking: the session cookie (browsers) or a bearer token (the apps)."""
+    return request.headers.get("cookie", ""), request.headers.get("authorization", "")
+
+
 async def get_current_user(request: Request) -> dict:
-    cookie = request.headers.get("cookie", "")
+    cookie = _credentials(request)
     now = time.monotonic()
 
     cached = _cache.get(cookie)
@@ -34,11 +39,12 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 
-async def _lookup(cookie: str) -> dict | None:
-    resp = await _client.get(
-        f"{AUTH_SERVICE_URL}/auth/passkey/me",
-        headers={"cookie": cookie},
-    )
+async def _lookup(cookie: tuple[str, str]) -> dict | None:
+    cookies, authorization = cookie
+    headers = {"cookie": cookies}
+    if authorization:
+        headers["authorization"] = authorization
+    resp = await _client.get(f"{AUTH_SERVICE_URL}/auth/passkey/me", headers=headers)
     if resp.status_code != 200:
         _cache.pop(cookie, None)
         return None

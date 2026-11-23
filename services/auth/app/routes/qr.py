@@ -16,11 +16,11 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Re
 from fastapi.responses import JSONResponse
 from sqlmodel import Session as DBSession, select
 
-from config import PUBLIC_URL, QR_COOKIE, SESSION_COOKIE
+from config import PUBLIC_URL, QR_COOKIE
 from database import get_session
 from dependencies import require_login
 from models import Session as SessionModel, User
-from security import ExpiringDict, FailureLimiter, clear_cookie, set_short_cookie
+from security import ExpiringDict, FailureLimiter, clear_cookie, session_token, set_short_cookie
 from sessions import start_session
 from utils import device_for_request, get_client_ip, lookup_location, record_event, say
 
@@ -105,7 +105,7 @@ def poll(request: Request, background_tasks: BackgroundTasks, session: DBSession
 
 
 def _approver(request: Request, db: DBSession) -> SessionModel:
-    return db.exec(select(SessionModel).where(SessionModel.session_id == request.cookies.get(SESSION_COOKIE))).first()
+    return db.exec(select(SessionModel).where(SessionModel.session_id == session_token(request))).first()
 
 
 @router.get("/{request_id}")

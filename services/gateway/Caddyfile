@@ -87,6 +87,13 @@
 		}
 	}
 
+	# The network card apps read before signing in (id, name, addresses, certificate).
+	handle /.well-known/tpcloud {
+		header Cache-Control "no-store"
+		rewrite * /auth/network
+		reverse_proxy {$TPCLOUD_AUTH_UPSTREAM:auth:8000}
+	}
+
 	# /login and /accounts answer at their plain address too, so nothing redirects to a trailing
 	# slash (the pages tidy their own URL).
 	@login path /login /login/*

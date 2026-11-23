@@ -5,10 +5,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session as DBSession, select
 
-from config import SESSION_COOKIE
 from database import get_session
 from models import Session as SessionModel, User
-from security import ip_failures, login_failures, user_failures, verify_totp
+from security import ip_failures, login_failures, session_token, user_failures, verify_totp
 from sessions import complete_totp, start_session
 from utils import as_utc, get_client_ip, record_event
 
@@ -67,7 +66,7 @@ def verify_totp_code(
     request: Request,
     session: DBSession = Depends(get_session),
 ):
-    session_id = request.cookies.get(SESSION_COOKIE)
+    session_id = session_token(request)
     if not session_id:
         raise HTTPException(status_code=401, detail="Not signed in.")
 

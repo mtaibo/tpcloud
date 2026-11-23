@@ -15,12 +15,9 @@ async def list_users(request: Request):
     user = await get_current_user(request)
     if not user["is_admin"]:
         raise HTTPException(403, "Admin access required")
-    cookie = request.headers.get("cookie", "")
+    headers = {k: v for k in ("cookie", "authorization") if (v := request.headers.get(k))}
     async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{AUTH_SERVICE_URL}/auth/admin/users",
-            headers={"cookie": cookie},
-        )
+        resp = await client.get(f"{AUTH_SERVICE_URL}/auth/admin/users", headers=headers)
     if resp.status_code != 200:
         raise HTTPException(502, "Failed to fetch users from auth service")
     return resp.json()

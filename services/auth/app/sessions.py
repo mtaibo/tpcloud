@@ -4,7 +4,7 @@ from fastapi import BackgroundTasks, Request, Response
 from sqlmodel import Session as DBSession, delete
 
 from models import Session as SessionModel, User
-from security import set_session_cookie
+from security import SESSION_HEADER, set_session_cookie
 from utils import (
     PENDING_TOTP_DURATION,
     cookie_lifetime,
@@ -74,6 +74,8 @@ def start_session(
         db_session.session_id,
         int(duration.total_seconds()) if totp_pending else cookie_lifetime(db_session),
     )
+    if client_type == "native":
+        response.headers[SESSION_HEADER] = db_session.session_id
     return db_session
 
 

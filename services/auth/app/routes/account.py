@@ -8,9 +8,9 @@ from sqlmodel import Session as DBSession, select
 
 from database import get_session
 from dependencies import require_login
-from config import ORIGIN, RP_ID, RP_NAME, SESSION_COOKIE
+from config import ORIGIN, RP_ID, RP_NAME
 from models import LoginEvent, PasskeyCredential, Session as SessionModel, User
-from security import ExpiringDict, user_failures
+from security import ExpiringDict, session_token, user_failures
 from sessions import session_json
 from utils import LANGUAGES, device_for_request, iso, record_event, say
 import webauthn
@@ -53,7 +53,7 @@ def get_profile(
         )
     ).all()
 
-    current_session_id = request.cookies.get(SESSION_COOKIE)
+    current_session_id = session_token(request)
 
     return {
         "id": user.id,
@@ -169,7 +169,7 @@ def change_password(
     db_user.password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
     session.add(db_user)
     # Whoever knew the old password is signed out everywhere except here.
-    current_session_id = request.cookies.get(SESSION_COOKIE)
+    current_session_id = session_token(request)
     for s in session.exec(select(SessionModel).where(SessionModel.user_id == user.id)).all():
         if s.session_id != current_session_id:
             session.delete(s)
@@ -284,7 +284,7 @@ def revoke_other_sessions(
     user: User = Depends(require_login),
     session: DBSession = Depends(get_session),
 ):
-    current_session_id = request.cookies.get(SESSION_COOKIE)
+    current_session_id = session_token(request)
     others = [
         s for s in session.exec(select(SessionModel).where(SessionModel.user_id == user.id)).all()
         if s.session_id != current_session_id

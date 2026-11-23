@@ -2,13 +2,13 @@ from fastapi import Depends, HTTPException, Request
 from sqlmodel import Session as DBSession, select
 from datetime import datetime, timezone
 
-from config import SESSION_COOKIE
 from database import get_session
 from models import Session as SessionModel, User
+from security import session_token
 
 
 def _get_db_session_and_user(request: Request, session: DBSession):
-    session_id = request.cookies.get(SESSION_COOKIE)
+    session_id = session_token(request)
     if not session_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
 

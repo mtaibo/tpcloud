@@ -5,9 +5,24 @@ from datetime import datetime
 
 import pyotp
 
-from fastapi import HTTPException, Response
+from fastapi import HTTPException, Request, Response
 
 from config import COOKIE_SECURE, SESSION_COOKIE
+
+# Where a native app gets its session's token: it sends it back as `Authorization: Bearer`, so
+# one session works on every address of the network (a cookie belongs to a single host).
+SESSION_HEADER = "X-TP-Session"
+
+
+def session_token(request: Request) -> str | None:
+    """The session a request carries: the cookie for browsers, the bearer token for the apps."""
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        return token
+    scheme, _, value = request.headers.get("Authorization", "").partition(" ")
+    if scheme.lower() == "bearer" and value.strip():
+        return value.strip()
+    return None
 
 
 def set_session_cookie(response: Response, session_id: str, max_age: int | None) -> None:

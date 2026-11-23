@@ -7,9 +7,9 @@ from database import get_session
 from sqlmodel import Session as DBSession, select
 from models import PasskeyCredential, Session as SessionModel, User
 
-from config import MODULES, ORIGIN, RP_ID, SESSION_COOKIE
+from config import MODULES, ORIGIN, RP_ID
 from routes.flow import redirect_to_login
-from security import ExpiringDict, clear_session_cookie, ip_failures, set_session_cookie
+from security import ExpiringDict, clear_session_cookie, ip_failures, session_token, set_session_cookie
 from sessions import start_session
 from webauthn import generate_authentication_options, verify_authentication_response
 from webauthn.helpers import options_to_json
@@ -41,7 +41,7 @@ _pending_login_challenges = ExpiringDict(ttl=300)
 
 
 def _valid_session(request: Request, session: DBSession) -> SessionModel | None:
-    session_id = request.cookies.get(SESSION_COOKIE)
+    session_id = session_token(request)
     if not session_id:
         return None
     db_session = session.exec(
@@ -158,7 +158,7 @@ def me(request: Request, session: DBSession = Depends(get_session)):
 
 @router.post("/logout")
 def logout(request: Request, session: DBSession = Depends(get_session)):
-    session_id = request.cookies.get(SESSION_COOKIE)
+    session_id = session_token(request)
     if session_id:
         db_session = session.exec(
             select(SessionModel).where(SessionModel.session_id == session_id)

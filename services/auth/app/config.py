@@ -29,3 +29,18 @@ GEOIP = os.environ.get("TPCLOUD_GEOIP") == "1"
 NEXT_COOKIE = "__Host-tpcloud_next" if COOKIE_SECURE else "tpcloud_next"
 # Ties a browser to the QR sign-in it's showing, so only that browser can collect the session.
 QR_COOKIE = "__Host-tpcloud_qr" if COOKIE_SECURE else "tpcloud_qr"
+
+# The network this server is the host of, as /.well-known/tpcloud tells the apps. The id never
+# changes once made (the `tpcloud` command writes it); the name is what people see.
+NETWORK_ID = os.environ.get("TPCLOUD_NETWORK_ID", "")
+NETWORK_NAME = os.environ.get("TPCLOUD_NETWORK_NAME") or _url.hostname or "TPCloud"
+VERSION = os.environ.get("TPCLOUD_VERSION", "")
+
+# Every address the network answers on (TPCLOUD_URL first), comma-separated: an app keeps them all
+# and uses the fastest it can reach, e.g. the local one at home and the public one elsewhere.
+ADDRESSES = list(dict.fromkeys(
+    [PUBLIC_URL] + [a.strip().rstrip("/") for a in os.environ.get("TPCLOUD_ADDRESSES", "").split(",") if a.strip()]
+))
+
+# The host's own certificate authority (Caddy's, for local addresses), so apps can pin it.
+CA_CERT = os.environ.get("TPCLOUD_CA_CERT", "")

@@ -11,6 +11,7 @@ from routes.password_auth import router as password_router
 from routes.totp import router as totp_router
 from routes.flow import router as flow_router
 from routes.qr import router as qr_router
+from routes.network import router as network_router
 
 # Expired sessions are deleted at startup and then every hour.
 EXPIRED_SESSIONS_SWEEP_SECONDS = 3600
@@ -48,6 +49,7 @@ app.include_router(password_router)
 app.include_router(totp_router)
 app.include_router(flow_router)
 app.include_router(qr_router)
+app.include_router(network_router)
 
 @app.get("/health")
 def health():
