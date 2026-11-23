@@ -1,7 +1,7 @@
 //! `tpcloud setup`: the guided configuration, as questions in the terminal. Run again, it offers the
 //! current values as answers, so changing one thing is just pressing enter through the rest.
 
-use crate::{envfile, install, paths, ui, users};
+use crate::{envfile, install, network, paths, ui, users};
 use anyhow::{bail, Result};
 use std::io::{BufRead, Write};
 
@@ -143,8 +143,26 @@ pub fn run() -> Result<()> {
     install::restrict(&env)?;
     let current = |key: &str| envfile::get(&env, key).unwrap_or_default();
 
+    let default_name = network::default_name();
     println!("\n{}", ui::accent(&ui::bold("TPCloud setup")));
     println!("{}", ui::dim("Enter keeps the value in brackets. Nothing changes until the end."));
+
+    heading("Network");
+    println!("  {}", ui::dim("What this TPCloud is called in the apps, e.g. Home or the family's name."));
+    let network_name = loop {
+        let was = current(network::NAME);
+        let answer = ask("Name", if was.is_empty() { &default_name } else { &was })?;
+        if answer.chars().count() > 64 {
+            ui::warn("64 characters at most.");
+            continue;
+        }
+        // The settings file would read the rest as a comment.
+        if answer.contains(" #") {
+            ui::warn("No # after a space.");
+            continue;
+        }
+        break answer;
+    };
 
     heading("Files");
     println!("  {}", ui::dim("Where Store keeps everyone's files and photos: a big disk is best."));
@@ -258,6 +276,8 @@ pub fn run() -> Result<()> {
         profiles.push("tunnel".into());
     }
     let set = |k: &str, v: &str| envfile::set(&env, k, v);
+    set(network::NAME, &network_name)?;
+    network::ensure(&env)?;
     set("TPCLOUD_URL", &url)?;
     set("TPCLOUD_SITE", &site)?;
     set("TPCLOUD_TLS", tls)?;

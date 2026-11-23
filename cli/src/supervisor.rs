@@ -200,6 +200,7 @@ pub fn serve() -> Result<()> {
         }
         if changed || last_status.elapsed() > Duration::from_secs(5) {
             write_status(&running);
+            crate::network::publish_ca();
             last_status = Instant::now();
         }
         std::thread::sleep(Duration::from_millis(250));

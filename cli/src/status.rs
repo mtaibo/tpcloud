@@ -2,7 +2,6 @@
 
 use crate::{backup, envfile, install, paths, runtime, ui, update};
 use anyhow::Result;
-use std::process::Command;
 
 #[derive(Clone)]
 pub struct ProcessState {
@@ -31,11 +30,7 @@ pub struct Status {
 
 pub fn read() -> Status {
     let env = paths::env_file();
-    let active = Command::new("systemctl")
-        .args(["is-active", "--quiet", "tpcloud"])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    let active = crate::platform::service::running();
     let report: serde_json::Value = std::fs::read_to_string(paths::status_file())
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())

@@ -8,7 +8,9 @@ mod harden;
 mod home;
 mod install;
 mod logs;
+mod network;
 mod paths;
+mod platform;
 mod runtime;
 mod services;
 mod setup;
@@ -163,28 +165,28 @@ fn run() -> Result<()> {
         Some(Command::Restore { backup: copy }) => backup::restore(&copy),
         Some(Command::Setup) => {
             setup::run()?;
-            if status::read().active {
-                install::systemctl(&["restart", "tpcloud"])?;
+            if platform::service::running() {
+                platform::service::restart()?;
             } else {
-                install::systemctl(&["enable", "--now", "tpcloud"])?;
+                platform::service::start()?;
             }
             Ok(())
         }
         Some(Command::Start) => {
             install::require_root("Starting")?;
-            install::systemctl(&["enable", "--now", "tpcloud"])?;
+            platform::service::start()?;
             ui::done("Started.");
             Ok(())
         }
         Some(Command::Stop) => {
             install::require_root("Stopping")?;
-            install::systemctl(&["stop", "tpcloud"])?;
+            platform::service::stop()?;
             ui::done("Stopped. Data is kept.");
             Ok(())
         }
         Some(Command::Restart) => {
             install::require_root("Restarting")?;
-            install::systemctl(&["restart", "tpcloud"])?;
+            platform::service::restart()?;
             ui::done("Restarted.");
             Ok(())
         }

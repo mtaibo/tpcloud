@@ -144,6 +144,11 @@ pub fn plan(settings: &Settings) -> Vec<Service> {
         env.entry(k.clone()).or_insert_with(|| v.clone());
     }
     env.insert("DATABASE_URL".into(), format!("sqlite:///{}", state.join("data/auth/tpauth.db").display()));
+    env.insert("TPCLOUD_VERSION".into(), env!("CARGO_PKG_VERSION").into());
+    // Only a site served with the host's own authority has a certificate for apps to pin.
+    if settings.get("TPCLOUD_TLS") == Some("internal") {
+        env.insert("TPCLOUD_CA_CERT".into(), crate::network::published_ca().display().to_string());
+    }
     services.push(Service {
         name: "auth",
         program: python.clone(),

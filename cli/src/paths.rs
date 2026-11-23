@@ -1,6 +1,7 @@
 //! Where an installed TPCloud keeps things. The runtime is replaced on every install or update;
 //! the state (settings, databases, caches, logs) never is.
 
+use crate::platform;
 use std::path::PathBuf;
 
 fn from_env(key: &str, default: &str) -> PathBuf {
@@ -9,7 +10,7 @@ fn from_env(key: &str, default: &str) -> PathBuf {
 
 /// /opt/tpcloud: holds runtime/ (Python, packages, code, web apps, binaries) and VERSION.
 pub fn app_dir() -> PathBuf {
-    from_env("TPCLOUD_APP_DIR", "/opt/tpcloud")
+    from_env("TPCLOUD_APP_DIR", platform::APP_DIR)
 }
 
 pub fn runtime_dir() -> PathBuf {
@@ -18,12 +19,12 @@ pub fn runtime_dir() -> PathBuf {
 
 /// /var/lib/tpcloud: tpcloud.env, data/, home/, gateway-extra/, caddy/, logs/, run/.
 pub fn state_dir() -> PathBuf {
-    from_env("TPCLOUD_STATE_DIR", "/var/lib/tpcloud")
+    from_env("TPCLOUD_STATE_DIR", platform::STATE_DIR)
 }
 
 /// Where the `tpcloud` command (and `tphome`, a link to it) live.
 pub fn bin_dir() -> PathBuf {
-    from_env("TPCLOUD_BIN_DIR", "/usr/local/bin")
+    from_env("TPCLOUD_BIN_DIR", platform::BIN_DIR)
 }
 
 pub fn env_file() -> PathBuf {
@@ -41,8 +42,4 @@ pub fn logs_dir() -> PathBuf {
 /// What the supervisor writes about its processes, read by `tpcloud status`.
 pub fn status_file() -> PathBuf {
     state_dir().join("run").join("status.json")
-}
-
-pub fn systemd_unit() -> PathBuf {
-    from_env("TPCLOUD_SYSTEMD_UNIT", "/etc/systemd/system/tpcloud.service")
 }

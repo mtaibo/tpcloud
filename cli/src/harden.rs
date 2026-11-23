@@ -14,7 +14,6 @@ use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::Command;
 
 pub const USER: &str = "tpcloud";
 const NOBODY: (u32, u32) = (65534, 65534);
@@ -39,12 +38,7 @@ fn group_gid() -> Option<u32> {
 /// The `tpcloud` group (people allowed to read status and logs) and the `tpcloud` system user
 /// the services run as, in that group.
 pub fn ensure_accounts() {
-    let _ = Command::new("groupadd").args(["-f", USER]).status();
-    if service_ids().is_none() {
-        let _ = Command::new("useradd")
-            .args(["--system", "--gid", USER, "--no-create-home", "--home-dir", "/nonexistent", "--shell", "/usr/sbin/nologin", USER])
-            .status();
-    }
+    crate::platform::accounts::ensure_group_and_user(USER, service_ids().is_some());
 }
 
 fn set(path: &Path, mode: u32, owner: (u32, u32)) {

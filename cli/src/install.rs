@@ -1,7 +1,7 @@
 //! Installing from this file (runtime, state folder, systemd service), adopting a server that ran
 //! from git clones with Docker, and turning modules on and off.
 
-use crate::{envfile, paths, runtime, setup, ui, update};
+use crate::{envfile, paths, platform, runtime, setup, ui, update};
 use anyhow::{bail, Context, Result};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -70,6 +70,7 @@ fn install_this(adopt: Option<PathBuf>, start: bool) -> Result<()> {
             setup::run()?;
         } else {
             std::fs::write(paths::env_file(), setup::default_env())?;
+            crate::network::ensure(&paths::env_file())?;
             restrict(&paths::env_file())?;
             ui::warn(&format!("No settings yet: run `sudo tpcloud setup`, or edit {}.", paths::env_file().display()));
             sync_links()?;
@@ -77,6 +78,8 @@ fn install_this(adopt: Option<PathBuf>, start: bool) -> Result<()> {
             return Ok(());
         }
     }
+    // Hosts set up before 0.4 get their network id here, on the update that brings it.
+    crate::network::ensure(&paths::env_file())?;
     restrict(&paths::env_file())?;
     if home_enabled() && !paths::home_env_file().exists() {
         std::fs::write(paths::home_env_file(), setup::default_home_env())?;
@@ -87,8 +90,8 @@ fn install_this(adopt: Option<PathBuf>, start: bool) -> Result<()> {
     crate::harden::secure_state();
     if start {
         ui::step("Starting TPCloud");
-        systemctl(&["enable", "tpcloud"])?;
-        systemctl(&["restart", "tpcloud"])?;
+        platform::service::enable()?;
+        platform::service::restart()?;
     }
     ui::done("TPCloud is installed. `tpcloud` opens it.");
     Ok(())
@@ -108,28 +111,9 @@ fn install_binary() -> Result<()> {
     Ok(())
 }
 
-/// systemd runs `tpcloud serve`, which runs everything else.
+/// The background service that runs `tpcloud serve`, which runs everything else.
 fn write_unit() -> Result<()> {
-    let unit = format!(
-        "[Unit]\nDescription=TPCloud\nAfter=network-online.target\nWants=network-online.target\n\n\
-         [Service]\nExecStart={} serve\nRestart=always\nRestartSec=3\n\
-         # SIGTERM to tpcloud, which stops its processes in order; anything left is killed after the timeout.\n\
-         KillMode=mixed\nTimeoutStopSec=30\nLimitNOFILE=65536\n\
-         NoNewPrivileges=yes\nPrivateTmp=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\n\
-         ProtectControlGroups=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\n\n\
-         [Install]\nWantedBy=multi-user.target\n",
-        paths::bin_dir().join("tpcloud").display()
-    );
-    std::fs::write(paths::systemd_unit(), unit)?;
-    systemctl(&["daemon-reload"])
-}
-
-pub fn systemctl(args: &[&str]) -> Result<()> {
-    let status = Command::new("systemctl").args(args).status().context("couldn't run systemctl")?;
-    if !status.success() {
-        bail!("systemctl {} failed", args.join(" "));
-    }
-    Ok(())
+    platform::service::install(&paths::bin_dir().join("tpcloud"))
 }
 
 /// Takes over a server that ran from clones of tpcloud and tphome side by side in `from`, with
@@ -216,7 +200,7 @@ fn ensure_group() {
     crate::harden::ensure_accounts();
     if let Ok(user) = std::env::var("SUDO_USER") {
         if !user.is_empty() && user != "root" {
-            let _ = Command::new("usermod").args(["-aG", "tpcloud", &user]).status();
+            platform::accounts::add_to_group(&user, crate::harden::USER);
         }
     }
 }
@@ -272,7 +256,7 @@ pub fn set_module(module: &str, on: bool) -> Result<()> {
         restrict(&paths::home_env_file())?;
     }
     sync_links()?;
-    systemctl(&["restart", "tpcloud"])?;
+    platform::service::restart()?;
     ui::done(&format!(
         "{module} is {}.{}",
         if on { "on" } else { "off" },

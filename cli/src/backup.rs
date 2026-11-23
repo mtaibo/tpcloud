@@ -282,16 +282,16 @@ pub fn restore(copy: &Path) -> Result<()> {
         let before = run()?;
         ui::done(&format!("Saved as {}", before.display()));
     }
-    let was_running = Command::new("systemctl").args(["is-active", "--quiet", "tpcloud"]).status().map(|s| s.success()).unwrap_or(false);
+    let was_running = crate::platform::service::running();
     if was_running {
         ui::step("Stopping TPCloud");
-        install::systemctl(&["stop", "tpcloud"])?;
+        crate::platform::service::stop()?;
     }
     ui::step(&format!("Restoring {}", copy.display()));
     let result = put_back(copy, Path::new(""), &state);
     if was_running {
         ui::step("Starting TPCloud");
-        install::systemctl(&["start", "tpcloud"])?;
+        crate::platform::service::start_once()?;
     }
     result?;
     ui::done("Restored.");
