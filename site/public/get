@@ -1,0 +1,98 @@
+#!/bin/sh
+# TPCloud for this computer: curl -fsSL https://tpcloud.migueltaibo.com/get | sh
+#
+#   Mac    the `tpcloud` command (the app itself is on TestFlight for now)
+#   Linux  the TPCloud app (in the applications menu) and the `tpcloud` command
+#
+# Always the same places, so running it again (or after anything else) updates, never duplicates:
+# /usr/local/bin/tpcloud, /usr/local/bin/tpcloud-app, /usr/local/share/applications/tpcloud.desktop.
+# On a TPCloud server its own `tpcloud` stays: it's a client too.
+#   … | sh -s -- --uninstall   takes it all away again (your sign-ins are kept in ~/.config/tpcloud).
+set -eu
+
+say() { printf '%s\n' "$*"; }
+bold() { printf '\033[1m%s\033[0m\n' "$*"; }
+base="https://github.com/mtaibo/tpcloud/releases/latest/download"
+bin=/usr/local/bin
+apps=/usr/local/share/applications
+icons=/usr/local/share/icons/hicolor/scalable/apps
+
+as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
+
+fetch() { # fetch <asset> <file>: from the latest release (or $TPCLOUD_FROM, a folder, for testing)
+  if [ -n "${TPCLOUD_FROM:-}" ]; then cp "$TPCLOUD_FROM/$1" "$2"; return; fi
+  if command -v curl >/dev/null 2>&1; then curl -fL --progress-bar "$base/$1" -o "$2"; else wget -q --show-progress -O "$2" "$base/$1"; fi
+}
+
+os="$(uname -s)"
+case "$(uname -m)" in
+  aarch64 | arm64) arch=arm64 ;;
+  x86_64 | amd64) arch=amd64 ;;
+  *) say "There's no TPCloud for $(uname -m) yet." >&2; exit 1 ;;
+esac
+
+# A TPCloud server already has `tpcloud` (the full one, with every client command).
+is_host() { [ -e /opt/tpcloud/VERSION ] || [ -e /var/lib/tpcloud/tpcloud.env ]; }
+
+if [ "${1:-}" = "--uninstall" ]; then
+  is_host || as_root rm -f "$bin/tpcloud" "$bin/tphome"
+  as_root rm -f "$bin/tpcloud-app" "$apps/tpcloud.desktop" "$icons/tpcloud.svg"
+  say "TPCloud's app and command are gone from this computer (your sign-ins stay in ~/.config/tpcloud)."
+  exit 0
+fi
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+as_root mkdir -p "$bin"
+
+install_cli() { # install_cli <asset>
+  if is_host; then
+    say "This computer is a TPCloud server: its tpcloud does everything, it stays."
+    return
+  fi
+  bold "The tpcloud command"
+  fetch "$1" "$tmp/tpcloud"
+  chmod 755 "$tmp/tpcloud"
+  as_root mv -f "$tmp/tpcloud" "$bin/tpcloud"
+  # A tphome from before points at this same file; `tpcloud login` adds it when Home is on.
+  say "  $bin/tpcloud $("$bin/tpcloud" --version | cut -d' ' -f2)"
+}
+
+case "$os" in
+  Darwin)
+    install_cli tpcloud-cli-macos
+    say ""
+    say "The TPCloud app for Mac and iPhone is on TestFlight for now."
+    ;;
+  Linux)
+    install_cli "tpcloud-cli-linux-$arch"
+    bold "The TPCloud app"
+    fetch "tpcloud-app-linux-$arch" "$tmp/tpcloud-app"
+    chmod 755 "$tmp/tpcloud-app"
+    as_root mv -f "$tmp/tpcloud-app" "$bin/tpcloud-app"
+    as_root mkdir -p "$apps" "$icons"
+    if [ -n "${TPCLOUD_FROM:-}" ] && [ -e "$TPCLOUD_FROM/favicon.svg" ]; then cp "$TPCLOUD_FROM/favicon.svg" "$tmp/tpcloud.svg"
+    else curl -fsSL https://tpcloud.migueltaibo.com/favicon.svg -o "$tmp/tpcloud.svg" 2>/dev/null || true; fi
+    [ -s "$tmp/tpcloud.svg" ] && as_root mv -f "$tmp/tpcloud.svg" "$icons/tpcloud.svg"
+    cat > "$tmp/tpcloud.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=TPCloud
+Comment=Your files, photos and home
+Exec=$bin/tpcloud-app
+Icon=tpcloud
+Categories=Network;FileTransfer;
+Terminal=false
+EOF
+    as_root mv -f "$tmp/tpcloud.desktop" "$apps/tpcloud.desktop"
+    say "  $bin/tpcloud-app, and TPCloud in the applications menu"
+    if [ -e /etc/NIXOS ]; then
+      say ""
+      say "NixOS: /usr/local/bin needs to be in PATH, and the app needs nix-ld (programs.nix-ld.enable = true)."
+    fi
+    ;;
+  *) say "TPCloud's apps are for Mac and Linux; on $os, open your cloud's address in a browser." >&2; exit 1 ;;
+esac
+
+say ""
+bold "Done. Sign in with: tpcloud login"

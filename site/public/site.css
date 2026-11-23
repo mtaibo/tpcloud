@@ -99,29 +99,26 @@ footer.bottom { padding: 40px 0 90px; border-top: 1px solid var(--line); color: 
 }
 @media (prefers-reduced-motion: reduce) { .stream div { animation: none; } }
 
-/* Getting it: two paths side by side, the server and the devices; this device's row first. */
-.paths { margin-top: 44px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.path { position: relative; padding: 30px; border: 1px solid var(--line); border-radius: 22px; min-width: 0; }
-.path .n { font-family: var(--mono); font-size: 13px; color: var(--signal); }
-.path h3 { margin-top: 10px; font-size: 24px; font-weight: 700; letter-spacing: -.02em; }
-.path .sub { display: block; margin-top: 12px; color: var(--ash); font-size: 15.5px; line-height: 1.55; }
-.path .cmd { margin-top: 14px; }
-.files { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.files .sub { margin: 0; flex-basis: 100%; }
+/* Download: one tab per kind of device, the one you're on chosen first. */
+.tabs { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 8px; }
+.tabs button { padding: 10px 16px; border-radius: 999px; border: 1px solid var(--line); background: none; color: var(--ash); font: 500 15px var(--font); cursor: pointer; }
+.tabs button:hover { color: var(--bone); border-color: var(--ash); }
+.tabs button[aria-selected="true"] { background: var(--bone); color: #000; border-color: var(--bone); }
+.panel { margin-top: 22px; border: 1px solid var(--line); border-radius: 22px; }
+.js .panel:not(.on) { display: none; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 26px 30px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row.col { flex-direction: column; align-items: stretch; gap: 0; }
+.row h3 { font-size: 19px; font-weight: 650; letter-spacing: -.01em; }
+.row p { margin-top: 6px; color: var(--ash); font-size: 15.5px; line-height: 1.55; max-width: 620px; }
+.row .cmd { margin-top: 16px; max-width: none; }
+.row .note { margin-top: 12px; font-size: 13.5px; }
+.row .note a { color: var(--bone); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: #555; }
+.tag { flex-shrink: 0; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--line); color: var(--ash); font-size: 13.5px; white-space: nowrap; }
+.files { display: flex; flex-wrap: wrap; gap: 10px; }
 .btn.small { padding: 9px 15px; font-size: 14.5px; }
 .btn.small small { color: var(--ash); font-weight: 500; font-size: 12.5px; }
-.btn.small.primary small { color: #555; }
-.note { margin-top: 14px; color: var(--ash); font-size: 13.5px; line-height: 1.5; }
-.devices { list-style: none; margin-top: 18px; border-top: 1px solid var(--line); }
-.devices li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
-.devices li div { min-width: 0; }
-.devices b { display: block; font-size: 16.5px; font-weight: 650; }
-.devices span { display: block; margin-top: 3px; color: var(--ash); font-size: 14px; line-height: 1.45; }
-.devices span .mono { display: inline; margin: 0; }
-.devices em { font-style: normal; color: var(--ash); font-size: 13.5px; white-space: nowrap; }
-.devices li.here b::after { content: "this device"; margin-left: 10px; font: 500 12px var(--mono); color: var(--signal); }
+.note { color: var(--ash); line-height: 1.5; }
 @media (max-width: 860px) {
-  .paths { grid-template-columns: 1fr; }
-  .path { padding: 24px; }
-  .devices li { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .row { flex-direction: column; align-items: flex-start; padding: 22px; gap: 14px; }
 }

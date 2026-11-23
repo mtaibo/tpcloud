@@ -2,5 +2,8 @@
 /download/linux/arm64  https://github.com/mtaibo/tpcloud/releases/latest/download/tpcloud-linux-arm64  302
 /download/linux/amd64  https://github.com/mtaibo/tpcloud/releases/latest/download/tpcloud-linux-amd64  302
 /download/linux        /install  302
+/download/cli/linux/arm64  https://github.com/mtaibo/tpcloud/releases/latest/download/tpcloud-cli-linux-arm64  302
+/download/cli/linux/amd64  https://github.com/mtaibo/tpcloud/releases/latest/download/tpcloud-cli-linux-amd64  302
+/download/cli/macos        https://github.com/mtaibo/tpcloud/releases/latest/download/tpcloud-cli-macos  302
 /download/app/linux/arm64  https://github.com/mtaibo/tpcloud/releases/latest/download/tpcloud-app-linux-arm64  302
 /download/app/linux/amd64  https://github.com/mtaibo/tpcloud/releases/latest/download/tpcloud-app-linux-amd64  302

@@ -7,6 +7,10 @@
   Content-Type: text/x-shellscript; charset=utf-8
   Cache-Control: public, max-age=300
 
+/get
+  Content-Type: text/x-shellscript; charset=utf-8
+  Cache-Control: public, max-age=300
+
 /*.css
   Cache-Control: public, max-age=3600
 
