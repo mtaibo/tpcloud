@@ -1,7 +1,8 @@
-//! `tphome`: the house from the terminal. It talks to home-api on its local port, from the server
-//! itself: whoever can run commands here already owns the server, so no session.
+//! `tphome`: the house from the terminal. On the server itself it talks to home-api on its local
+//! port (whoever runs commands there owns the server, so no session); anywhere else, to the
+//! network you're signed in to (`tpcloud login`), with your session.
 
-use crate::{install, services, ui};
+use crate::ui;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::Value;
@@ -34,9 +35,6 @@ enum HomeCommand {
 
 pub fn run(args: impl IntoIterator<Item = String>) -> Result<()> {
     let cli = HomeCli::parse_from(args);
-    if !install::home_enabled() {
-        bail!("Home is off on this server: turn it on with `sudo tpcloud module enable home`");
-    }
     let api = Api::connect()?;
     match (cli.blind, cli.action, cli.command) {
         (Some(id), Some(action), _) => blind_action(&api, &id, &action),
@@ -47,17 +45,37 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<()> {
     }
 }
 
-pub struct Api {
-    base: String,
+pub enum Api {
+    /// home-api on this server.
+    #[cfg_attr(not(feature = "host"), allow(dead_code))]
+    Local(String),
+    /// The network signed in to, its home-api under /home/api.
+    Remote(crate::client::net::Remote),
 }
 
 impl Api {
     pub fn connect() -> Result<Self> {
-        Ok(Api { base: format!("http://127.0.0.1:{}", services::HOME_PORT) })
+        #[cfg(feature = "host")]
+        if crate::paths::env_file().exists() && !crate::client::signed_in() {
+            if !crate::install::home_enabled() {
+                bail!("Home is off on this server: turn it on with `sudo tpcloud module enable home`");
+            }
+            return Ok(Api::Local(format!("http://127.0.0.1:{}", crate::services::HOME_PORT)));
+        }
+        let (remote, _) = crate::client::connect()?;
+        let me = remote.get("/auth/passkey/me")?;
+        if !me["modules"].as_array().is_some_and(|m| m.iter().any(|x| x == "home")) {
+            bail!("Home isn't on in this network");
+        }
+        Ok(Api::Remote(remote))
     }
 
     fn get(&self, path: &str) -> Result<Value> {
-        let body = ureq::get(&format!("{}{path}", self.base))
+        let base = match self {
+            Api::Remote(r) => return r.get(&format!("/home/api{path}")).map_err(friendly),
+            Api::Local(base) => base,
+        };
+        let body = ureq::get(&format!("{base}{path}"))
             .timeout(std::time::Duration::from_secs(5))
             .call()
             .map_err(api_error)?
@@ -66,7 +84,11 @@ impl Api {
     }
 
     fn post(&self, path: &str) -> Result<()> {
-        ureq::post(&format!("{}{path}", self.base))
+        let base = match self {
+            Api::Remote(r) => return r.send("POST", &format!("/home/api{path}"), None).map(|_| ()).map_err(friendly),
+            Api::Local(base) => base,
+        };
+        ureq::post(&format!("{base}{path}"))
             .timeout(std::time::Duration::from_secs(5))
             .call()
             .map_err(api_error)?;
@@ -90,6 +112,18 @@ fn api_error(err: ureq::Error) -> anyhow::Error {
             }
         }
         ureq::Error::Transport(_) => anyhow::anyhow!("home-api isn't answering (is TPCloud running? `tpcloud status`)"),
+    }
+}
+
+/// The network's answers in tphome's words.
+fn friendly(err: anyhow::Error) -> anyhow::Error {
+    let text = err.to_string();
+    if text.contains("404") || text.to_lowercase().contains("not found") {
+        anyhow::anyhow!("there's no device with that id")
+    } else if text.contains("423") || text.contains("409") || text.to_lowercase().contains("lock") {
+        anyhow::anyhow!("it's locked ({text})")
+    } else {
+        err
     }
 }
 

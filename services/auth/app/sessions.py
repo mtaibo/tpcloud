@@ -116,4 +116,8 @@ def _platform_of(s: SessionModel) -> str | None:
     if s.client_type != "native":
         return None
     label = s.device_info or ""
+    if label.startswith("tpcloud en"):
+        return "cli"
+    if label.endswith("Linux"):
+        return "linux"
     return "macos" if label.endswith("Mac") else "ios" if label.endswith("iPhone") else None

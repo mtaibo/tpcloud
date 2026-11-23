@@ -37,6 +37,28 @@ pub fn warn_text(text: &str) -> String {
     paint("38;5;215", text)
 }
 
+#[cfg_attr(not(feature = "host"), allow(dead_code))]
 pub fn warn_dot() -> String {
     paint("38;5;215", "●")
+}
+
+/// A line typed without showing it (passwords).
+pub fn secret(question: &str) -> anyhow::Result<String> {
+    use std::io::{BufRead, Write};
+    print!("{question}: ");
+    std::io::stdout().flush()?;
+    let mut term: libc::termios = unsafe { std::mem::zeroed() };
+    let tty = unsafe { libc::tcgetattr(0, &mut term) } == 0;
+    if tty {
+        let mut silent = term;
+        silent.c_lflag &= !libc::ECHO;
+        unsafe { libc::tcsetattr(0, libc::TCSANOW, &silent) };
+    }
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    if tty {
+        unsafe { libc::tcsetattr(0, libc::TCSANOW, &term) };
+    }
+    println!();
+    Ok(line.trim().to_string())
 }

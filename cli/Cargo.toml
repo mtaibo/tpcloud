@@ -9,6 +9,13 @@ license = "MIT"
 name = "tpcloud"
 path = "src/main.rs"
 
+[features]
+# The server: its runtime (Python, the services, Caddy…) inside the file, and every command that
+# runs a host. Without it (`--no-default-features`): the small client, for a Mac or a Linux
+# computer that only uses a network.
+default = ["host"]
+host = []
+
 [dependencies]
 anyhow = "=1.0.98"
 clap = { version = "=4.5.40", features = ["derive"] }
@@ -20,6 +27,9 @@ ratatui = "=0.29.0"
 serde_json = "=1.0.140"
 sha2 = "=0.10.9"
 tar = "=0.4.44"
+# The certificate checks for a network's addresses (the host's own authority, pinned).
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "=0.26.11"
 # TLS for GitHub (updates); rustls with its bundled roots, so no system certificates are needed.
 ureq = { version = "=2.12.1", default-features = false, features = ["tls"] }
 zstd = "=0.13.3"

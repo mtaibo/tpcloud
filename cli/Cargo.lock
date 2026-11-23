@@ -1091,10 +1091,12 @@ dependencies = [
  "libc",
  "mdns-sd",
  "ratatui",
+ "rustls",
  "serde_json",
  "sha2",
  "tar",
  "ureq",
+ "webpki-roots 0.26.11",
  "zstd",
 ]
 

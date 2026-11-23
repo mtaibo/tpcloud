@@ -54,12 +54,16 @@ def iso(value: datetime | None) -> str | None:
     return as_utc(value).isoformat() if value else None
 
 
-_NATIVE_PLATFORMS = {"ios": ("iPhone", "phone"), "macos": ("Mac", "desktop")}
+_NATIVE_PLATFORMS = {"ios": ("iPhone", "phone"), "macos": ("Mac", "desktop"), "linux": ("Linux", "desktop")}
 
 
 def describe_device(ua_string: str | None, client_type: str = "web", platform: str | None = None) -> dict:
     """What a user agent is, in words a person recognises: browser, system, and the kind of
     device (phone, tablet, desktop) for its icon."""
+    if client_type == "native" and (platform or "").lower() == "cli":
+        # The `tpcloud` command: its user agent says the system ("tpcloud/0.4.2 (macOS)").
+        system = "macOS" if "macOS" in (ua_string or "") else "Linux"
+        return {"browser": "tpcloud", "os": system, "kind": "desktop", "label": f"tpcloud en {system}"}
     if client_type == "native":
         name, kind = _NATIVE_PLATFORMS.get((platform or "").lower(), (None, "phone"))
         if not name:
