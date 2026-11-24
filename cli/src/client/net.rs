@@ -79,6 +79,73 @@ impl ServerCertVerifier for Verifier {
     }
 }
 
+// ── Names ending in .local ──
+// The Linux command is a static musl program, and musl's resolver doesn't do mDNS (nor does a
+// Linux without nss-mdns), so `tpcloud.local` would never resolve: those names are looked up here
+// over mDNS when the system can't, and the addresses found while browsing are remembered.
+
+static LOCAL_NAMES: Mutex<Option<HashMap<String, Vec<std::net::IpAddr>>>> = Mutex::new(None);
+
+/// What browsing found for a host, so connecting to it right after needs no second query.
+pub fn remember_local(host: &str, ips: Vec<std::net::IpAddr>) {
+    if ips.is_empty() {
+        return;
+    }
+    let key = host.trim_end_matches('.').to_ascii_lowercase();
+    LOCAL_NAMES.lock().unwrap().get_or_insert_with(HashMap::new).insert(key, ips);
+}
+
+fn lookup_local(host: &str) -> Vec<std::net::IpAddr> {
+    let key = host.trim_end_matches('.').to_ascii_lowercase();
+    if let Some(ips) = LOCAL_NAMES.lock().unwrap().as_ref().and_then(|m| m.get(&key)) {
+        return ips.clone();
+    }
+    let Ok(daemon) = mdns_sd::ServiceDaemon::new() else { return vec![] };
+    let mut ips: Vec<std::net::IpAddr> = Vec::new();
+    if let Ok(rx) = daemon.resolve_hostname(&format!("{key}."), Some(2500)) {
+        let until = std::time::Instant::now() + Duration::from_millis(2500);
+        while let Some(left) = until.checked_duration_since(std::time::Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(mdns_sd::HostnameResolutionEvent::AddressesFound(_, found)) => {
+                    for ip in found.iter().map(|ip| ip.to_ip_addr()) {
+                        if !ips.contains(&ip) {
+                            ips.push(ip);
+                        }
+                    }
+                    // IPv4 first: an IPv6 link-local address needs its interface, which a URL can't carry.
+                    if ips.iter().any(|ip| ip.is_ipv4()) {
+                        break;
+                    }
+                }
+                Ok(mdns_sd::HostnameResolutionEvent::SearchTimeout(_)) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    }
+    let _ = daemon.shutdown();
+    ips.sort_by_key(|ip| !ip.is_ipv4());
+    ips.retain(|ip| !matches!(ip, std::net::IpAddr::V6(v6) if (v6.segments()[0] & 0xffc0) == 0xfe80));
+    remember_local(&key, ips.clone());
+    ips
+}
+
+fn resolve(addr: &str) -> std::io::Result<Vec<std::net::SocketAddr>> {
+    use std::net::ToSocketAddrs;
+    let system = addr.to_socket_addrs().map(|a| a.collect::<Vec<_>>());
+    if matches!(&system, Ok(a) if !a.is_empty()) {
+        return system;
+    }
+    let (host, port) = addr.rsplit_once(':').unwrap_or((addr, "443"));
+    if host.to_ascii_lowercase().trim_end_matches('.').ends_with(".local") {
+        let port: u16 = port.parse().unwrap_or(443);
+        let found: Vec<_> = lookup_local(host).into_iter().map(|ip| std::net::SocketAddr::new(ip, port)).collect();
+        if !found.is_empty() {
+            return Ok(found);
+        }
+    }
+    system
+}
+
 fn agent_with(verifier: Verifier, timeout: Duration) -> ureq::Agent {
     let tls = rustls::ClientConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()
@@ -88,6 +155,7 @@ fn agent_with(verifier: Verifier, timeout: Duration) -> ureq::Agent {
         .with_no_client_auth();
     ureq::AgentBuilder::new()
         .tls_config(Arc::new(tls))
+        .resolver(resolve)
         .redirects(0)
         .timeout_connect(Duration::from_secs(5))
         .timeout(timeout)

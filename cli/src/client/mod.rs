@@ -183,6 +183,7 @@ fn discover() -> Vec<(String, String)> {
         if let mdns_sd::ServiceEvent::ServiceResolved(info) = event {
             let host = info.get_properties().get_property_val_str("host").map(str::to_string).unwrap_or_else(|| info.get_hostname().trim_end_matches('.').to_string());
             let name = info.get_fullname().split("._tpcloud").next().unwrap_or("").replace("\\032", " ");
+            net::remember_local(&host, info.get_addresses().iter().map(|ip| ip.to_ip_addr()).filter(|ip| ip.is_ipv4()).collect());
             let item = (name, format!("https://{host}"));
             if !found.contains(&item) {
                 found.push(item);
