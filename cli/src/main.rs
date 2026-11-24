@@ -55,7 +55,6 @@ mod users;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::io::IsTerminal;
-#[cfg(feature = "host")]
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -193,6 +192,11 @@ enum Command {
     /// or nothing kept). Anywhere else, every trace at once. `uninstall` still works too.
     #[command(alias = "uninstall")]
     Delete,
+    /// Folders on this computer kept the same as your files in the cloud, both ways.
+    Sync {
+        #[command(subcommand)]
+        action: Option<SyncAction>,
+    },
     /// Control the house (the same as the `tphome` command).
     #[command(disable_help_flag = true)]
     Home {
@@ -203,6 +207,32 @@ enum Command {
     /// Run everything in the foreground (what the systemd service does).
     #[command(hide = true)]
     Serve,
+}
+
+#[derive(Subcommand)]
+enum SyncAction {
+    /// Sync a folder (made if it isn't there; ~/TPCloud when left out) with your files.
+    Add {
+        /// The folder on this computer.
+        folder: Option<PathBuf>,
+        /// What it mirrors in the cloud: a folder inside yours, or `shared` (default: all your files).
+        #[arg(long, value_name = "PATH")]
+        remote: Option<String>,
+    },
+    /// Stop syncing a folder; its files stay on both sides.
+    Remove {
+        /// The folder, as you added it.
+        folder: PathBuf,
+    },
+    /// Stop copying anything until `resume`.
+    Pause,
+    /// Copy again.
+    Resume,
+    /// Sync every folder once, now, showing what it copies.
+    Now,
+    /// What the background service runs.
+    #[command(hide = true)]
+    Run,
 }
 
 #[cfg(feature = "host")]
@@ -336,6 +366,15 @@ fn run() -> Result<()> {
         },
         #[cfg(not(feature = "host"))]
         Some(Command::Users { .. }) => unreachable!(),
+        Some(Command::Sync { action }) => match action {
+            None => client::sync::status(),
+            Some(SyncAction::Add { folder, remote }) => client::sync::add(folder, remote),
+            Some(SyncAction::Remove { folder }) => client::sync::remove(&folder),
+            Some(SyncAction::Pause) => client::sync::set_paused(true),
+            Some(SyncAction::Resume) => client::sync::set_paused(false),
+            Some(SyncAction::Now) => client::sync::now(),
+            Some(SyncAction::Run) => client::sync::run(),
+        },
         Some(Command::Home { args: rest }) => home::run(std::iter::once("tphome".to_string()).chain(rest)),
         #[cfg(feature = "host")]
         Some(Command::Install { adopt, no_start, this_file }) => install::install(adopt, !no_start, this_file),

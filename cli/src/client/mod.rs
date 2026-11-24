@@ -4,6 +4,7 @@
 //! ~/Library/Application Support/tpcloud/), so signing in once is signing in for both.
 
 pub mod net;
+pub mod sync;
 mod tui;
 
 use crate::ui;
@@ -27,6 +28,17 @@ fn config_file_in(home: &std::path::Path, xdg: Option<PathBuf>) -> PathBuf {
         xdg.unwrap_or_else(|| home.join(".config"))
     };
     dir.join("tpcloud/networks.json")
+}
+
+/// The folder with this computer's sign-ins (and the synced folders' settings).
+pub fn config_dir() -> PathBuf {
+    config_file().parent().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Signed in to a network by its id, at the fastest address that answers.
+pub fn connect_network(id: &str) -> Result<(Remote, Value)> {
+    let Some(n) = Store::load().find(id) else { bail!("this computer isn't signed in to that network any more: `tpcloud login`") };
+    connect_to(n)
 }
 
 struct Store(Value);
@@ -380,6 +392,9 @@ pub fn login(address: Option<String>, email: Option<String>, later: bool) -> Res
     sync_tphome(me["modules"].as_array().is_some_and(|m| m.iter().any(|x| x == "home")));
     println!();
     println!("  {} opens everything; {} lists the rest.", ui::accent("tpcloud"), ui::accent("tpcloud --help"));
+    if me["modules"].as_array().is_some_and(|m| m.iter().any(|x| x == "store")) && sync::load_pairs().is_empty() {
+        println!("  {} keeps a folder here the same as your files.", ui::accent("tpcloud sync add ~/TPCloud"));
+    }
     println!();
     Ok(())
 }
@@ -802,6 +817,10 @@ pub fn uninstall() -> Result<()> {
     };
     let row = |what: &str, detail: &str| println!("  {} {what:<11} {}", ui::green("✓"), ui::dim(detail));
 
+    if !sync::load_pairs().is_empty() {
+        sync::remove_service();
+        row("Sync", "stopped; the synced folders' files stay where they are");
+    }
     for file in signin_files() {
         for n in Store::load_from(&file).networks().into_iter().filter(|n| n["token"].is_string()) {
             let name = n["name"].as_str().unwrap_or("a network").to_string();

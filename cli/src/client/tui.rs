@@ -1,8 +1,10 @@
 //! `tpcloud` alone on a computer signed in to a network: the network in a terminal app. Overview,
-//! the house (blinds), and for admins the accounts, everyone's sessions and the host's version
-//! with its update. A worker thread does every request, so keys never wait for the network.
+//! your files (browse, download, upload, share), the folders synced here, your share links, the
+//! house (blinds), and for admins the accounts, everyone's sessions and the host's version with
+//! its update. A worker thread does every request, so keys never wait for the network.
 
-use super::net::Remote;
+use super::net::{query_value, Remote};
+use super::sync;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -23,6 +25,9 @@ const DIM: Color = Color::DarkGray;
 #[derive(Clone, Copy, PartialEq)]
 enum Section {
     Overview,
+    Files,
+    Sync,
+    Shares,
     Home,
     Users,
     Sessions,
@@ -33,6 +38,9 @@ impl Section {
     fn title(self) -> &'static str {
         match self {
             Section::Overview => "Overview",
+            Section::Files => "Files",
+            Section::Sync => "Sync",
+            Section::Shares => "Shares",
             Section::Home => "Home",
             Section::Users => "Accounts",
             Section::Sessions => "Sessions",
@@ -49,11 +57,40 @@ struct Data {
     users: Vec<Value>,
     sessions: Vec<Value>,
     host: Value,
+    network: Value,
+    /// The folder shown in Files ("" = the two roots: yours and shared) and what's in it.
+    cwd: String,
+    files: Vec<Value>,
+    shares: Vec<Value>,
     message: Option<(String, Color, Instant)>,
     loaded: bool,
 }
 
+/// Something typed or confirmed in the footer.
+#[derive(Clone)]
+enum Prompt {
+    Mkdir,
+    Rename(String),
+    Upload,
+    AddSync,
+    Delete(String, String),
+    Revoke(String),
+    Unsync(String, String),
+}
+
 enum Job {
+    List(String),
+    Download(String, String),
+    Delete(String),
+    Mkdir(String),
+    Rename(String, String),
+    Upload(String, std::path::PathBuf),
+    Share(String),
+    Unshare(String),
+    SyncAdd(String),
+    SyncNow,
+    SyncPause(bool),
+    SyncRemove(String),
     Blind(String, String),
     Revoke(i64, bool),
     ToggleAdmin(i64, String),
@@ -66,12 +103,13 @@ struct App {
     menu: ListState,
     focused: bool,
     item: ListState,
+    prompt: Option<(Prompt, String)>,
     data: Arc<Mutex<Data>>,
     jobs: mpsc::Sender<Job>,
 }
 
 pub fn run(remote: Remote, network: Value) -> Result<()> {
-    let data = Arc::new(Mutex::new(Data::default()));
+    let data = Arc::new(Mutex::new(Data { network: network.clone(), ..Data::default() }));
     let (tx, rx) = mpsc::channel::<Job>();
     // The worker: the first load, then every few seconds, and whatever a key asked for.
     {
@@ -86,6 +124,9 @@ pub fn run(remote: Remote, network: Value) -> Result<()> {
     let mut sections = vec![Section::Overview];
     {
         let d = data.lock().unwrap();
+        if d.me["modules"].as_array().is_some_and(|m| m.iter().any(|x| x == "store")) {
+            sections.extend([Section::Files, Section::Sync, Section::Shares]);
+        }
         if d.me["modules"].as_array().is_some_and(|m| m.iter().any(|x| x == "home")) {
             sections.push(Section::Home);
         }
@@ -95,7 +136,7 @@ pub fn run(remote: Remote, network: Value) -> Result<()> {
             sections.push(Section::Sessions);
         }
     }
-    let mut app = App { sections, menu: ListState::default().with_selected(Some(0)), focused: false, item: ListState::default().with_selected(Some(0)), data, jobs: tx };
+    let mut app = App { sections, menu: ListState::default().with_selected(Some(0)), focused: false, item: ListState::default().with_selected(Some(0)), prompt: None, data, jobs: tx };
     let mut terminal = ratatui::init();
     let result = (|| -> Result<()> {
         loop {
@@ -126,7 +167,20 @@ fn worker(remote: Remote, data: Arc<Mutex<Data>>, jobs: mpsc::Receiver<Job>) {
         let users = if admin { remote.get("/auth/admin/users").ok().and_then(|v| v.as_array().cloned()).unwrap_or_default() } else { vec![] };
         let sessions = if admin { remote.get("/auth/admin/sessions") } else { remote.get("/auth/account/profile").map(|p| p["sessions"].clone()) }.ok().and_then(|v| v.as_array().cloned()).unwrap_or_default();
         let host = if admin { remote.get("/auth/admin/host").unwrap_or(Value::Null) } else { Value::Null };
+        let store = me["modules"].as_array().is_some_and(|m| m.iter().any(|x| x == "store"));
+        let cwd = data.lock().unwrap().cwd.clone();
+        let files = if store && !cwd.is_empty() {
+            remote.get(&format!("/store/api/files/list?path={}", query_value(&cwd))).ok().and_then(|v| v["entries"].as_array().cloned())
+        } else {
+            Some(vec![])
+        };
+        let shares = if store { remote.get("/store/api/shares").ok().and_then(|v| v.as_array().cloned()).unwrap_or_default() } else { vec![] };
         let mut d = data.lock().unwrap();
+        // The folder may have changed while this was asked: only keep an answer for the one shown.
+        if let Some(files) = files.filter(|_| d.cwd == cwd) {
+            d.files = files.into_iter().filter(|e| e["type"] == "file" || e["type"] == "directory").collect();
+        }
+        d.shares = shares;
         if !me.is_null() {
             d.me = me;
         }
@@ -148,6 +202,53 @@ fn worker(remote: Remote, data: Arc<Mutex<Data>>, jobs: mpsc::Receiver<Job>) {
         match jobs.recv_timeout(Duration::from_millis(400)) {
             Ok(job) => {
                 let said = match job {
+                    Job::List(path) => {
+                        let mut d = data.lock().unwrap();
+                        d.cwd = path;
+                        d.files.clear();
+                        Ok((String::new(), DIM))
+                    }
+                    Job::Download(path, name) => {
+                        let dir = super::sync::downloads_dir();
+                        let dest = dir.join(&name);
+                        std::fs::create_dir_all(&dir)
+                            .map_err(anyhow::Error::from)
+                            .and_then(|_| remote.download_to(&format!("/store/api/files/download?path={}", query_value(&path)), &dest))
+                            .map(|_| (format!("Downloaded to {}", sync::pretty(&dest)), GREEN))
+                    }
+                    Job::Delete(path) => remote.send("DELETE", &format!("/store/api/files?path={}", query_value(&path)), None).map(|_| ("Deleted.".to_string(), GREEN)),
+                    Job::Mkdir(path) => remote.send("POST", "/store/api/files/mkdir", Some(serde_json::json!({ "path": path }))).map(|_| ("Folder made.".to_string(), GREEN)),
+                    Job::Rename(path, name) => remote
+                        .send("POST", "/store/api/files/rename", Some(serde_json::json!({ "path": path, "new_name": name })))
+                        .map(|_| ("Renamed.".to_string(), GREEN)),
+                    Job::Upload(dir, file) => remote
+                        .upload_file(&format!("/store/api/files/upload?path={}", query_value(&dir)), "files", &file)
+                        .map(|_| (format!("Sent {}", file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), GREEN)),
+                    Job::Share(path) => remote
+                        .send("POST", "/store/api/shares", Some(serde_json::json!({ "location": "external", "path": path })))
+                        .map(|v| {
+                            let url = full_url(&remote.base, v["url"].as_str().unwrap_or(""));
+                            let copied = copy_to_clipboard(&url);
+                            (format!("{url}{}", if copied { "  (copied)" } else { "" }), GREEN)
+                        }),
+                    Job::Unshare(token) => remote.send("DELETE", &format!("/store/api/shares/{token}"), None).map(|_| ("Link revoked: it doesn't open any more.".to_string(), GREEN)),
+                    Job::SyncAdd(folder) => {
+                        let folder = if folder.trim().is_empty() { None } else { Some(std::path::PathBuf::from(folder.trim())) };
+                        data.lock().unwrap().message = Some(("Syncing for the first time…".into(), ACCENT, Instant::now()));
+                        let network = data.lock().unwrap().network.clone();
+                        sync::new_pair(&remote, &network, folder, None)
+                            .and_then(|pair| {
+                                let shown = sync::pretty(&pair.local);
+                                sync::start_pair(pair, &remote, &mut |_, _, _| {}).map(|r| (format!("{shown}: {}; synced from now on", r.describe()), GREEN))
+                            })
+                    }
+                    Job::SyncNow => {
+                        let results = sync::sync_all_now();
+                        let failed: Vec<String> = results.iter().filter_map(|(p, r)| r.as_ref().err().map(|e| format!("{}: {e:#}", sync::pretty(&p.local)))).collect();
+                        if failed.is_empty() { Ok(("Every folder is up to date.".to_string(), GREEN)) } else { Err(anyhow::anyhow!(failed.join("; "))) }
+                    }
+                    Job::SyncPause(paused) => sync::pause_all(paused).map(|_| ((if paused { "Paused." } else { "Syncing again." }).to_string(), GREEN)),
+                    Job::SyncRemove(id) => sync::drop_pair(&id).map(|p| (format!("{} isn't synced any more (its files stay).", sync::pretty(&p.local)), GREEN)),
                     Job::Blind(id, cmd) => remote.send("POST", &format!("/home/api/commands/{id}/{cmd}"), None).map(|_| (format!("{id}: {cmd}"), GREEN)),
                     Job::Revoke(id, all) => remote
                         .send("DELETE", &if all { format!("/auth/admin/sessions/{id}") } else { format!("/auth/account/session/{id}") }, None)
@@ -162,8 +263,11 @@ fn worker(remote: Remote, data: Arc<Mutex<Data>>, jobs: mpsc::Receiver<Job>) {
                     Ok(m) => m,
                     Err(e) => (format!("{e:#}"), ORANGE),
                 };
-                data.lock().unwrap().message = Some((text, color, Instant::now()));
-                std::thread::sleep(Duration::from_millis(600));
+                let quick = text.is_empty();
+                if !quick {
+                    data.lock().unwrap().message = Some((text, color, Instant::now()));
+                    std::thread::sleep(Duration::from_millis(600));
+                }
                 refresh(&data);
                 last = Instant::now();
             }
@@ -181,9 +285,40 @@ fn current(app: &App) -> Section {
     app.sections[app.menu.selected().unwrap_or(0)]
 }
 
+/// What Files shows: the two roots, or the folder's entries, each with its full path.
+fn file_rows(d: &Data) -> Vec<Value> {
+    if d.cwd.is_empty() {
+        let email = d.me["email"].as_str().unwrap_or("");
+        return vec![
+            serde_json::json!({"name": "Your files", "type": "directory", "path": format!("users/{email}")}),
+            serde_json::json!({"name": "Shared", "type": "directory", "path": "shared"}),
+        ];
+    }
+    d.files
+        .iter()
+        .map(|e| {
+            let mut e = e.clone();
+            e["path"] = Value::String(format!("{}/{}", d.cwd, e["name"].as_str().unwrap_or("")));
+            e
+        })
+        .collect()
+}
+
+/// Up a folder from Files' current one ("" from a root).
+fn parent_folder(d: &Data) -> String {
+    let email = d.me["email"].as_str().unwrap_or("");
+    if d.cwd == "shared" || d.cwd == format!("users/{email}") {
+        return String::new();
+    }
+    d.cwd.rsplit_once('/').map(|(p, _)| p.to_string()).unwrap_or_default()
+}
+
 fn items_len(app: &App) -> usize {
     let d = app.data.lock().unwrap();
     match current(app) {
+        Section::Files => file_rows(&d).len(),
+        Section::Sync => sync::load_pairs().len(),
+        Section::Shares => d.shares.len(),
         Section::Home => d.blinds.len(),
         Section::Users => d.users.len(),
         Section::Sessions => d.sessions.len(),
@@ -191,8 +326,68 @@ fn items_len(app: &App) -> usize {
     }
 }
 
+fn say(app: &App, text: &str, color: Color) {
+    app.data.lock().unwrap().message = Some((text.to_string(), color, Instant::now()));
+}
+
+/// A key while something is being typed or confirmed in the footer.
+fn handle_prompt(app: &mut App, key: KeyCode) {
+    let Some((prompt, mut typed)) = app.prompt.take() else { return };
+    let confirm = matches!(prompt, Prompt::Delete(..) | Prompt::Revoke(_) | Prompt::Unsync(..));
+    if confirm {
+        if matches!(key, KeyCode::Char('y') | KeyCode::Char('Y')) {
+            let _ = app.jobs.send(match prompt {
+                Prompt::Delete(path, _) => Job::Delete(path),
+                Prompt::Revoke(token) => Job::Unshare(token),
+                Prompt::Unsync(id, _) => Job::SyncRemove(id),
+                _ => unreachable!(),
+            });
+        }
+        return;
+    }
+    match key {
+        KeyCode::Esc => return,
+        KeyCode::Backspace => {
+            typed.pop();
+        }
+        KeyCode::Char(c) => typed.push(c),
+        KeyCode::Enter => {
+            let cwd = app.data.lock().unwrap().cwd.clone();
+            let text = typed.trim().to_string();
+            let job = match prompt {
+                Prompt::Mkdir if !text.is_empty() => Some(Job::Mkdir(format!("{cwd}/{text}"))),
+                Prompt::Rename(path) if !text.is_empty() => Some(Job::Rename(path, text)),
+                Prompt::Upload if !text.is_empty() => {
+                    let file = std::path::PathBuf::from(match text.strip_prefix("~/") {
+                        Some(rest) => format!("{}/{rest}", std::env::var("HOME").unwrap_or_default()),
+                        None => text,
+                    });
+                    if file.is_file() {
+                        Some(Job::Upload(cwd, file))
+                    } else {
+                        say(app, "That isn't a file here.", ORANGE);
+                        None
+                    }
+                }
+                Prompt::AddSync => Some(Job::SyncAdd(text)),
+                _ => None,
+            };
+            if let Some(job) = job {
+                let _ = app.jobs.send(job);
+            }
+            return;
+        }
+        _ => {}
+    }
+    app.prompt = Some((prompt, typed));
+}
+
 /// false: quit.
 fn handle(app: &mut App, key: KeyCode) -> bool {
+    if app.prompt.is_some() {
+        handle_prompt(app, key);
+        return true;
+    }
     if matches!(key, KeyCode::Char('q')) {
         return false;
     }
@@ -216,6 +411,8 @@ fn handle(app: &mut App, key: KeyCode) -> bool {
     let selected = |app: &App| -> Value {
         let d = app.data.lock().unwrap();
         match current(app) {
+            Section::Files => file_rows(&d).get(i).cloned(),
+            Section::Shares => d.shares.get(i).cloned(),
             Section::Home => d.blinds.get(i).cloned(),
             Section::Users => d.users.get(i).cloned(),
             Section::Sessions => d.sessions.get(i).cloned(),
@@ -223,10 +420,92 @@ fn handle(app: &mut App, key: KeyCode) -> bool {
         }
         .unwrap_or(Value::Null)
     };
-    match (current(app), key) {
+    let section = current(app);
+    // Files: left goes up a folder before it leaves the section.
+    if section == Section::Files && matches!(key, KeyCode::Left | KeyCode::Char('h') | KeyCode::Backspace) {
+        let (cwd, parent) = {
+            let d = app.data.lock().unwrap();
+            (d.cwd.clone(), parent_folder(&d))
+        };
+        if cwd.is_empty() {
+            app.focused = false;
+        } else {
+            let _ = app.jobs.send(Job::List(parent));
+            app.item.select(Some(0));
+        }
+        return true;
+    }
+    match (section, key) {
         (_, KeyCode::Esc | KeyCode::Left | KeyCode::Char('h')) => app.focused = false,
         (_, KeyCode::Up | KeyCode::Char('k')) => app.item.select(Some((i + n - 1) % n)),
         (_, KeyCode::Down | KeyCode::Char('j')) => app.item.select(Some((i + 1) % n)),
+        (Section::Files, KeyCode::Enter | KeyCode::Right | KeyCode::Char('l')) => {
+            let e = selected(app);
+            let path = e["path"].as_str().unwrap_or("").to_string();
+            if e["type"] == "directory" {
+                let _ = app.jobs.send(Job::List(path));
+                app.item.select(Some(0));
+            } else if !path.is_empty() {
+                let _ = app.jobs.send(Job::Download(path, e["name"].as_str().unwrap_or("file").to_string()));
+            }
+        }
+        (Section::Files, KeyCode::Char('d')) => {
+            let e = selected(app);
+            if e["type"] == "file" {
+                let _ = app.jobs.send(Job::Download(e["path"].as_str().unwrap_or("").to_string(), e["name"].as_str().unwrap_or("file").to_string()));
+            } else {
+                say(app, "Folders: sync them (Sync → a) or download them from the web.", ORANGE);
+            }
+        }
+        (Section::Files, KeyCode::Char(c @ ('x' | 'r' | 's'))) => {
+            let in_root = app.data.lock().unwrap().cwd.is_empty();
+            let e = selected(app);
+            let (path, name) = (e["path"].as_str().unwrap_or("").to_string(), e["name"].as_str().unwrap_or("").to_string());
+            if in_root || path.is_empty() {
+                say(app, "Open a folder first.", ORANGE);
+            } else {
+                match c {
+                    'x' => app.prompt = Some((Prompt::Delete(path, name), String::new())),
+                    'r' => app.prompt = Some((Prompt::Rename(path), name)),
+                    _ => {
+                        let _ = app.jobs.send(Job::Share(path));
+                    }
+                }
+            }
+        }
+        (Section::Files, KeyCode::Char(c @ ('n' | 'u'))) => {
+            if app.data.lock().unwrap().cwd.is_empty() {
+                say(app, "Open a folder first.", ORANGE);
+            } else {
+                app.prompt = Some((if c == 'n' { Prompt::Mkdir } else { Prompt::Upload }, String::new()));
+            }
+        }
+        (Section::Sync, KeyCode::Char('a')) => app.prompt = Some((Prompt::AddSync, "~/TPCloud".into())),
+        (Section::Sync, KeyCode::Char('n')) => {
+            say(app, "Syncing every folder…", ACCENT);
+            let _ = app.jobs.send(Job::SyncNow);
+        }
+        (Section::Sync, KeyCode::Char('p')) => {
+            let paused = sync::load_pairs().iter().any(|p| p.paused);
+            let _ = app.jobs.send(Job::SyncPause(!paused));
+        }
+        (Section::Sync, KeyCode::Char('x')) => {
+            if let Some(p) = sync::load_pairs().get(i) {
+                app.prompt = Some((Prompt::Unsync(p.id.clone(), sync::pretty(&p.local)), String::new()));
+            }
+        }
+        (Section::Shares, KeyCode::Char('x')) => {
+            if let Some(token) = selected(app)["token"].as_str() {
+                app.prompt = Some((Prompt::Revoke(token.to_string()), String::new()));
+            }
+        }
+        (Section::Shares, KeyCode::Char('c') | KeyCode::Enter) => {
+            if let Some(url) = selected(app)["url"].as_str() {
+                let url = &full_url(&app.data.lock().unwrap().network["last_address"].as_str().unwrap_or("").to_string(), url);
+                let copied = copy_to_clipboard(url);
+                say(app, &format!("{url}{}", if copied { "  (copied)" } else { "" }), GREEN);
+            }
+        }
         (Section::Home, KeyCode::Char(c @ ('u' | 'd' | 's'))) => {
             if let Some(id) = selected(app)["id"].as_str() {
                 let cmd = match c { 'u' => "up", 'd' => "down", _ => "stop" };
@@ -294,11 +573,69 @@ fn draw(f: &mut Frame, app: &mut App, network: &Value) {
                 kv("Modules ", &if modules.is_empty() { "none".into() } else { modules.join(", ") }),
                 kv("Version ", d.card["version"].as_str().unwrap_or("")),
             ];
+            if modules.contains(&"store") {
+                let pairs = sync::load_pairs();
+                let synced = match pairs.len() {
+                    0 => "no folder yet (Sync → a)".to_string(),
+                    _ => pairs.iter().map(|p| sync::pretty(&p.local)).collect::<Vec<_>>().join(", "),
+                };
+                lines.push(kv("Synced  ", &synced));
+            }
             if d.host["available"] == true {
                 lines.push(Line::styled(format!("TPCloud {} is out: Server → u", d.host["latest"].as_str().unwrap_or("")), Style::default().fg(ACCENT)));
             }
             f.render_widget(Paragraph::new(lines).block(frame("Overview", false)).wrap(Wrap { trim: true }), area);
         }
+        Section::Files => {
+            let rows = file_rows(&d);
+            let title = if d.cwd.is_empty() { "Files".to_string() } else { format!("Files · {}", sync::remote_label(&d.cwd)) };
+            list(f, area, &title, app.focused, &mut app.item, rows.iter().map(|e| {
+                let dir = e["type"] == "directory";
+                let size = e["size"].as_u64().map(human).unwrap_or_default();
+                Line::from(vec![
+                    Span::styled(if dir { " ▸ " } else { "   " }, Style::default().fg(ACCENT)),
+                    Span::styled(format!("{:<40}", fit(e["name"].as_str().unwrap_or(""), 39)), if dir { Style::default().add_modifier(Modifier::BOLD) } else { Style::default() }),
+                    Span::styled(format!("{size:>9}"), Style::default().fg(DIM)),
+                ])
+            }).collect());
+        }
+        Section::Sync => {
+            let pairs = sync::load_pairs();
+            let running = sync::service_running();
+            list(f, area, if running || pairs.is_empty() { "Synced folders" } else { "Synced folders · service stopped" }, app.focused, &mut app.item, pairs.iter().map(|p| {
+                let st = sync::status_of(&p.id);
+                let (dot, color, state) = if p.paused {
+                    ("○", DIM, "paused".to_string())
+                } else if st["ok"] == false {
+                    ("●", ORANGE, st["error"].as_str().unwrap_or("failed").to_string())
+                } else if let Some(at) = st["at"].as_i64() {
+                    ("●", GREEN, format!("up to date · {}", sync::ago(at)))
+                } else {
+                    ("●", ACCENT, "waiting for its first sync".to_string())
+                };
+                Line::from(vec![
+                    Span::styled(format!(" {dot} "), Style::default().fg(color)),
+                    Span::styled(format!("{:<22}", sync::pretty(&p.local)), Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("⇄ {} · {:<14}", p.network_name, sync::remote_label(&p.remote)), Style::default().fg(DIM)),
+                    Span::styled(format!("  {state}"), Style::default().fg(color)),
+                ])
+            }).collect());
+        }
+        Section::Shares => list(f, area, "Share links", app.focused, &mut app.item, d.shares.iter().map(|sh| {
+            let mut flags = Vec::new();
+            if sh["has_password"] == true {
+                flags.push("password");
+            }
+            if sh["editable"] == true {
+                flags.push("editable");
+            }
+            Line::from(vec![
+                Span::styled(if sh["is_file"] == true { "   " } else { " ▸ " }, Style::default().fg(ACCENT)),
+                Span::raw(format!("{:<36}", fit(&sync::remote_label(sh["path"].as_str().unwrap_or("")), 35))),
+                Span::styled(full_url(d.network["last_address"].as_str().unwrap_or(""), sh["url"].as_str().unwrap_or("")), Style::default().fg(ACCENT)),
+                Span::styled(if flags.is_empty() { String::new() } else { format!("  {}", flags.join(" · ")) }, Style::default().fg(DIM)),
+            ])
+        }).collect()),
         Section::Home => list(f, area, "Home", app.focused, &mut app.item, d.blinds.iter().map(|b| {
             let pos = b["state"]["position"].as_i64().map(|p| format!("{p:>3}%")).unwrap_or_else(|| "  —".into());
             let online = b["connection"]["online"] == true;
@@ -339,17 +676,52 @@ fn draw(f: &mut Frame, app: &mut App, network: &Value) {
     // Footer: the last action, or the keys.
     let hint = match (app.focused, section) {
         (false, _) => "↑↓ jk choose  ⏎ l open  q quit",
+        (true, Section::Files) => "jk move  l open/download  h up  d download  u upload  n new folder  r rename  s share link  x delete",
+        (true, Section::Sync) => "jk folder  a add a folder  n sync now  p pause/resume  x stop syncing  ← h back",
+        (true, Section::Shares) => "jk link  c copy  x revoke  ← h back   (new ones: Files → s)",
         (true, Section::Home) => "↑↓ blind  u up  d down  s stop  0–9 position  ← h back",
         (true, Section::Users) => "↑↓ account  a admin on/off  ← h back   (add/remove: tpcloud users)",
         (true, Section::Sessions) => "↑↓ session  r close it  ← h back",
         (true, Section::Server) => "c look for updates  u update the host  ← h back",
         (true, Section::Overview) => "← h back",
     };
-    let footer = match d.message.as_ref().filter(|m| m.2.elapsed() < Duration::from_secs(5)) {
-        Some((text, color, _)) => Line::from(Span::styled(format!(" {text}"), Style::default().fg(*color))),
-        None => Line::from(Span::styled(format!(" {hint}"), Style::default().fg(DIM))),
+    let prompt = app.prompt.as_ref().map(|(p, typed)| match p {
+        Prompt::Mkdir => format!(" New folder's name: {typed}▏  (⏎ make it, esc cancel)"),
+        Prompt::Rename(_) => format!(" New name: {typed}▏  (⏎ rename, esc cancel)"),
+        Prompt::Upload => format!(" File to send here: {typed}▏  (⏎ send, esc cancel)"),
+        Prompt::AddSync => format!(" Folder to sync with your files: {typed}▏  (⏎ start, esc cancel)"),
+        Prompt::Delete(_, name) => format!(" Delete {name} for good? y / anything else keeps it"),
+        Prompt::Revoke(_) => " Revoke this link (it stops opening)? y / anything else keeps it".to_string(),
+        Prompt::Unsync(_, folder) => format!(" Stop syncing {folder} (its files stay)? y / anything else keeps it"),
+    });
+    let footer = match (prompt, d.message.as_ref().filter(|m| m.2.elapsed() < Duration::from_secs(5))) {
+        (Some(text), _) => Line::from(Span::styled(text, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
+        (None, m) => match m {
+            Some((text, color, _)) => Line::from(Span::styled(format!(" {text}"), Style::default().fg(*color))),
+            None => Line::from(Span::styled(format!(" {hint}"), Style::default().fg(DIM))),
+        },
     };
     f.render_widget(Paragraph::new(footer), rows[2]);
+}
+
+/// Puts a link on the clipboard, with whichever tool this computer has.
+fn copy_to_clipboard(text: &str) -> bool {
+    let tools: &[(&str, &[&str])] = &[("pbcopy", &[]), ("wl-copy", &[]), ("xclip", &["-selection", "clipboard"]), ("xsel", &["--clipboard", "--input"])];
+    tools.iter().any(|(tool, args)| {
+        std::process::Command::new(tool)
+            .args(*args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .and_then(|mut child| {
+                if let Some(mut stdin) = child.stdin.take() {
+                    std::io::Write::write_all(&mut stdin, text.as_bytes())?;
+                }
+                child.wait()
+            })
+            .is_ok_and(|s| s.success())
+    })
 }
 
 fn frame(title: &str, focused: bool) -> Block<'_> {
@@ -358,6 +730,36 @@ fn frame(title: &str, focused: bool) -> Block<'_> {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(if focused { ACCENT } else { DIM }))
         .title(Span::styled(format!(" {title} "), Style::default().add_modifier(Modifier::BOLD)))
+}
+
+/// A server without its public address set answers share links as a path: made whole here.
+fn full_url(base: &str, url: &str) -> String {
+    if url.starts_with('/') {
+        format!("{}{url}", base.trim_end_matches('/'))
+    } else {
+        url.to_string()
+    }
+}
+
+/// At most `width` characters, «…» in the middle of what doesn't fit.
+fn fit(text: &str, width: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= width {
+        return text.to_string();
+    }
+    let keep = width.saturating_sub(1);
+    let head: String = chars[..keep / 2 + keep % 2].iter().collect();
+    let tail: String = chars[chars.len() - keep / 2..].iter().collect();
+    format!("{head}…{tail}")
+}
+
+fn human(bytes: u64) -> String {
+    match bytes {
+        0..=1023 => format!("{bytes} B"),
+        1024..=1_048_575 => format!("{:.0} KB", bytes as f64 / 1024.0),
+        1_048_576..=1_073_741_823 => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+        _ => format!("{:.1} GB", bytes as f64 / 1_073_741_824.0),
+    }
 }
 
 fn kv<'a>(k: &'a str, v: &str) -> Line<'a> {

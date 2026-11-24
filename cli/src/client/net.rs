@@ -291,6 +291,27 @@ pub fn load_card(address: &str) -> Result<(Card, Option<Vec<u8>>)> {
 }
 
 /// A response's body as JSON (ureq is built without its json feature here).
+/// A value for a query string: everything but unreserved characters percent-encoded.
+pub fn query_value(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+fn rand_u64() -> u64 {
+    let mut bytes = [0u8; 8];
+    if std::fs::File::open("/dev/urandom").and_then(|mut f| std::io::Read::read_exact(&mut f, &mut bytes)).is_err() {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        return t.as_nanos() as u64 ^ std::process::id() as u64;
+    }
+    u64::from_le_bytes(bytes)
+}
+
 pub fn json_of(r: ureq::Response) -> Result<Value> {
     Ok(serde_json::from_str(&r.into_string()?)?)
 }
@@ -361,6 +382,45 @@ impl Remote {
 
     pub fn get(&self, path: &str) -> Result<Value> {
         json_of(Self::finish(self.request("GET", path).call())?)
+    }
+
+    /// A file's bytes into `dest`, through a temporary file beside it (a cut connection never
+    /// leaves half a file under the real name). No overall timeout: big files take their time.
+    pub fn download_to(&self, path: &str, dest: &std::path::Path) -> Result<()> {
+        let res = Self::finish(self.request("GET", path).timeout(Duration::from_secs(24 * 3600)).call())?;
+        let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let part = dest.with_file_name(format!(".{name}.tpcloud-part"));
+        let result = (|| -> Result<()> {
+            let mut out = std::fs::File::create(&part)?;
+            std::io::copy(&mut res.into_reader(), &mut out)?;
+            out.sync_all()?;
+            Ok(())
+        })();
+        if let Err(err) = result {
+            let _ = std::fs::remove_file(&part);
+            return Err(err);
+        }
+        std::fs::rename(&part, dest)?;
+        Ok(())
+    }
+
+    /// One file sent as a multipart form, streamed from disk (its size is known, so no chunks).
+    pub fn upload_file(&self, path: &str, field: &str, file: &std::path::Path) -> Result<Value> {
+        let name = file.file_name().map(|n| n.to_string_lossy().replace('"', "%22")).unwrap_or_default();
+        let boundary = format!("tpcloud{:016x}", rand_u64());
+        let head = format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{name}\"\r\nContent-Type: application/octet-stream\r\n\r\n");
+        let tail = format!("\r\n--{boundary}--\r\n");
+        let f = std::fs::File::open(file)?;
+        let len = f.metadata()?.len();
+        let body = std::io::Read::chain(std::io::Read::chain(std::io::Cursor::new(head.clone().into_bytes()), f), std::io::Cursor::new(tail.clone().into_bytes()));
+        let res = Self::finish(
+            self.request("POST", path)
+                .timeout(Duration::from_secs(24 * 3600))
+                .set("Content-Type", &format!("multipart/form-data; boundary={boundary}"))
+                .set("Content-Length", &(head.len() as u64 + len + tail.len() as u64).to_string())
+                .send(body),
+        )?;
+        Ok(json_of(res).unwrap_or(Value::Null))
     }
 
     pub fn send(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value> {
