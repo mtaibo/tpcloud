@@ -13,7 +13,7 @@ const NETWORK: &[Row] = &[
 ];
 
 const CLOUD: &[Row] = &[
-    ("sync", "[add|remove|pause|now]", "A folder here, the same as your files there"),
+    ("sync", "[add|keep|free|mode]", "Your files in a folder here, on demand or copied"),
     ("home", "", "The house: blinds and switches (also `tphome`)"),
     ("sessions", "[revoke <id>]", "Where you're signed in; close one"),
 ];

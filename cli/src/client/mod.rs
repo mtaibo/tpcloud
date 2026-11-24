@@ -3,6 +3,8 @@
 //! sessions live in the same file as the Linux app's (~/.config/tpcloud/networks.json; on a Mac
 //! ~/Library/Application Support/tpcloud/), so signing in once is signing in for both.
 
+#[cfg(target_os = "linux")]
+pub mod drive;
 pub mod net;
 pub mod sync;
 mod tui;
@@ -817,9 +819,16 @@ pub fn uninstall() -> Result<()> {
     };
     let row = |what: &str, detail: &str| println!("  {} {what:<11} {}", ui::green("✓"), ui::dim(detail));
 
-    if !sync::load_pairs().is_empty() {
+    let synced = sync::load_pairs();
+    if !synced.is_empty() {
         sync::remove_service();
+        for p in synced.iter().filter(|p| p.on_demand) {
+            let _ = sync::release_demand(p);
+        }
         row("Sync", "stopped; the synced folders' files stay where they are");
+    }
+    if let Some(cache) = std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"))) {
+        let _ = std::fs::remove_dir_all(cache.join("tpcloud"));
     }
     for file in signin_files() {
         for n in Store::load_from(&file).networks().into_iter().filter(|n| n["token"].is_string()) {

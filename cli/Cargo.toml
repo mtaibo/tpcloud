@@ -2,6 +2,8 @@
 name = "tpcloud"
 version = "0.4.8"
 edition = "2021"
+# The release builds with Rust 1.88: dependencies are resolved for it.
+rust-version = "1.88"
 description = "Installs, runs and configures a TPCloud server from one file, with nothing else to install."
 license = "MIT"
 
@@ -35,6 +37,12 @@ webpki-roots = "=0.26.11"
 # TLS for GitHub (updates); rustls with its bundled roots, so no system certificates are needed.
 ureq = { version = "=2.12.1", default-features = false, features = ["tls"] }
 zstd = "=0.13.3"
+
+# Folders on demand (Linux): the files show up with their names and sizes but are fetched only
+# when opened. Pure Rust, mounting through the system's fusermount3, so the static client keeps
+# needing nothing else.
+[target.'cfg(target_os = "linux")'.dependencies]
+fuser = { version = "=0.19.0", default-features = false }
 
 [profile.release]
 opt-level = "z"

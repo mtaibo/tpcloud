@@ -211,13 +211,33 @@ enum Command {
 
 #[derive(Subcommand)]
 enum SyncAction {
-    /// Sync a folder (made if it isn't there; ~/TPCloud when left out) with your files.
+    /// Show your files in a folder (~/TPCloud when left out): on demand, or a full copy.
     Add {
         /// The folder on this computer.
         folder: Option<PathBuf>,
         /// What it mirrors in the cloud: a folder inside yours, or `shared` (default: all your files).
         #[arg(long, value_name = "PATH")]
         remote: Option<String>,
+        /// Every file downloaded here, instead of on demand (fetched when opened).
+        #[arg(long)]
+        full: bool,
+    },
+    /// Keep a folder (or file) of a folder on demand here for good: it's used a lot.
+    Keep {
+        /// The path, inside a folder on demand.
+        path: PathBuf,
+    },
+    /// Stop keeping it, and give back the room what was fetched there takes.
+    Free {
+        /// The path, inside a folder on demand (the folder itself: all of it).
+        path: PathBuf,
+    },
+    /// Make a folder on demand, or a full copy.
+    Mode {
+        /// The synced folder.
+        folder: PathBuf,
+        /// `demand` or `full`.
+        mode: String,
     },
     /// Stop syncing a folder; its files stay on both sides.
     Remove {
@@ -368,7 +388,10 @@ fn run() -> Result<()> {
         Some(Command::Users { .. }) => unreachable!(),
         Some(Command::Sync { action }) => match action {
             None => client::sync::status(),
-            Some(SyncAction::Add { folder, remote }) => client::sync::add(folder, remote),
+            Some(SyncAction::Add { folder, remote, full }) => client::sync::add(folder, remote, full),
+            Some(SyncAction::Keep { path }) => client::sync::keep(&path),
+            Some(SyncAction::Free { path }) => client::sync::free(&path),
+            Some(SyncAction::Mode { folder, mode }) => client::sync::mode(&folder, &mode),
             Some(SyncAction::Remove { folder }) => client::sync::remove(&folder),
             Some(SyncAction::Pause) => client::sync::set_paused(true),
             Some(SyncAction::Resume) => client::sync::set_paused(false),

@@ -91,6 +91,9 @@ enum Job {
     SyncNow,
     SyncPause(bool),
     SyncRemove(String),
+    SyncMode(std::path::PathBuf, bool),
+    SyncFree(std::path::PathBuf),
+    SyncKeep(std::path::PathBuf, bool),
     Blind(String, String),
     Revoke(i64, bool),
     ToggleAdmin(i64, String),
@@ -237,10 +240,7 @@ fn worker(remote: Remote, data: Arc<Mutex<Data>>, jobs: mpsc::Receiver<Job>) {
                         data.lock().unwrap().message = Some(("Syncing for the first time…".into(), ACCENT, Instant::now()));
                         let network = data.lock().unwrap().network.clone();
                         sync::new_pair(&remote, &network, folder, None)
-                            .and_then(|pair| {
-                                let shown = sync::pretty(&pair.local);
-                                sync::start_pair(pair, &remote, &mut |_, _, _| {}).map(|r| (format!("{shown}: {}; synced from now on", r.describe()), GREEN))
-                            })
+                            .and_then(|pair| sync::start_folder(pair, &remote).map(|said| (said, GREEN)))
                     }
                     Job::SyncNow => {
                         let results = sync::sync_all_now();
@@ -249,6 +249,18 @@ fn worker(remote: Remote, data: Arc<Mutex<Data>>, jobs: mpsc::Receiver<Job>) {
                     }
                     Job::SyncPause(paused) => sync::pause_all(paused).map(|_| ((if paused { "Paused." } else { "Syncing again." }).to_string(), GREEN)),
                     Job::SyncRemove(id) => sync::drop_pair(&id).map(|p| (format!("{} isn't synced any more (its files stay).", sync::pretty(&p.local)), GREEN)),
+                    Job::SyncMode(folder, on_demand) => {
+                        data.lock().unwrap().message = Some((if on_demand { "Making it on demand…".into() } else { "Making it a full copy…".into() }, ACCENT, Instant::now()));
+                        sync::change_mode(&folder, on_demand, false).map(|said| (said, GREEN))
+                    }
+                    Job::SyncFree(folder) => {
+                        let before = sync::load_pairs().iter().find(|p| p.local == folder).map(sync::cached_here).unwrap_or(0);
+                        sync::set_kept(&folder, false).map(|shown| {
+                            let after = sync::load_pairs().iter().find(|p| p.local == folder).map(sync::cached_here).unwrap_or(0);
+                            (format!("{shown}: {} given back", sync::human(before.saturating_sub(after))), GREEN)
+                        })
+                    }
+                    Job::SyncKeep(path, keep) => sync::set_kept(&path, keep).map(|shown| (if keep { format!("{shown} is kept here from now on.") } else { format!("{shown} is fetched when opened again.") }, GREEN)),
                     Job::Blind(id, cmd) => remote.send("POST", &format!("/home/api/commands/{id}/{cmd}"), None).map(|_| (format!("{id}: {cmd}"), GREEN)),
                     Job::Revoke(id, all) => remote
                         .send("DELETE", &if all { format!("/auth/admin/sessions/{id}") } else { format!("/auth/account/session/{id}") }, None)
@@ -302,6 +314,16 @@ fn file_rows(d: &Data) -> Vec<Value> {
             e
         })
         .collect()
+}
+
+/// Where a file in the cloud shows on this computer, inside a folder on demand, and whether
+/// it's kept here for good.
+fn local_of(remote: &str) -> Option<(std::path::PathBuf, bool)> {
+    sync::load_pairs().into_iter().filter(|p| p.on_demand).find_map(|p| {
+        let rel = if remote == p.remote { String::new() } else { remote.strip_prefix(&format!("{}/", p.remote))?.to_string() };
+        let kept = p.pinned.iter().any(|k| k.is_empty() || rel == *k || rel.starts_with(&format!("{k}/")));
+        Some((if rel.is_empty() { p.local.clone() } else { p.local.join(&rel) }, kept))
+    })
 }
 
 /// Up a folder from Files' current one ("" from a root).
@@ -473,6 +495,15 @@ fn handle(app: &mut App, key: KeyCode) -> bool {
                 }
             }
         }
+        (Section::Files, KeyCode::Char('o')) => {
+            let path = selected(app)["path"].as_str().unwrap_or("").to_string();
+            match local_of(&path) {
+                Some((local, kept)) => {
+                    let _ = app.jobs.send(Job::SyncKeep(local, !kept));
+                }
+                None => say(app, "Only inside a folder on demand (Sync → a, then m).", ORANGE),
+            }
+        }
         (Section::Files, KeyCode::Char(c @ ('n' | 'u'))) => {
             if app.data.lock().unwrap().cwd.is_empty() {
                 say(app, "Open a folder first.", ORANGE);
@@ -488,6 +519,24 @@ fn handle(app: &mut App, key: KeyCode) -> bool {
         (Section::Sync, KeyCode::Char('p')) => {
             let paused = sync::load_pairs().iter().any(|p| p.paused);
             let _ = app.jobs.send(Job::SyncPause(!paused));
+        }
+        (Section::Sync, KeyCode::Char('m')) => {
+            if let Some(p) = sync::load_pairs().get(i) {
+                if !p.on_demand && !sync::demand_possible() {
+                    say(app, "This computer can't mount folders on demand.", ORANGE);
+                } else {
+                    let _ = app.jobs.send(Job::SyncMode(p.local.clone(), !p.on_demand));
+                }
+            }
+        }
+        (Section::Sync, KeyCode::Char('f')) => {
+            if let Some(p) = sync::load_pairs().get(i) {
+                if p.on_demand {
+                    let _ = app.jobs.send(Job::SyncFree(p.local.clone()));
+                } else {
+                    say(app, "A full copy keeps everything here: m makes it on demand.", ORANGE);
+                }
+            }
         }
         (Section::Sync, KeyCode::Char('x')) => {
             if let Some(p) = sync::load_pairs().get(i) {
@@ -592,8 +641,9 @@ fn draw(f: &mut Frame, app: &mut App, network: &Value) {
             list(f, area, &title, app.focused, &mut app.item, rows.iter().map(|e| {
                 let dir = e["type"] == "directory";
                 let size = e["size"].as_u64().map(human).unwrap_or_default();
+                let kept = local_of(e["path"].as_str().unwrap_or("")).is_some_and(|(_, k)| k);
                 Line::from(vec![
-                    Span::styled(if dir { " ▸ " } else { "   " }, Style::default().fg(ACCENT)),
+                    Span::styled(if kept { " ↓ " } else if dir { " ▸ " } else { "   " }, Style::default().fg(if kept { GREEN } else { ACCENT })),
                     Span::styled(format!("{:<40}", fit(e["name"].as_str().unwrap_or(""), 39)), if dir { Style::default().add_modifier(Modifier::BOLD) } else { Style::default() }),
                     Span::styled(format!("{size:>9}"), Style::default().fg(DIM)),
                 ])
@@ -606,6 +656,11 @@ fn draw(f: &mut Frame, app: &mut App, network: &Value) {
                 let st = sync::status_of(&p.id);
                 let (dot, color, state) = if p.paused {
                     ("○", DIM, "paused".to_string())
+                } else if p.on_demand {
+                    let kept = if p.pinned.is_empty() { String::new() } else { format!(" · {} kept", p.pinned.len()) };
+                    ("●", if st["ok"] == false { ORANGE } else { GREEN }, format!("on demand · {} here{kept}", sync::human(st["cached"].as_u64().unwrap_or(0))))
+                } else if let Some(busy) = sync::progress_of(&st) {
+                    ("●", ACCENT, busy)
                 } else if st["ok"] == false {
                     ("●", ORANGE, st["error"].as_str().unwrap_or("failed").to_string())
                 } else if let Some(at) = st["at"].as_i64() {
@@ -676,8 +731,8 @@ fn draw(f: &mut Frame, app: &mut App, network: &Value) {
     // Footer: the last action, or the keys.
     let hint = match (app.focused, section) {
         (false, _) => "↑↓ jk choose  ⏎ l open  q quit",
-        (true, Section::Files) => "jk move  l open/download  h up  d download  u upload  n new folder  r rename  s share link  x delete",
-        (true, Section::Sync) => "jk folder  a add a folder  n sync now  p pause/resume  x stop syncing  ← h back",
+        (true, Section::Files) => "jk move  l open  h up  d download  u upload  n folder  r rename  s share  o keep here  x delete",
+        (true, Section::Sync) => "jk folder  a add  m on demand/full copy  f free up space  n sync now  p pause  x stop syncing  ← h",
         (true, Section::Shares) => "jk link  c copy  x revoke  ← h back   (new ones: Files → s)",
         (true, Section::Home) => "↑↓ blind  u up  d down  s stop  0–9 position  ← h back",
         (true, Section::Users) => "↑↓ account  a admin on/off  ← h back   (add/remove: tpcloud users)",
@@ -689,7 +744,7 @@ fn draw(f: &mut Frame, app: &mut App, network: &Value) {
         Prompt::Mkdir => format!(" New folder's name: {typed}▏  (⏎ make it, esc cancel)"),
         Prompt::Rename(_) => format!(" New name: {typed}▏  (⏎ rename, esc cancel)"),
         Prompt::Upload => format!(" File to send here: {typed}▏  (⏎ send, esc cancel)"),
-        Prompt::AddSync => format!(" Folder to sync with your files: {typed}▏  (⏎ start, esc cancel)"),
+        Prompt::AddSync => format!(" Folder to show your files in: {typed}▏  (⏎ start, esc cancel)"),
         Prompt::Delete(_, name) => format!(" Delete {name} for good? y / anything else keeps it"),
         Prompt::Revoke(_) => " Revoke this link (it stops opening)? y / anything else keeps it".to_string(),
         Prompt::Unsync(_, folder) => format!(" Stop syncing {folder} (its files stay)? y / anything else keeps it"),

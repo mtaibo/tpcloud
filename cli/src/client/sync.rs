@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const API: &str = "/store/api/files";
@@ -41,6 +42,10 @@ pub struct Pair {
     pub network: String,
     pub network_name: String,
     pub paused: bool,
+    /// On demand (Linux): the files show here but are fetched when opened (see `drive`).
+    pub on_demand: bool,
+    /// Inside a folder on demand: what's kept here for good (paths inside it, "" = all of it).
+    pub pinned: Vec<String>,
 }
 
 fn sync_dir() -> PathBuf {
@@ -83,6 +88,8 @@ pub fn load_pairs() -> Vec<Pair> {
                 network: f["network"].as_str()?.to_string(),
                 network_name: f["network_name"].as_str().unwrap_or("").to_string(),
                 paused: f["paused"] == true,
+                on_demand: f["on_demand"] == true,
+                pinned: f["pinned"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_string)).collect(),
             })
         })
         .collect()
@@ -91,7 +98,7 @@ pub fn load_pairs() -> Vec<Pair> {
 fn save_pairs(pairs: &[Pair]) -> Result<()> {
     let folders: Vec<Value> = pairs
         .iter()
-        .map(|p| json!({"id": p.id, "local": p.local, "remote": p.remote, "network": p.network, "network_name": p.network_name, "paused": p.paused}))
+        .map(|p| json!({"id": p.id, "local": p.local, "remote": p.remote, "network": p.network, "network_name": p.network_name, "paused": p.paused, "on_demand": p.on_demand, "pinned": p.pinned}))
         .collect();
     write_private(&settings_file(), &serde_json::to_string_pretty(&json!({ "folders": folders }))?)
 }
@@ -181,6 +188,58 @@ pub struct Report {
     pub deleted_here: usize,
     pub deleted_there: usize,
     pub conflicts: usize,
+    /// Stopped halfway when asked (what was copied is kept; the next pass carries on).
+    pub stopped: bool,
+}
+
+/// How far a pass has got, for a bar and a time left.
+pub struct Step<'a> {
+    pub done: usize,
+    pub total: usize,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+    pub started: Instant,
+    pub what: &'a str,
+}
+
+impl Step<'_> {
+    /// Each file costs a round trip besides its bytes: counted as this many bytes, so a folder
+    /// of thousands of small photos doesn't promise to be done in seconds.
+    const PER_FILE: u64 = 256 * 1024;
+
+    pub fn fraction(&self) -> f64 {
+        let work = self.bytes_total + self.total as u64 * Self::PER_FILE;
+        if work == 0 {
+            return 1.0;
+        }
+        ((self.bytes_done + self.done as u64 * Self::PER_FILE) as f64 / work as f64).min(1.0)
+    }
+
+    /// Once there's enough to go on (a few seconds and a bit of work done).
+    pub fn left(&self) -> Option<Duration> {
+        let elapsed = self.started.elapsed().as_secs_f64();
+        let f = self.fraction();
+        (elapsed > 3.0 && f > 0.002).then(|| Duration::from_secs_f64(elapsed * (1.0 - f) / f))
+    }
+}
+
+/// «about 25 min left», «about 2 h left», «less than a minute left».
+pub fn time_left(left: Option<Duration>) -> String {
+    match left.map(|d| d.as_secs()) {
+        None => "working out the time left".into(),
+        Some(0..=59) => "less than a minute left".into(),
+        Some(s @ 60..=3599) => format!("about {} min left", (s + 30) / 60),
+        Some(s) => format!("about {} h {} min left", s / 3600, (s % 3600) / 60),
+    }
+}
+
+pub fn human(bytes: u64) -> String {
+    match bytes {
+        0..=1023 => format!("{bytes} B"),
+        1024..=1_048_575 => format!("{:.0} KB", bytes as f64 / 1024.0),
+        1_048_576..=1_073_741_823 => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+        _ => format!("{:.1} GB", bytes as f64 / 1_073_741_824.0),
+    }
 }
 
 impl Report {
@@ -219,8 +278,9 @@ enum Op {
 }
 
 /// What changed, decided from now (here, there) against the last match.
-fn plan(local: &BTreeMap<String, Meta>, remote: &BTreeMap<String, Meta>, state: &State) -> Vec<Op> {
-    let recent = now_secs() - 2; // still being written: next time
+fn plan(local: &BTreeMap<String, Meta>, remote: &BTreeMap<String, Meta>, state: &State, skip_recent: bool) -> Vec<Op> {
+    // Still being written: next time (not when nothing is writing, before a folder goes on demand).
+    let recent = if skip_recent { now_secs() - 2 } else { i64::MAX };
     let mut paths: BTreeSet<&String> = local.keys().collect();
     paths.extend(remote.keys());
     paths.extend(state.files.keys());
@@ -310,7 +370,15 @@ impl Drop for Lock {
     }
 }
 
-pub fn pass(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(usize, usize, &str)) -> Result<Report> {
+/// One pass over a folder. `stop` ends it between two files (what's copied stays copied).
+pub fn pass(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(&Step), stop: &AtomicBool) -> Result<Report> {
+    pass_with(pair, remote, progress, stop, false)
+}
+
+/// `push_only`: only what's here goes up (new or changed files; one changed on both sides goes
+/// up as a conflict copy); nothing comes down and nothing is deleted. What a folder with files
+/// does before becoming one on demand.
+fn pass_with(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(&Step), stop: &AtomicBool, push_only: bool) -> Result<Report> {
     let Some(_lock) = Lock::take(&pair.id) else { bail!("it's being synced already") };
     if !pair.local.is_dir() {
         bail!("{} isn't there any more (moved, or a disk that isn't connected)", pair.local.display());
@@ -318,7 +386,10 @@ pub fn pass(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(usize, usize,
     let mut state = load_state(&pair.id);
     let (local, local_dirs) = scan_local(&pair.local)?;
     let (mut there, there_dirs) = scan_remote(remote, &pair.remote)?;
-    let ops = plan(&local, &there, &state);
+    let mut ops = plan(&local, &there, &state, !push_only);
+    if push_only {
+        ops.retain(|o| matches!(o, Op::Up(_) | Op::Conflict(_) | Op::Same(..)));
+    }
 
     // A sudden mass deletion is more likely a mistake (an emptied disk, a wrong folder) than
     // wanted: stop and say so instead of copying it to the other side.
@@ -329,6 +400,18 @@ pub fn pass(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(usize, usize,
 
     let mut report = Report::default();
     let total = ops.iter().filter(|o| !matches!(o, Op::Same(..) | Op::Forget(_))).count();
+    let bytes_of = |op: &Op| -> u64 {
+        match op {
+            Op::Up(p) => local.get(p).map_or(0, |m| m.size),
+            Op::Down(p) => there.get(p).map_or(0, |m| m.size),
+            Op::Conflict(p) => local.get(p).map_or(0, |m| m.size) + there.get(p).map_or(0, |m| m.size),
+            _ => 0,
+        }
+    };
+    let bytes_total: u64 = ops.iter().map(bytes_of).sum();
+    let sizes: Vec<u64> = ops.iter().map(bytes_of).collect();
+    let started = Instant::now();
+    let mut bytes_done = 0u64;
     let mut done = 0;
     let mut since_save = 0;
     let here = |rel: &str| pair.local.join(rel);
@@ -347,10 +430,12 @@ pub fn pass(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(usize, usize,
         Ok(Meta { size: meta.len(), mtime: mtime_of(&meta) })
     };
     let result = (|| -> Result<()> {
-        for op in &ops {
-            if !matches!(op, Op::Same(..) | Op::Forget(_)) {
-                done += 1;
+        for (i, op) in ops.iter().enumerate() {
+            if stop.load(Ordering::Relaxed) {
+                report.stopped = true;
+                return Ok(());
             }
+            let mut progress = |what: &str| progress(&Step { done, total, bytes_done, bytes_total, started, what });
             match op {
                 Op::Same(p, l, r) => {
                     state.files.insert(p.clone(), (*l, *r));
@@ -359,7 +444,7 @@ pub fn pass(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(usize, usize,
                     state.files.remove(p);
                 }
                 Op::Up(p) => {
-                    progress(done, total, &format!("↑ {p}"));
+                    progress(&format!("↑ {p}"));
                     let l = local[p];
                     upload(p, &here(p), l.mtime)?;
                     there.insert(p.clone(), l);
@@ -367,21 +452,21 @@ pub fn pass(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(usize, usize,
                     report.up += 1;
                 }
                 Op::Down(p) => {
-                    progress(done, total, &format!("↓ {p}"));
+                    progress(&format!("↓ {p}"));
                     let r = there[p];
                     let l = download(p, &here(p), r.mtime)?;
                     state.files.insert(p.clone(), (l, r));
                     report.down += 1;
                 }
                 Op::DeleteThere(p) => {
-                    progress(done, total, &format!("× {p}"));
+                    progress(&format!("× {p}"));
                     remote.send("DELETE", &format!("{API}?path={}", query_value(&join_remote(&pair.remote, p))), None).or_else(|e| if e.to_string() == "Not found" { Ok(Value::Null) } else { Err(e) })?;
                     there.remove(p);
                     state.files.remove(p);
                     report.deleted_there += 1;
                 }
                 Op::DeleteHere(p) => {
-                    progress(done, total, &format!("× {p}"));
+                    progress(&format!("× {p}"));
                     match std::fs::remove_file(here(p)) {
                         Ok(()) => {}
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -391,7 +476,7 @@ pub fn pass(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(usize, usize,
                     report.deleted_here += 1;
                 }
                 Op::Conflict(p) => {
-                    progress(done, total, &format!("⇅ {p}"));
+                    progress(&format!("⇅ {p}"));
                     // Ours under a new name (sent too), theirs under the real one.
                     let copy = conflict_name(p);
                     std::fs::rename(here(p), here(&copy))?;
@@ -400,11 +485,17 @@ pub fn pass(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(usize, usize,
                     upload(&copy, &here(&copy), ours.mtime)?;
                     state.files.insert(copy.clone(), (ours, ours));
                     there.insert(copy, ours);
-                    let r = there[p];
-                    let l = download(p, &here(p), r.mtime)?;
-                    state.files.insert(p.clone(), (l, r));
+                    if !push_only {
+                        let r = there[p];
+                        let l = download(p, &here(p), r.mtime)?;
+                        state.files.insert(p.clone(), (l, r));
+                    }
                     report.conflicts += 1;
                 }
+            }
+            if !matches!(op, Op::Same(..) | Op::Forget(_)) {
+                done += 1;
+                bytes_done += sizes[i];
             }
             since_save += 1;
             if since_save >= 25 {
@@ -413,6 +504,9 @@ pub fn pass(pair: &Pair, remote: &Remote, progress: &mut dyn FnMut(usize, usize,
             }
         }
 
+        if push_only {
+            return Ok(());
+        }
         // Folders: new ones made on the other side, deleted ones deleted there once empty.
         let (_, now_local_dirs) = scan_local(&pair.local)?;
         let mut there_dirs = there_dirs.clone();
@@ -468,6 +562,43 @@ fn record_status(id: &str, outcome: &Result<Report>) {
         Err(e) => json!({"at": now_secs(), "ok": false, "error": format!("{e:#}"), "last": previous["last"], "last_at": previous["last_at"]}),
     };
     let _ = write_private(&path, &all.to_string());
+}
+
+/// A pass under way, for `tpcloud sync` and the terminal app (written every couple of seconds).
+fn record_progress(id: &str, step: &Step) {
+    let path = status_file();
+    let mut all: Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
+    if !all[id].is_object() {
+        all[id] = json!({});
+    }
+    all[id]["progress"] = json!({
+        "at": now_secs(),
+        "done": step.done,
+        "total": step.total,
+        "bytes_done": step.bytes_done,
+        "bytes_total": step.bytes_total,
+        "left": step.left().map(|d| d.as_secs()),
+        "percent": (step.fraction() * 100.0) as u32,
+    });
+    let _ = write_private(&path, &all.to_string());
+}
+
+/// A pass under way in the service, if there's one (said in the last minute): «42% · 2811 of
+/// 33466 files · about 25 min left».
+pub fn progress_of(status: &Value) -> Option<String> {
+    let p = &status["progress"];
+    let at = p["at"].as_i64()?;
+    if now_secs() - at > 60 {
+        return None;
+    }
+    let left = p["left"].as_u64().map(Duration::from_secs);
+    Some(format!(
+        "syncing · {}% · {} of {} files · {}",
+        p["percent"].as_u64().unwrap_or(0),
+        p["done"].as_u64().unwrap_or(0),
+        p["total"].as_u64().unwrap_or(0),
+        time_left(left)
+    ))
 }
 
 pub fn status_of(id: &str) -> Value {
@@ -528,6 +659,115 @@ pub fn remote_label(remote: &str) -> String {
     }
 }
 
+/// How a folder on demand is doing, written by the service every half minute.
+pub fn record_demand_status(pair: &Pair, online: bool) {
+    let path = status_file();
+    let mut all: Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
+    all[&pair.id] = json!({
+        "at": now_secs(),
+        "ok": online,
+        "error": if online { Value::Null } else { json!("offline: what's here still opens") },
+        "cached": cached_here(pair),
+    });
+    let _ = write_private(&path, &all.to_string());
+}
+
+/// Bytes a folder on demand keeps on this computer.
+pub fn cached_here(pair: &Pair) -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        super::drive::cached_bytes(&pair.id)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pair;
+        0
+    }
+}
+
+/// Folders on demand work here (Linux with FUSE).
+pub fn demand_possible() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        super::drive::available()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+/// Moves every file from `from` into `to` under the same paths (renaming when they're on the
+/// same disk, copying when not), then removes the folders left empty in `from`.
+fn move_tree(from: &Path, to: &Path) -> Result<u64> {
+    let mut moved = 0;
+    let mut stack = vec![from.to_path_buf()];
+    let mut dirs = Vec::new();
+    while let Some(dir) = stack.pop() {
+        for e in std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))?.flatten() {
+            let path = e.path();
+            let meta = path.symlink_metadata()?;
+            let rel = path.strip_prefix(from).unwrap().to_path_buf();
+            if meta.is_dir() {
+                dirs.push(path.clone());
+                stack.push(path);
+                continue;
+            }
+            let dest = to.join(&rel);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            if std::fs::rename(&path, &dest).is_err() {
+                std::fs::copy(&path, &dest)?;
+                if let Ok(t) = meta.modified() {
+                    let _ = std::fs::File::options().write(true).open(&dest).and_then(|f| f.set_modified(t));
+                }
+                std::fs::remove_file(&path)?;
+            }
+            moved += 1;
+        }
+    }
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.as_os_str().len()));
+    for d in dirs {
+        let _ = std::fs::remove_dir(d);
+    }
+    Ok(moved)
+}
+
+/// Waits until the service let go of a folder on demand (or lets it go itself).
+fn wait_unmounted(path: &Path) {
+    #[cfg(target_os = "linux")]
+    {
+        for _ in 0..50 {
+            if !super::drive::mounted(path) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        super::drive::unmount(path);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = path;
+}
+
+/// A folder on demand's files back in it as plain files (what was fetched or kept, and what
+/// waited to go up), its cache gone: when it stops being on demand.
+pub fn release_demand(pair: &Pair) -> Result<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        wait_unmounted(&pair.local);
+        let root = super::drive::cache_root(&pair.id);
+        let moved = move_tree(&super::drive::files_dir(&pair.id), &pair.local)?;
+        let _ = std::fs::remove_dir_all(root);
+        Ok(moved)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pair;
+        Ok(0)
+    }
+}
+
 // ── The service that keeps them synced ──
 
 const UNIT: &str = "tpcloud-sync.service";
@@ -573,7 +813,7 @@ fn start_service() -> Result<()> {
     } else {
         let unit = format!(
             "[Unit]\nDescription=TPCloud: synced folders\nAfter=network-online.target\n\n\
-             [Service]\nExecStart={} sync run\nRestart=on-failure\nRestartSec=15\n\n\
+             [Service]\nExecStart={} sync run\nRestart=on-failure\nRestartSec=15\nTimeoutStopSec=20\n\n\
              [Install]\nWantedBy=default.target\n",
             exe.display()
         );
@@ -624,22 +864,92 @@ fn short_id(path: &Path) -> String {
     digest.iter().take(6).map(|b| format!("{b:02x}")).collect()
 }
 
-/// A line that rewrites itself while a pass runs (only in a terminal).
-fn progress_line() -> impl FnMut(usize, usize, &str) {
-    let tty = std::io::stdout().is_terminal();
-    move |done: usize, total: usize, what: &str| {
-        if tty {
-            let width = 60;
-            let what: String = if what.chars().count() > width { format!("…{}", what.chars().rev().take(width - 1).collect::<Vec<_>>().into_iter().rev().collect::<String>()) } else { what.to_string() };
-            print!("\r\x1b[2K  {} {}", ui::accent(&format!("{done}/{total}")), ui::dim(&what));
-            let _ = std::io::stdout().flush();
+/// Keys read while a pass runs in the foreground: `d` leaves it to the service, Ctrl-C stops.
+struct Keys {
+    stop: std::sync::Arc<AtomicBool>,
+    detach: std::sync::Arc<AtomicBool>,
+    cancel: std::sync::Arc<AtomicBool>,
+    finished: std::sync::Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Keys {
+    fn listen() -> Keys {
+        use std::sync::Arc;
+        let keys = Keys {
+            stop: Arc::new(AtomicBool::new(false)),
+            detach: Arc::new(AtomicBool::new(false)),
+            cancel: Arc::new(AtomicBool::new(false)),
+            finished: Arc::new(AtomicBool::new(false)),
+            thread: None,
+        };
+        if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() || crossterm::terminal::enable_raw_mode().is_err() {
+            return keys;
+        }
+        let (stop, detach, cancel, finished) = (keys.stop.clone(), keys.detach.clone(), keys.cancel.clone(), keys.finished.clone());
+        let thread = std::thread::spawn(move || {
+            use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+            while !finished.load(Ordering::Relaxed) {
+                if !event::poll(Duration::from_millis(100)).unwrap_or(false) {
+                    continue;
+                }
+                let Ok(Event::Key(k)) = event::read() else { continue };
+                if k.kind != KeyEventKind::Press {
+                    continue;
+                }
+                match k.code {
+                    KeyCode::Char('d') | KeyCode::Char('D') => detach.store(true, Ordering::Relaxed),
+                    KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => cancel.store(true, Ordering::Relaxed),
+                    _ => continue,
+                }
+                stop.store(true, Ordering::Relaxed);
+            }
+        });
+        Keys { thread: Some(thread), ..keys }
+    }
+
+    fn finish(&mut self) {
+        self.finished.store(true, Ordering::Relaxed);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+            let _ = crossterm::terminal::disable_raw_mode();
         }
     }
 }
 
-fn clear_line() {
-    if std::io::stdout().is_terminal() {
-        print!("\r\x1b[2K");
+/// A bar, the numbers and the time left, and what's being copied, redrawn in place (three
+/// lines; only in a terminal, at most ten times a second).
+fn live_bar(hint: &'static str) -> impl FnMut(&Step) {
+    let tty = std::io::stdout().is_terminal();
+    let mut drawn = false;
+    let mut last = Instant::now() - Duration::from_secs(1);
+    move |step: &Step| {
+        if !tty || last.elapsed() < Duration::from_millis(100) {
+            return;
+        }
+        last = Instant::now();
+        let width = 30;
+        let f = step.fraction();
+        let filled = ((f * width as f64).round() as usize).min(width);
+        let bar = format!("{}{}", ui::accent(&"━".repeat(filled)), ui::dim(&"━".repeat(width - filled)));
+        let numbers = format!("{} of {} files", step.done, step.total);
+        let bytes = if step.bytes_total > 0 { format!(" · {} of {}", human(step.bytes_done), human(step.bytes_total)) } else { String::new() };
+        let line1 = format!("  {bar} {:>3}%  {}{}  {}", (f * 100.0) as u32, numbers, ui::dim(&bytes), ui::accent(&format!("· {}", time_left(step.left()))));
+        let max = 72;
+        let what: String = if step.what.chars().count() > max { format!("…{}", step.what.chars().skip(step.what.chars().count() - (max - 1)).collect::<String>()) } else { step.what.to_string() };
+        let line2 = format!("  {}", ui::dim(&what));
+        let line3 = format!("  {}", ui::dim(hint));
+        let up = if drawn { "\x1b[2F" } else { "" };
+        print!("{up}\r\x1b[2K{line1}\r\n\x1b[2K{line2}\r\n\x1b[2K{line3}");
+        let _ = std::io::stdout().flush();
+        drawn = true;
+    }
+}
+
+/// Takes the bar away (if one was drawn), leaving the cursor where it started.
+fn clear_bar(drawn_any: bool) {
+    if std::io::stdout().is_terminal() && drawn_any {
+        print!("\r\x1b[2F\x1b[J");
         let _ = std::io::stdout().flush();
     }
 }
@@ -662,6 +972,16 @@ pub fn status() -> Result<()> {
         let s = status_of(&p.id);
         let (dot, state) = if p.paused {
             (ui::dim("○"), ui::dim("paused"))
+        } else if p.on_demand {
+            let kept = if p.pinned.is_empty() { String::new() } else { format!(" · {} kept here for good", p.pinned.iter().map(|k| if k.is_empty() { "everything".to_string() } else { k.clone() }).collect::<Vec<_>>().join(", ")) };
+            let room = format!("on demand · {} on this computer{kept}", human(s["cached"].as_u64().unwrap_or_else(|| cached_here(p))));
+            if s["ok"] == false {
+                (ui::warn_text("●"), ui::warn_text(&format!("{room} · {}", s["error"].as_str().unwrap_or("offline"))))
+            } else {
+                (ui::green("●"), ui::dim(&room))
+            }
+        } else if let Some(busy) = progress_of(&s) {
+            (ui::accent("●"), ui::accent(&busy))
         } else if s["ok"] == false {
             (ui::warn_text("●"), ui::warn_text(s["error"].as_str().unwrap_or("failed")))
         } else if s["at"].is_i64() {
@@ -680,7 +1000,7 @@ pub fn status() -> Result<()> {
         ui::warn("The sync service isn't running: `tpcloud sync resume` starts it again.");
         println!();
     }
-    println!("  {}", ui::dim("tpcloud sync add · remove <folder> · pause · resume · now"));
+    println!("  {}", ui::dim("tpcloud sync add · keep <path> · free <path> · mode <folder> · remove · pause · resume · now"));
     println!();
     Ok(())
 }
@@ -712,36 +1032,299 @@ pub fn new_pair(remote: &Remote, network: &Value, folder: Option<PathBuf>, remot
         network: network["id"].as_str().unwrap_or("").to_string(),
         network_name: network["name"].as_str().unwrap_or("").to_string(),
         paused: false,
+        on_demand: false,
+        pinned: Vec::new(),
     })
 }
 
-/// Its first sync, then saved and handed to the service.
-pub fn start_pair(pair: Pair, remote: &Remote, progress: &mut dyn FnMut(usize, usize, &str)) -> Result<Report> {
-    let _ = std::fs::remove_file(state_file(&pair.id)); // a fresh start for this folder
-    let outcome = pass(&pair, remote, progress);
-    record_status(&pair.id, &outcome);
-    let report = outcome?;
+/// Saved and handed to the service (after its first pass, or with it left to the service).
+fn keep_pair(pair: Pair) -> Result<()> {
     let mut pairs = load_pairs();
     pairs.push(pair);
     save_pairs(&pairs)?;
-    start_service()?;
+    start_service()
+}
+
+/// Its first sync, then saved and handed to the service (the terminal app's «add»).
+pub fn start_pair(pair: Pair, remote: &Remote) -> Result<Report> {
+    let _ = std::fs::remove_file(state_file(&pair.id)); // a fresh start for this folder
+    let outcome = pass(&pair, remote, &mut |_| {}, &AtomicBool::new(false));
+    record_status(&pair.id, &outcome);
+    let report = outcome?;
+    keep_pair(pair)?;
     Ok(report)
 }
 
-/// `tpcloud sync add [folder] [--remote path]`.
-pub fn add(folder: Option<PathBuf>, remote_path: Option<String>) -> Result<()> {
+/// Runs a pass in the foreground with the bar and the keys: (report, left to the service, cancelled).
+fn foreground_pass(pair: &Pair, remote: &Remote, hint: &'static str) -> (Result<Report>, bool, bool) {
+    let mut keys = Keys::listen();
+    let mut drawn = false;
+    let mut bar = live_bar(hint);
+    let outcome = pass(pair, remote, &mut |step| {
+        drawn = true;
+        bar(step)
+    }, &keys.stop);
+    keys.finish();
+    clear_bar(drawn);
+    (outcome, keys.detach.load(Ordering::Relaxed), keys.cancel.load(Ordering::Relaxed))
+}
+
+/// `tpcloud sync add [folder] [--remote path] [--full]`: on demand where it can be (Linux with
+/// FUSE), a full copy otherwise or when asked.
+pub fn add(folder: Option<PathBuf>, remote_path: Option<String>, full: bool) -> Result<()> {
     let (remote, network) = super::connect()?;
     let pair = new_pair(&remote, &network, folder, remote_path)?;
+    if !full && demand_possible() {
+        return add_on_demand(pair, &remote);
+    }
+    if !full {
+        println!();
+        println!("  {}", ui::dim(if cfg!(target_os = "macos") { "On a Mac, folders on demand will come with the TPCloud app: this one is a full copy." } else { "This computer can't mount folders on demand (no FUSE): this one is a full copy." }));
+    }
+    let shown = pretty(&pair.local);
     println!();
-    println!("  {} {}  {}  {} {}", ui::bold("Syncing"), ui::bold(&ui::accent(&pretty(&pair.local))), ui::dim("⇄"), pair.network_name, ui::dim(&format!("· {}", remote_label(&pair.remote))));
+    println!("  {} {}  {}  {} {}", ui::bold("Syncing"), ui::bold(&ui::accent(&shown)), ui::dim("⇄"), pair.network_name, ui::dim(&format!("· {}", remote_label(&pair.remote))));
     println!();
-    let outcome = start_pair(pair, &remote, &mut progress_line());
-    clear_line();
-    let report = outcome?;
+    let _ = std::fs::remove_file(state_file(&pair.id)); // a fresh start for this folder
+    let (outcome, detached, cancelled) = foreground_pass(&pair, &remote, "d  carry on in the background    ctrl-c  stop");
+    if cancelled {
+        let _ = std::fs::remove_file(state_file(&pair.id));
+        println!("  {} {}", ui::warn_text("■"), format!("Stopped: {shown} isn't synced. What was copied so far stays."));
+        println!();
+        return Ok(());
+    }
+    let report = match outcome {
+        Ok(r) => r,
+        Err(e) => {
+            record_status(&pair.id, &Err(anyhow::anyhow!("{e:#}")));
+            return Err(e);
+        }
+    };
+    if !(detached || report.stopped) {
+        record_status(&pair.id, &Ok(report));
+    }
+    keep_pair(pair.clone())?;
+    if detached || report.stopped {
+        println!("  {} Carrying on in the background {}", ui::green("✓"), ui::dim(&format!("({} so far): {shown} fills up as it goes", report.describe())));
+        println!();
+        println!("  {} {}", ui::accent("tpcloud sync"), ui::dim("shows how far it's got"));
+        println!();
+        return Ok(());
+    }
     println!("  {} {}", ui::green("✓"), if report.anything() { report.describe() } else { "Both sides were the same already".into() });
     println!("  {} {}", ui::green("✓"), ui::dim("Kept in sync from now on, also after restarting"));
     println!();
     println!("  {} {}", ui::accent("tpcloud sync"), ui::dim("shows how it's doing"));
+    println!();
+    Ok(())
+}
+
+/// The files it already has go up first (only what the cloud lacks or has older), then into the
+/// cache, and the folder becomes a window on the cloud.
+fn add_on_demand(mut pair: Pair, remote: &Remote) -> Result<()> {
+    let shown = pretty(&pair.local);
+    println!();
+    println!("  {} {}  {}  {} {}", ui::bold("On demand"), ui::bold(&ui::accent(&shown)), ui::dim("⇄"), pair.network_name, ui::dim(&format!("· {}", remote_label(&pair.remote))));
+    println!();
+    let has_files = std::fs::read_dir(&pair.local).is_ok_and(|mut d| d.next().is_some());
+    if has_files {
+        let report = push_here(&pair, remote)?;
+        if report.anything() {
+            println!("  {} {}", ui::green("✓"), ui::dim(&format!("What only this folder had: {}", report.describe())));
+        }
+        verify_uploaded(&pair, remote)?;
+        #[cfg(target_os = "linux")]
+        move_tree(&pair.local, &super::drive::files_dir(&pair.id))?;
+    }
+    let _ = std::fs::remove_file(state_file(&pair.id));
+    pair.on_demand = true;
+    let local = pair.local.clone();
+    keep_pair(pair)?;
+    wait_mounted(&local);
+    println!("  {} {} {}", ui::green("✓"), ui::bold(&shown), ui::dim("shows all your files; each one is fetched when it's opened and kept a day"));
+    println!();
+    println!("  {} {}", ui::accent(&format!("tpcloud sync keep {shown}/<folder>")), ui::dim("keeps a folder here for good (it's used a lot)"));
+    println!("  {} {}", ui::accent(&format!("tpcloud sync free {shown}")), ui::dim("gives back the room what was fetched takes"));
+    println!();
+    Ok(())
+}
+
+/// Before a folder's files move into the cache: every one of them must be on the server, the
+/// same size, or nothing moves (a file only here would vanish from the folder).
+fn verify_uploaded(pair: &Pair, remote: &Remote) -> Result<()> {
+    let (local, _) = scan_local(&pair.local)?;
+    let (there, _) = scan_remote(remote, &pair.remote)?;
+    let missing: Vec<&String> = local.iter().filter(|(p, m)| there.get(*p).is_none_or(|r| r.size != m.size)).map(|(p, _)| p).collect();
+    if !missing.is_empty() {
+        let some: Vec<&str> = missing.iter().take(3).map(|p| p.as_str()).collect();
+        bail!("{} file(s) aren't on the server yet ({}{}): nothing was moved; try again", missing.len(), some.join(", "), if missing.len() > 3 { ", …" } else { "" });
+    }
+    Ok(())
+}
+
+/// The terminal app's «add»: on demand where it can be (what the folder had goes up first),
+/// a full copy otherwise. Quiet: it says what happened in one line.
+pub fn start_folder(pair: Pair, remote: &Remote) -> Result<String> {
+    if !demand_possible() {
+        let shown = pretty(&pair.local);
+        let r = start_pair(pair, remote)?;
+        return Ok(format!("{shown}: {}; synced from now on", r.describe()));
+    }
+    let mut pair = pair;
+    let shown = pretty(&pair.local);
+    if std::fs::read_dir(&pair.local).is_ok_and(|mut d| d.next().is_some()) {
+        let r = pass_with(&pair, remote, &mut |_| {}, &AtomicBool::new(false), true)?;
+        let _ = std::fs::remove_file(state_file(&pair.id));
+        if r.stopped {
+            bail!("stopped: {shown} is as it was");
+        }
+        verify_uploaded(&pair, remote)?;
+        #[cfg(target_os = "linux")]
+        move_tree(&pair.local, &super::drive::files_dir(&pair.id))?;
+    }
+    pair.on_demand = true;
+    let local = pair.local.clone();
+    keep_pair(pair)?;
+    wait_mounted(&local);
+    Ok(format!("{shown} shows all your files, fetched when opened"))
+}
+
+/// What's only here goes up, with the bar (Ctrl-C stops before anything moves).
+fn push_here(pair: &Pair, remote: &Remote) -> Result<Report> {
+    let mut keys = Keys::listen();
+    let mut drawn = false;
+    let mut bar = live_bar("ctrl-c  stop (nothing is moved until this is done)");
+    let outcome = pass_with(pair, remote, &mut |step| {
+        drawn = true;
+        bar(step)
+    }, &keys.stop, true);
+    keys.finish();
+    clear_bar(drawn);
+    let _ = std::fs::remove_file(state_file(&pair.id));
+    let report = outcome?;
+    if report.stopped {
+        bail!("stopped: {} is as it was", pretty(&pair.local));
+    }
+    Ok(report)
+}
+
+fn wait_mounted(path: &Path) {
+    #[cfg(target_os = "linux")]
+    for _ in 0..50 {
+        if super::drive::mounted(path) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = path;
+}
+
+/// The synced folder a path is in, and the path inside it.
+fn pair_of_path(pairs: &[Pair], path: &Path) -> Option<(usize, String)> {
+    let want = expand(path);
+    let want = want.canonicalize().unwrap_or(want);
+    pairs.iter().position(|p| want.starts_with(&p.local)).map(|i| (i, want.strip_prefix(&pairs[i].local).unwrap().to_string_lossy().into_owned()))
+}
+
+/// Keeps a folder (or a file, or the whole folder) on demand here for good, or stops keeping it.
+pub fn set_kept(path: &Path, keep: bool) -> Result<String> {
+    let mut pairs = load_pairs();
+    let (i, rel) = pair_of_path(&pairs, path).with_context(|| format!("{} isn't inside a synced folder", path.display()))?;
+    if !pairs[i].on_demand {
+        bail!("{} is a full copy already: everything in it is kept here", pretty(&pairs[i].local));
+    }
+    let pair = &mut pairs[i];
+    pair.pinned.retain(|k| k != &rel);
+    let shown = if rel.is_empty() { pretty(&pair.local) } else { format!("{}/{rel}", pretty(&pair.local)) };
+    if keep {
+        pair.pinned.push(rel);
+    } else {
+        #[cfg(target_os = "linux")]
+        super::drive::free(&pair.id, &rel, &pair.pinned);
+    }
+    save_pairs(&pairs)?;
+    Ok(shown)
+}
+
+/// `tpcloud sync keep <path>`.
+pub fn keep(path: &Path) -> Result<()> {
+    let shown = set_kept(path, true)?;
+    println!();
+    println!("  {} {} {}", ui::green("✓"), ui::bold(&shown), ui::dim("is kept on this computer from now on (fetched in the background)"));
+    println!();
+    Ok(())
+}
+
+/// `tpcloud sync free <path>`: no longer kept for good, and what was fetched gives its room back.
+pub fn free(path: &Path) -> Result<()> {
+    let pairs = load_pairs();
+    let (i, _) = pair_of_path(&pairs, path).with_context(|| format!("{} isn't inside a synced folder", path.display()))?;
+    let before = cached_here(&pairs[i]);
+    let shown = set_kept(path, false)?;
+    let after = cached_here(&load_pairs()[i]);
+    println!();
+    println!("  {} {} {}", ui::green("✓"), ui::bold(&shown), ui::dim(&format!("takes no room now ({} given back); it's fetched again when opened", human(before.saturating_sub(after)))));
+    println!();
+    Ok(())
+}
+
+/// `tpcloud sync mode <folder> demand|full`, and the terminal app's «m».
+pub fn change_mode(folder: &Path, on_demand: bool, progress: bool) -> Result<String> {
+    let mut pairs = load_pairs();
+    let i = find_pair(&pairs, folder).with_context(|| format!("{} isn't a synced folder (`tpcloud sync` lists them)", folder.display()))?;
+    if pairs[i].on_demand == on_demand {
+        return Ok(format!("{} is {} already", pretty(&pairs[i].local), if on_demand { "on demand" } else { "a full copy" }));
+    }
+    let shown = pretty(&pairs[i].local);
+    if on_demand {
+        if !demand_possible() {
+            bail!("this computer can't mount folders on demand (no FUSE)");
+        }
+        // Everything up to date both ways first, then the files into the cache.
+        let (remote, _) = super::connect_network(&pairs[i].network)?;
+        let outcome = if progress { foreground_pass(&pairs[i], &remote, "ctrl-c  stop (nothing changes until this is done)").0 } else { pass(&pairs[i], &remote, &mut |_| {}, &AtomicBool::new(false)) };
+        let report = outcome?;
+        if report.stopped {
+            bail!("stopped: {shown} is as it was");
+        }
+        remove_service(); // nothing else writes while its files move
+        verify_uploaded(&pairs[i], &remote).inspect_err(|_| {
+            let _ = start_service();
+        })?;
+        pairs[i].on_demand = true;
+        let pair = pairs[i].clone();
+        save_pairs(&pairs)?;
+        remove_service();
+        #[cfg(target_os = "linux")]
+        move_tree(&pair.local, &super::drive::files_dir(&pair.id))?;
+        let _ = std::fs::remove_file(state_file(&pair.id));
+        start_service()?;
+        wait_mounted(&pair.local);
+        Ok(format!("{shown} is on demand: what was here is kept a day, then given back"))
+    } else {
+        pairs[i].on_demand = false;
+        pairs[i].pinned.clear();
+        let pair = pairs[i].clone();
+        save_pairs(&pairs)?;
+        remove_service();
+        release_demand(&pair)?;
+        let _ = std::fs::remove_file(state_file(&pair.id));
+        start_service()?;
+        Ok(format!("{shown} is a full copy: the rest of its files are coming down in the background"))
+    }
+}
+
+/// `tpcloud sync mode <folder> demand|full`.
+pub fn mode(folder: &Path, which: &str) -> Result<()> {
+    let on_demand = match which {
+        "demand" | "on-demand" => true,
+        "full" => false,
+        _ => bail!("`tpcloud sync mode <folder> demand` or `… full`"),
+    };
+    println!();
+    let said = change_mode(folder, on_demand, true)?;
+    println!("  {} {said}", ui::green("✓"));
     println!();
     Ok(())
 }
@@ -764,6 +1347,9 @@ pub fn drop_pair(id: &str) -> Result<Pair> {
         remove_service();
     } else {
         start_service()?;
+    }
+    if pair.on_demand {
+        release_demand(&pair)?;
     }
     Ok(pair)
 }
@@ -790,9 +1376,9 @@ pub fn pause_all(paused: bool) -> Result<()> {
 pub fn sync_all_now() -> Vec<(Pair, Result<Report>)> {
     load_pairs()
         .into_iter()
-        .filter(|p| !p.paused)
+        .filter(|p| !p.paused && !p.on_demand)
         .map(|p| {
-            let outcome = super::connect_network(&p.network).and_then(|(remote, _)| pass(&p, &remote, &mut |_, _, _| {}));
+            let outcome = super::connect_network(&p.network).and_then(|(remote, _)| pass(&p, &remote, &mut |_| {}, &AtomicBool::new(false)));
             record_status(&p.id, &outcome);
             (p, outcome)
         })
@@ -826,14 +1412,31 @@ pub fn now() -> Result<()> {
         bail!("there are no synced folders: `tpcloud sync add`");
     }
     println!();
-    for p in pairs.iter().filter(|p| !p.paused) {
-        let outcome = super::connect_network(&p.network).and_then(|(remote, _)| pass(p, &remote, &mut progress_line()));
-        clear_line();
-        record_status(&p.id, &outcome);
-        match outcome {
-            Ok(r) => println!("  {} {}  {}", ui::green("✓"), ui::bold(&pretty(&p.local)), ui::dim(&r.describe())),
-            Err(e) => println!("  {} {}  {}", ui::warn_text("!"), ui::bold(&pretty(&p.local)), ui::warn_text(&format!("{e:#}"))),
+    for p in pairs.iter().filter(|p| !p.paused && !p.on_demand) {
+        println!("  {}", ui::bold(&pretty(&p.local)));
+        let (outcome, detached, cancelled) = match super::connect_network(&p.network) {
+            Ok((remote, _)) => foreground_pass(p, &remote, "d  leave it to the background    ctrl-c  stop"),
+            Err(e) => (Err(e), false, false),
+        };
+        if let Ok(r) = &outcome {
+            if !r.stopped {
+                record_status(&p.id, &outcome);
+            }
+        } else {
+            record_status(&p.id, &outcome);
         }
+        match outcome {
+            Ok(r) if r.stopped => {
+                println!("  {} {}", ui::dim("■"), ui::dim(&format!("{} so far; {}", r.describe(), if detached { "the service carries on" } else { "stopped" })));
+                if cancelled || detached {
+                    println!();
+                    return Ok(());
+                }
+            }
+            Ok(r) => println!("  {} {}", ui::green("✓"), ui::dim(&r.describe())),
+            Err(e) => println!("  {} {}", ui::warn_text("!"), ui::warn_text(&format!("{e:#}"))),
+        }
+        println!();
     }
     println!();
     Ok(())
@@ -847,16 +1450,75 @@ fn fingerprint(root: &Path) -> Option<(usize, u64, i64)> {
 
 /// `tpcloud sync run`: what the service runs. Each folder is looked at every few seconds here
 /// and every half minute there; a failure (no network, the server updating) is retried later.
+static STOPPING: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_stop(_: libc::c_int) {
+    STOPPING.store(true, Ordering::Relaxed);
+}
+
 pub fn run() -> Result<()> {
+    // Stopped by systemd/launchd: let go of the folders on demand before leaving.
+    unsafe {
+        libc::signal(libc::SIGTERM, on_stop as usize);
+        libc::signal(libc::SIGINT, on_stop as usize);
+    }
     let mut seen: HashMap<String, (Option<(usize, u64, i64)>, Option<Instant>)> = HashMap::new();
     let mut backoff: HashMap<String, Instant> = HashMap::new();
+    #[cfg(target_os = "linux")]
+    let mut mounts: HashMap<String, (std::sync::Arc<super::drive::Drive>, fuser::BackgroundSession, std::sync::Arc<AtomicBool>)> = HashMap::new();
     loop {
+        if STOPPING.load(Ordering::Relaxed) {
+            #[cfg(target_os = "linux")]
+            for (_, (_, session, stop)) in mounts.drain() {
+                stop.store(true, Ordering::Relaxed);
+                drop(session);
+            }
+            return Ok(());
+        }
         let pairs = load_pairs();
         if pairs.iter().all(|p| p.paused) {
             println!("No folders to sync: stopping.");
             return Ok(());
         }
-        for p in pairs.iter().filter(|p| !p.paused) {
+        #[cfg(target_os = "linux")]
+        {
+            // Folders on demand: mounted once, then kept up by their own thread.
+            let wanted: Vec<&Pair> = pairs.iter().filter(|p| p.on_demand && !p.paused).collect();
+            mounts.retain(|id, (_, _, stop)| {
+                let keep = wanted.iter().any(|p| &p.id == id);
+                if !keep {
+                    stop.store(true, Ordering::Relaxed);
+                }
+                keep
+            });
+            for p in wanted {
+                match mounts.get(&p.id) {
+                    Some((drive, _, _)) => {
+                        let mut pinned = drive.pinned.write().unwrap();
+                        if *pinned != p.pinned {
+                            *pinned = p.pinned.clone();
+                            drive.poke.store(true, Ordering::Relaxed);
+                        }
+                    }
+                    None => {
+                        let drive = super::drive::Drive::new(p.clone());
+                        match super::drive::mount(drive.clone()) {
+                            Ok(session) => {
+                                println!("{}: mounted on demand", pretty(&p.local));
+                                let stop = std::sync::Arc::new(AtomicBool::new(false));
+                                super::drive::keep_up(drive.clone(), stop.clone());
+                                mounts.insert(p.id.clone(), (drive, session, stop));
+                            }
+                            Err(e) => {
+                                println!("{}: couldn't mount it: {e}", pretty(&p.local));
+                                record_status(&p.id, &Err(anyhow::anyhow!("couldn't mount it: {e}")));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for p in pairs.iter().filter(|p| !p.paused && !p.on_demand) {
             let print = fingerprint(&p.local);
             let entry = seen.entry(p.id.clone()).or_insert((None, None));
             let changed_here = print.is_some() && print != entry.0;
@@ -865,7 +1527,15 @@ pub fn run() -> Result<()> {
             if !(changed_here || due) || waiting {
                 continue;
             }
-            let outcome = super::connect_network(&p.network).and_then(|(remote, _)| pass(p, &remote, &mut |_, _, _| {}));
+            let mut last_write = Instant::now() - Duration::from_secs(10);
+            let id = p.id.clone();
+            let mut publish = |step: &Step| {
+                if last_write.elapsed() >= Duration::from_secs(2) {
+                    last_write = Instant::now();
+                    record_progress(&id, step);
+                }
+            };
+            let outcome = super::connect_network(&p.network).and_then(|(remote, _)| pass(p, &remote, &mut publish, &AtomicBool::new(false)));
             match &outcome {
                 Ok(r) if r.anything() => println!("{}: {}", pretty(&p.local), r.describe()),
                 Ok(_) => {}
@@ -881,7 +1551,10 @@ pub fn run() -> Result<()> {
             entry.0 = fingerprint(&p.local);
             entry.1 = Some(Instant::now());
         }
-        std::thread::sleep(LOCAL_EVERY);
+        let until = Instant::now() + LOCAL_EVERY;
+        while Instant::now() < until && !STOPPING.load(Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(200));
+        }
     }
 }
 
@@ -933,7 +1606,7 @@ mod tests {
         local.insert("new-both-different".into(), m(7, old));
         remote.insert("new-both-different".into(), m(8, old));
         local.insert("being-written".into(), m(1, now_secs()));
-        let got = kinds(&plan(&local, &remote, &state));
+        let got = kinds(&plan(&local, &remote, &state, true));
         let want = [
             "forget deleted-both",
             "rm-there deleted-here",
@@ -971,8 +1644,8 @@ mod tests {
         };
         let read = |p: &Path| std::fs::read_to_string(p).unwrap_or_default();
         let remote = Remote::new(&url, None, &[], None);
-        let pair = Pair { id: "test".into(), local: local.clone(), remote: "users/me@test".into(), network: String::new(), network_name: String::new(), paused: false };
-        let run = || pass(&pair, &remote, &mut |_, _, _| {}).unwrap();
+        let pair = Pair { id: "test".into(), local: local.clone(), remote: "users/me@test".into(), network: String::new(), network_name: String::new(), paused: false, on_demand: false, pinned: vec![] };
+        let run = || pass(&pair, &remote, &mut |_| {}, &AtomicBool::new(false)).unwrap();
 
         // First time: each side gets what the other has.
         write(&local.join("a.txt"), "a1", old);
