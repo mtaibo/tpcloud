@@ -24,6 +24,7 @@ I wanted my files and photos on hardware I own, without monthly storage plans or
 - **Big files** — chunked uploads that resume where they left off if the connection drops
 - **Sharing that works** — links with a password, read-only or editable, for anyone without an account
 - **Photo backup** — every photo from my iPhone, deduplicated and organised by date, with its metadata
+- **On my computers too** — `tpcloud sync` shows my files in a folder on Linux and Mac, fetched only when opened or kept as a full copy
 
 ## The modules
 
@@ -98,6 +99,10 @@ The disk is split into areas, and the API enforces who can touch each one. Admin
 ### Uploads
 
 Small files go up in one request. Anything over 10 MB is split into 32 MB chunks, and the server keeps track of every pending upload, so if the connection drops or the tab closes, the upload resumes from the last chunk instead of starting over.
+
+### Folders on computers
+
+The `tpcloud` command keeps a folder on a computer in step with someone's files ([`tpcloud sync`](../../README.md)). Two things here are for it: `GET /api/files/tree` answers a whole folder at once, every file with its size and modification time (hidden names left out, no thumbnails warmed up, however big it is), and an upload can carry `mtime`, so the copy here keeps the time it had on the computer. Comparing those two is how both sides know what changed.
 
 ### Share links
 

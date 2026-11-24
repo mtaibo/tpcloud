@@ -202,7 +202,7 @@ Caddy asks auth: is this session cookie valid?  (forward_auth)
 - **Passkeys** — WebAuthn with Face ID, Touch ID or a security key, registered from `accounts`. The default on the web, and no email needed: the browser offers the passkey it has for the site, also as autofill on the email field.
 - **Password + TOTP** — bcrypt-hashed password, plus a 6-digit code from an authenticator app once 2FA is set up. This is what the native app uses.
 - **QR code** — the login page shows a code that a signed-in phone scans; the phone sees which device asks and from where, and approves or rejects it. Only the browser that showed the code can collect the session, and each code lasts two minutes.
-- **From the terminal** — `tpcloud login` opens the same approval page in the browser (passkey included) and draws the QR code in the terminal for the phone; or it asks for email, password and code right there.
+- **From the terminal** — `tpcloud login` asks how, one key each: in the browser (the same approval page, passkey included), with a phone (a QR code drawn in the terminal) or with email, password and code right there.
 
 ### Sessions
 
@@ -292,7 +292,7 @@ On a Mac or a Linux computer:
 curl -fsSL https://tpcloud.migueltaibo.com/get | sh
 ```
 
-On a Mac that installs the `tpcloud` command (the app for Mac and iPhone is on TestFlight for now); on Linux, the command and the TPCloud app, with its entry in the applications menu. It always writes to the same places (`/usr/local/bin/tpcloud`, `tphome` beside it, `tpcloud-app`), so running it again updates instead of duplicating; on a TPCloud server it leaves the server's own `tpcloud`, which is a client too.
+On Linux it first asks whether this computer signs in to a cloud or *is* one (the second is the same as `/install`); signed in, it installs the command and the TPCloud app, with its entry in the applications menu, and goes straight on to `tpcloud login` (or «later»). On a Mac it installs the `tpcloud` command (the app for Mac and iPhone is on TestFlight for now). It always writes to the same places (`/usr/local/bin/tpcloud`, `tphome` beside it, `tpcloud-app`), so running it again updates instead of duplicating; on a TPCloud server it leaves the server's own `tpcloud`, which is a client too.
 
 | Command | What it does |
 |---|---|
