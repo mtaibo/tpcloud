@@ -66,14 +66,18 @@ read_key() {
 
 die() { printf "${CL}  ${Y}✗${R} %b\n" "$*" >&2; exit 1; }
 
-as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
+# sudo's own prompt, in line with everything else (if it ever asks again, it looks the same).
+ask_pass="  Password for %u: "
+as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo -p "$ask_pass" "$@"; fi; }
 
 # Asks for the password once, before any bar is drawn (sudo's prompt would break the line).
 need_root() {
   [ "$(id -u)" -eq 0 ] && return
   sudo -n true 2>/dev/null && return
   say "  ${D}Installing for everyone on this computer needs your password.${R}"
-  sudo -v </dev/tty || die "Without it nothing can be installed."
+  say ""
+  sudo -v -p "$ask_pass" </dev/tty || die "Without it nothing can be installed."
+  say ""
 }
 
 size_of() { if [ -s "$1" ]; then wc -c <"$1" | tr -d " "; else echo 0; fi; }
@@ -164,7 +168,11 @@ fi
 
 # ── Which TPCloud: signed in to a cloud, or the cloud itself ──
 role=client
-if is_host; then
+if [ "${1:-}" = "--server" ]; then
+  # /install: the cloud itself, no question.
+  [ "$os" = Linux ] || die "TPCloud's server runs on Linux (a Raspberry Pi, an old PC…)."
+  role=host
+elif is_host; then
   say "  ${D}This computer is your TPCloud server: its tpcloud already does everything.${R}"
   say ""
 elif [ "$os" = Linux ]; then
@@ -214,7 +222,7 @@ if [ "$role" = host ]; then
   ok "Server" "downloaded, now its setup"
   say ""
   # Its questions are read from the terminal (this script's stdin is the download).
-  if [ "$(id -u)" -eq 0 ]; then "$tmp/tpcloud" install </dev/tty; else sudo "$tmp/tpcloud" install </dev/tty; fi
+  as_root "$tmp/tpcloud" install </dev/tty
   exit $?
 fi
 
@@ -286,5 +294,11 @@ if [ -n "$needs_ld" ] || [ -z "$on_path" ] || leftovers; then
 fi
 
 say ""
-say "  ${B}Ready.${R} Sign in with $(cmd 'tpcloud login')"
-say ""
+say "  ${B}Ready.${R}"
+# Straight on to signing in (it offers «later» too), unless this computer already is.
+if [ -n "$tty" ] && [ -r /dev/tty ] && ! is_host && "$bin/tpcloud" whoami 2>/dev/null | grep -q "Not signed in"; then
+  "$bin/tpcloud" login --later </dev/tty || true
+else
+  say "  Sign in with $(cmd 'tpcloud login')"
+  say ""
+fi
