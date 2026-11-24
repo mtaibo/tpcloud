@@ -276,11 +276,55 @@ async def search(
     return await run_in_threadpool(_walk)
 
 
+@router.get("/tree")
+async def tree(
+    request: Request,
+    path: str = Query(...),
+    location: str = Query(default="external"),
+):
+    """Every file and folder under `path` at once, each with its size and modification time: what
+    a folder synced to a computer compares against. Hidden names are left out, like /list does,
+    and nothing is warmed up (no thumbnails), so it stays cheap however big the tree is."""
+    user = await get_current_user(request)
+    _check_access(location, path, user["email"])
+    base = _base(location)
+    root = _resolve(base, path)
+
+    def _walk() -> dict:
+        if not root.exists():
+            parts = Path(path.lstrip("/")).parts
+            if len(parts) == 2 and parts[0] == "users" and parts[1] == user["email"]:
+                root.mkdir(parents=True, exist_ok=True)
+            else:
+                raise HTTPException(404, "Directory not found")
+        if not root.is_dir():
+            raise HTTPException(400, "Path is not a directory")
+        files: list[dict] = []
+        dirs: list[str] = []
+        for current, subdirs, names in os.walk(root, followlinks=False):
+            subdirs[:] = sorted(d for d in subdirs if not d.startswith("."))
+            rel = Path(current).relative_to(root).as_posix()
+            prefix = "" if rel == "." else rel + "/"
+            dirs.extend(prefix + d for d in subdirs)
+            for name in sorted(names):
+                if name.startswith("."):
+                    continue
+                try:
+                    st = (Path(current) / name).stat()
+                except OSError:
+                    continue
+                files.append({"path": prefix + name, "size": st.st_size, "modified": st.st_mtime})
+        return {"path": path, "files": files, "dirs": dirs}
+
+    return await run_in_threadpool(_walk)
+
+
 @router.post("/upload")
 async def upload_files(
     request: Request,
     path: str = Query(default=""),
     location: str = Query(default="external"),
+    mtime: float | None = Query(default=None),
     files: List[UploadFile] = File(...),
 ):
     user = await get_current_user(request)
@@ -306,6 +350,9 @@ async def upload_files(
         async with aiofiles.open(dest, "wb") as f:
             while chunk := await file.read(1024 * 1024):
                 await f.write(chunk)
+        if mtime is not None:
+            # A synced folder sends the file's own time, so both copies read the same afterwards.
+            os.utime(dest, (mtime, mtime))
         uploaded.append(filename)
 
     return {"uploaded": uploaded}
