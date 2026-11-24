@@ -1,4 +1,4 @@
-//! `sudo tpcloud uninstall` on a server. It always asks what goes:
+//! `sudo tpcloud delete` (once `uninstall`) on a server. It always asks what goes:
 //!
 //! - **Only the program** (the default): the runtime, the service and the command go; every
 //!   account, file, setting and backup stays, so installing again carries on as it was.
@@ -16,14 +16,14 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 pub fn run() -> Result<()> {
-    install::require_root("Uninstalling")?;
+    install::require_root("Deleting TPCloud")?;
     if !std::io::stdin().is_terminal() {
         // Nobody to ask: the one that can't lose anything.
         return program_only();
     }
     let env = paths::env_file();
     let name = envfile::get(&env, network::NAME).filter(|n| !n.is_empty()).unwrap_or_else(|| "TPCloud".into());
-    println!("\n{}", ui::bold(&format!("Uninstalling {name}")));
+    println!("\n{}", ui::bold(&format!("Deleting {name}")));
     let choice = setup::choose(
         "What should go?",
         &[
@@ -273,7 +273,7 @@ fn program_only() -> Result<()> {
     platform::discovery::withdraw_host();
     ui::step("Removing the program");
     remove_program()?;
-    ui::done("TPCloud is uninstalled.");
+    ui::done("TPCloud's program is gone.");
     println!("  {}", ui::dim("Kept, untouched:"));
     println!("  {}", ui::dim(&format!("  {}  accounts, settings, the photo index, albums, share links, the house", state.display())));
     if !files.is_empty() {
@@ -286,7 +286,7 @@ fn program_only() -> Result<()> {
         println!("  {}", ui::dim("  the storage pool, still mounted at every boot"));
     }
     println!("  {}", ui::dim("Installing TPCloud again finds all of it and carries on."));
-    println!("  {}", ui::dim(&format!("To remove it too: `curl -fsSL https://tpcloud.migueltaibo.com/get | sh -s -- --uninstall` (or `sudo rm -rf {}`).", state.display())));
+    println!("  {}", ui::dim(&format!("To remove it too: `curl -fsSL https://tpcloud.migueltaibo.com/get | sh -s -- --delete` (or `sudo rm -rf {}`).", state.display())));
     Ok(())
 }
 

@@ -114,6 +114,9 @@ pub fn choose(question: &str, options: &[(&str, &str)], default: usize) -> Resul
     for (i, (name, what)) in options.iter().enumerate() {
         println!("    {} {}  {}", ui::accent(&format!("{}.", i + 1)), ui::bold(name), ui::dim(what));
     }
+    if options.len() <= 9 {
+        return ui::key("  Choice", options.len(), default);
+    }
     loop {
         let answer = ask("Choice", &(default + 1).to_string())?;
         if let Ok(n) = answer.parse::<usize>() {

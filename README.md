@@ -260,7 +260,7 @@ On NixOS the service goes in `configuration.nix` instead of `/etc/systemd/system
 
 Settings, databases and caches live in `/var/lib/tpcloud` (`tpcloud.env`, `data/`, `home/`, `gateway-extra/`, `logs/`) and an update never touches them. `sudo tpcloud update` gets the latest release from GitHub (checked against its SHA-256) and installs it; `install` run from an older file does the same, unless it's given `--this-file`. The service looks for a new release once a day, and `tpcloud status` says when there is one. Admins can also update it from the apps, the web (Accounts → Administration → Server) or `tpcloud host update` on their own computer. `install --adopt <folder>` takes over a server that ran with Docker from tpcloud and tphome clones in that folder, copying their settings and data, with about a second down.
 
-**Uninstalling.** `sudo tpcloud uninstall` asks what should go: only the program (every account, file, setting and backup stays, and installing again carries on), everything after a last backup to a folder you choose (`tpcloud restore` brings it back), or everything with nothing kept, the Cloudflare tunnel it made included. Everyone's files are asked about on their own, and nothing is touched until you type `delete`.
+**Deleting it.** `sudo tpcloud delete` asks what should go: only the program (every account, file, setting and backup stays, and installing again carries on), everything after a last backup to a folder you choose (`tpcloud restore` brings it back), or everything with nothing kept, the Cloudflare tunnel it made included. Everyone's files are asked about on their own, and nothing is touched until you type `delete`.
 
 **Backups.** Every night the service copies TPCloud's own data (settings, every database: accounts, the photo index, albums, share links, the house; Home's firmware) to the folder set by the guided setup or `sudo tpcloud backup --to <folder>`, best on another disk. They're a few MB each, made with SQLite's online backup while everything keeps running, and the last 14 are kept. Your files aren't in them (they're on their own disk, with Store's own mirror to a backup disk), nor are thumbnails and previews, which are made again. If the folder is inside that mirror's destination, the mirror leaves it alone. `sudo tpcloud restore <backup>` puts one back, after backing up what's there.
 
@@ -278,7 +278,7 @@ Settings, databases and caches live in `/var/lib/tpcloud` (`tpcloud.env`, `data/
 | `tpcloud module list` · `enable home` · `disable home` | Turn Store or Home on and off |
 | `tpcloud users` · `users add <email> [--admin]` | List the accounts or add one |
 | `tpcloud storage` · `storage add <disk>` · `scrub` | The disks and the pool, grow it, check every block now |
-| `tpcloud uninstall` | Remove TPCloud, choosing what to keep |
+| `tpcloud delete` | Remove TPCloud, choosing what to keep |
 | `tphome` | Every blind, its position and whether it's connected (there while Home is on) |
 | `tphome --blind B0301 up` | Raise a blind; also `down`, `stop`, or a position from 0 (closed) to 100 (open) |
 
@@ -303,7 +303,7 @@ On a Mac that installs the `tpcloud` command (the app for Mac and iPhone is on T
 | `tpcloud sessions [--all] [revoke <id>]` | Your sessions, or everyone's (admins), and close one |
 | `tpcloud host [check\|update]` | The server's version, and update it (admins) |
 | `tphome` | The house, over the network |
-| `tpcloud update` · `uninstall` | Update this command, or remove it and its sign-ins |
+| `tpcloud update` · `delete` | Update this command, or remove every trace of it, sign-ins included |
 
 The first time it reaches a server at home it checks the server's own certificate authority against the fingerprint the server publishes, and from then on trusts that authority only for that network's local names, like the apps do. Sign-ins are kept in `~/.config/tpcloud` (on a Mac, `~/Library/Application Support/tpcloud`), shared with the Linux app.
 

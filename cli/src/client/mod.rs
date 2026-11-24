@@ -226,23 +226,30 @@ fn open_in_browser(url: &str) {
     let _ = std::process::Command::new(opener).arg(url).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
 }
 
-/// Signs in by approving from a browser (where passkeys work) or a phone already signed in.
-fn approve_in_browser(remote: &mut Remote) -> Result<()> {
+/// Signs in by approving it elsewhere: in this computer's browser (where passkeys work), or by
+/// scanning a QR code with a phone already signed in.
+fn approve_in_browser(remote: &mut Remote, qr: bool) -> Result<()> {
     let (url, cookie) = remote.start_approval()?;
     println!();
-    println!("  Approve this sign-in in the browser that just opened, or scan this with your phone:");
+    if qr {
+        println!("  Scan this with a phone already signed in to TPCloud:");
+        println!();
+        print_qr(&url);
+    } else {
+        println!("  Approve it in the browser: with a passkey, or where you're already signed in.");
+        println!("  {}", ui::dim("If it didn't open, this is the page:"));
+        println!("  {}", ui::accent(&url));
+        open_in_browser(&url);
+    }
     println!();
-    print_qr(&url);
-    println!();
-    println!("  {}", ui::dim(&url));
-    open_in_browser(&url);
+    println!("  {} {}", ui::accent("›"), ui::dim("Waiting for the approval…"));
     let mut said_scanned = false;
     for _ in 0..90 {
         std::thread::sleep(std::time::Duration::from_millis(1500));
         match remote.poll_approval(&cookie)?.as_str() {
             "approved" => return Ok(()),
             "scanned" if !said_scanned => {
-                ui::step("Opened: approve it there");
+                println!("  {} {}", ui::accent("›"), ui::dim("Opened: approve it there"));
                 said_scanned = true;
             }
             "denied" => bail!("the sign-in was declined"),
@@ -253,6 +260,12 @@ fn approve_in_browser(remote: &mut Remote) -> Result<()> {
     bail!("nobody approved it in time: `tpcloud login` again")
 }
 
+/// One line of a numbered choice: the number, the option in bold, what it means dimmed, aligned.
+fn option(key: &str, title: &str, detail: &str) {
+    let pad = 22usize.saturating_sub(title.chars().count());
+    println!("    {}  {}{}{}", ui::accent(key), ui::bold(title), " ".repeat(pad), ui::dim(detail));
+}
+
 /// `tpcloud login [address]`.
 pub fn login(address: Option<String>, email: Option<String>) -> Result<()> {
     let mut store = Store::load();
@@ -261,20 +274,28 @@ pub fn login(address: Option<String>, email: Option<String>) -> Result<()> {
         None => match store.current() {
             Some(n) => candidates(&n).last().cloned().unwrap_or_default(),
             None => {
-                ui::step("Looking for TPCloud on this network");
+                println!();
+                println!("  {} {}", ui::accent("›"), ui::dim("Looking for TPCloud on this network…"));
                 let found = discover();
                 match found.len() {
-                    0 => read_line("Its address (e.g. tpcloud.local or cloud.example.com)", "")?,
+                    0 => {
+                        println!("  {}", ui::dim("None answered here."));
+                        println!();
+                        read_line("  Its address (e.g. tpcloud.local or cloud.example.com)", "")?
+                    }
                     1 => {
-                        println!("  Found {} at {}", ui::bold(&found[0].0), found[0].1);
+                        println!("  {} Found {}  {}", ui::green("✓"), ui::bold(&found[0].0), ui::dim(&found[0].1));
                         found[0].1.clone()
                     }
                     _ => {
+                        println!("  {} Found {} networks:", ui::green("✓"), found.len());
+                        println!();
                         for (i, (name, url)) in found.iter().enumerate() {
-                            println!("  {} {}  {}", ui::accent(&format!("{}.", i + 1)), ui::bold(name), ui::dim(url));
+                            option(&(i + 1).to_string(), name, url);
                         }
-                        let pick: usize = read_line("Which one", "1")?.parse().unwrap_or(1);
-                        found.get(pick.saturating_sub(1)).context("not on the list")?.1.clone()
+                        println!();
+                        let pick = ui::key("  Which one", found.len(), 0)?;
+                        found.get(pick).context("not on the list")?.1.clone()
                     }
                 }
             }
@@ -286,23 +307,34 @@ pub fn login(address: Option<String>, email: Option<String>) -> Result<()> {
     let hosts: Vec<String> = card.addresses.iter().filter(|(_, k)| k == "local").map(|(u, _)| net::host_of(u)).collect();
     let anchor = anchor.or_else(|| previous.as_ref().and_then(anchor_of));
     let mut remote = Remote::new(&base, anchor.as_deref(), &hosts, None);
-    println!("Signing in to {} {}", ui::bold(&card.name), ui::dim(&format!("(TPCloud {} at {base})", card.version)));
+    println!();
+    println!("  {} {}", ui::bold("Signing in to"), ui::bold(&ui::accent(&card.name)));
+    println!("  {}", ui::dim(&format!("TPCloud {} · {base}", card.version)));
+    println!();
     let default_email = email.clone().or_else(|| previous.as_ref().and_then(|p| p["email"].as_str().map(str::to_string))).unwrap_or_default();
-    let in_browser = email.is_none() && {
-        println!("  {} In the browser {}", ui::accent("1."), ui::dim("(a passkey, or approve from a device already signed in)"));
-        println!("  {} Email and password here", ui::accent("2."));
-        read_line("How", "1")? != "2"
-    };
-    if in_browser {
-        approve_in_browser(&mut remote)?;
+    let how = if email.is_some() {
+        "3".to_string()
     } else {
-        let email = read_line("Email", &default_email)?.to_lowercase();
-        let password = ui::secret("Password")?;
+        println!("  {}", ui::bold("How do you want to sign in?"));
+        println!();
+        option("1", "In the browser", "opens it here: a passkey, or a session you already have");
+        option("2", "With your phone", "a QR code to scan from one already signed in");
+        option("3", "Email and password", "here, in the terminal");
+        println!();
+        (ui::key(&format!("  Choose {}, {} or {}", ui::accent("1"), ui::accent("2"), ui::accent("3")), 3, 0)? + 1).to_string()
+    };
+    if how != "3" {
+        approve_in_browser(&mut remote, how == "2")?;
+    } else {
+        println!();
+        let email = read_line("  Email", &default_email)?.to_lowercase();
+        let password = ui::secret("  Password")?;
         if remote.login(&email, &password)? {
-            let code = read_line("Code from your authenticator app", "")?;
+            let code = read_line("  Code from your authenticator app", "")?;
             remote.send("POST", "/auth/password/totp/verify", Some(json!({ "code": code })))?;
         }
     }
+    println!();
     let me = remote.get("/auth/passkey/me")?;
     let email = me["email"].as_str().unwrap_or(&default_email).to_string();
     store.put(json!({
@@ -315,8 +347,17 @@ pub fn login(address: Option<String>, email: Option<String>) -> Result<()> {
         "email": email,
     }));
     store.save()?;
-    ui::done(&format!("Signed in to {} as {}{}.", card.name, me["email"].as_str().unwrap_or(&email), if me["is_admin"] == true { " (admin)" } else { "" }));
+    println!(
+        "  {} Signed in to {} as {}{}",
+        ui::green("✓"),
+        ui::bold(&card.name),
+        ui::bold(me["email"].as_str().unwrap_or(&email)),
+        if me["is_admin"] == true { ui::dim("  admin") } else { String::new() }
+    );
     sync_tphome(me["modules"].as_array().is_some_and(|m| m.iter().any(|x| x == "home")));
+    println!();
+    println!("  {} opens everything; {} lists the rest.", ui::accent("tpcloud"), ui::accent("tpcloud --help"));
+    println!();
     Ok(())
 }
 
@@ -331,7 +372,7 @@ fn sync_tphome(home: bool) {
         println!("  {}", ui::dim(&format!("Home is on in this network. For `tphome`: sudo ln -s {} {}", me.display(), link.display())));
     }
     if home {
-        println!("  {}", ui::dim("`tphome` controls the house; `tpcloud` alone opens everything."));
+        println!("  {} {}", ui::green("✓"), ui::dim("Home is on: `tphome` controls the house"));
     }
 }
 
@@ -584,7 +625,7 @@ pub fn self_update() -> Result<()> {
     Ok(())
 }
 
-// ── Uninstalling ──
+// ── Deleting ──
 
 /// What the installer puts on a Linux computer besides the command: the app and its menu entry.
 pub const APP_FILES: [&str; 3] = [
@@ -650,7 +691,7 @@ pub fn remove_empty_dirs(rmdir: &dyn Fn(&str) -> bool) {
     }
 }
 
-/// `tpcloud uninstall` on a computer that isn't a host: everything TPCloud put here goes, with
+/// `tpcloud delete` on a computer that isn't a host: everything TPCloud put here goes, with
 /// no questions. It signs out of every network (so the sessions don't stay open on them), then
 /// removes the sign-ins, this command, `tphome`, on Linux the TPCloud app, and whatever an old
 /// server left behind without its program (settings, databases, its system user). The only thing
@@ -659,7 +700,7 @@ pub fn remove_empty_dirs(rmdir: &dyn Fn(&str) -> bool) {
 pub fn uninstall() -> Result<()> {
     const STATE: &str = "/var/lib/tpcloud";
     println!();
-    println!("  {}", ui::bold("Uninstalling TPCloud"));
+    println!("  {}", ui::bold("Deleting TPCloud"));
     println!();
 
     // What goes, all worked out first, so the password (if any) is asked once, before anything.

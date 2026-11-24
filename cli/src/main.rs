@@ -16,6 +16,7 @@ mod engine;
 mod envfile;
 #[cfg(feature = "host")]
 mod harden;
+mod help;
 mod home;
 #[cfg(feature = "host")]
 mod install;
@@ -58,7 +59,7 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "tpcloud", version, about = "TPCloud from the terminal: sign in to your network and run it, or set up and run a server.")]
+#[command(name = "tpcloud", version, about = "TPCloud from the terminal: sign in to your network and run it, or set up and run a server.", styles = help::styles())]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -180,9 +181,12 @@ enum Command {
         #[command(subcommand)]
         action: Option<StorageAction>,
     },
-    /// Remove TPCloud from this computer. On a server (sudo) it asks what goes: only the program,
-    /// or everything (with a backup first, or nothing kept); elsewhere, every trace at once.
-    Uninstall,
+    /// Delete TPCloud from this computer.
+    ///
+    /// On a server (sudo) it asks what goes: only the program, or everything (with a backup first,
+    /// or nothing kept). Anywhere else, every trace at once. `uninstall` still works too.
+    #[command(alias = "uninstall")]
+    Delete,
     /// Control the house (the same as the `tphome` command).
     #[command(disable_help_flag = true)]
     Home {
@@ -268,6 +272,10 @@ fn run() -> Result<()> {
         .unwrap_or_default();
     if called_as == "tphome" {
         return home::run(args);
+    }
+    if args.len() == 2 && matches!(args[1].as_str(), "-h" | "--help" | "help") {
+        help::print(host_here());
+        return Ok(());
     }
     let cli = Cli::parse_from(args);
     match cli.command {
@@ -379,8 +387,8 @@ fn run() -> Result<()> {
             Some(StorageAction::Unlock) => storage::unlock(),
         },
         #[cfg(feature = "host")]
-        Some(Command::Uninstall) if host_here() || std::path::Path::new(platform::APP_DIR).exists() => uninstall::run(),
-        Some(Command::Uninstall) => client::uninstall(),
+        Some(Command::Delete) if host_here() || std::path::Path::new(platform::APP_DIR).exists() => uninstall::run(),
+        Some(Command::Delete) => client::uninstall(),
         #[cfg(feature = "host")]
         Some(Command::Serve) => supervisor::serve(),
     }

@@ -8,7 +8,7 @@
 # Always the same places, so running it again (or after anything else) updates, never duplicates:
 # /usr/local/bin/tpcloud, /usr/local/bin/tpcloud-app, /usr/local/share/applications/tpcloud.desktop.
 # On a TPCloud server its own `tpcloud` stays: it's a client too.
-#   `tpcloud uninstall` (or … | sh -s -- --uninstall) takes it all away again, sign-ins included.
+#   `tpcloud delete` (or … | sh -s -- --delete) takes it all away again, sign-ins included.
 set -eu
 
 base="https://github.com/mtaibo/tpcloud/releases/latest/download"
@@ -44,6 +44,24 @@ bar() { # bar <label> <done> <total>: one line, redrawn in place
     i=$((i + 1))
   done
   printf "${CL}  ${A}↓${R} %-10s ${A}%s${D}%s${R}  %4s ${D}%s${R}" "$1" "$full" "$rest" "$pct" "$(human "$2")"
+}
+
+# One key, no Enter (Enter takes the default): read_key <how many> <default>
+read_key() {
+  old="$(stty -g </dev/tty)"
+  trap 'stty "$old" </dev/tty; printf "\n"; exit 130' INT
+  stty -icanon -echo min 1 time 0 </dev/tty
+  while :; do
+    k="$(dd bs=1 count=1 </dev/tty 2>/dev/null)"
+    case "$k" in
+      "") k="$2"; break ;;
+      [1-9]) [ "$k" -le "$1" ] && break ;;
+    esac
+  done
+  stty "$old" </dev/tty
+  trap - INT
+  printf "${A}%s${R}\n" "$k"
+  key="$k"
 }
 
 die() { printf "${CL}  ${Y}✗${R} %b\n" "$*" >&2; exit 1; }
@@ -122,10 +140,10 @@ say ""
 say "  ${B}TPCloud${R} ${D}for this computer${R}"
 say ""
 
-# ── Uninstall: on a computer that isn't a server, everything, no questions ──
-if [ "${1:-}" = "--uninstall" ]; then
+# ── Delete: on a computer that isn't a server, everything, no questions ──
+if [ "${1:-}" = "--delete" ] || [ "${1:-}" = "--uninstall" ]; then
   if is_host; then
-    die "This computer is a TPCloud server: $(cmd 'sudo tpcloud uninstall') asks what to keep."
+    die "This computer is a TPCloud server: $(cmd 'sudo tpcloud delete') asks what to keep."
   fi
   need_root
   rm -rf "${HOME:-/nonexistent}/.config/tpcloud" "${HOME:-/nonexistent}/Library/Application Support/tpcloud"
@@ -156,14 +174,9 @@ elif [ "$os" = Linux ]; then
     say "    ${A}1${R}  ${B}Signed in to your cloud${R}   ${D}the TPCloud app and the tpcloud command${R}"
     say "    ${A}2${R}  ${B}As your cloud${R}             ${D}this computer keeps the accounts, files, photos and home${R}"
     say ""
-    while :; do
-      printf "  Choose ${A}1${R} or ${A}2${R} ${D}[1]${R}: "
-      read -r answer </dev/tty || answer=1
-      case "${answer:-1}" in
-        1) break ;;
-        2) role=host; break ;;
-      esac
-    done
+    printf "  Choose ${A}1${R} or ${A}2${R} ${D}[1]${R}: "
+    read_key 2 1
+    [ "$key" = 2 ] && role=host
     say ""
   fi
 fi
@@ -269,7 +282,7 @@ if [ -n "$needs_ld" ] || [ -z "$on_path" ] || leftovers; then
       hint "export PATH=\"\$PATH:$bin\""
     fi
   fi
-  leftovers && note "An old TPCloud server's settings are still here: $(cmd 'tpcloud uninstall') removes them."
+  leftovers && note "An old TPCloud server's settings are still here: $(cmd 'tpcloud delete') removes them."
 fi
 
 say ""
