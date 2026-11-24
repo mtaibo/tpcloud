@@ -54,7 +54,8 @@ install_cli() { # install_cli <asset>
   fetch "$1" "$tmp/tpcloud"
   chmod 755 "$tmp/tpcloud"
   as_root mv -f "$tmp/tpcloud" "$bin/tpcloud"
-  # A tphome from before points at this same file; `tpcloud login` adds it when Home is on.
+  # tphome is the same program (it says so when a network has no Home).
+  as_root ln -sf "$bin/tpcloud" "$bin/tphome"
   say "  $bin/tpcloud $("$bin/tpcloud" --version | cut -d' ' -f2)"
 }
 
