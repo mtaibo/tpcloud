@@ -51,7 +51,6 @@ mod users;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-#[cfg(feature = "host")]
 use std::io::IsTerminal;
 #[cfg(feature = "host")]
 use std::path::PathBuf;
@@ -274,6 +273,7 @@ fn run() -> Result<()> {
         None if host_here() && std::io::stdout().is_terminal() && std::io::stdin().is_terminal() => tui::run(),
         #[cfg(feature = "host")]
         None | Some(Command::Status) if host_here() => status::print(),
+        None if client::signed_in() && std::io::stdout().is_terminal() && std::io::stdin().is_terminal() => client::open(),
         None | Some(Command::Status) | Some(Command::Whoami) => {
             if client::signed_in() {
                 client::whoami()

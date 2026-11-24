@@ -4,6 +4,7 @@
 //! ~/Library/Application Support/tpcloud/), so signing in once is signing in for both.
 
 pub mod net;
+mod tui;
 
 use crate::ui;
 use anyhow::{bail, Context, Result};
@@ -131,6 +132,12 @@ pub fn connect() -> Result<(Remote, Value)> {
     bail!("none of {}'s addresses answer right now", n["name"].as_str().unwrap_or("the network's"))
 }
 
+/// `tpcloud` alone, signed in: the network in a terminal app.
+pub fn open() -> Result<()> {
+    let (remote, n) = connect()?;
+    tui::run(remote, n)
+}
+
 /// Whether this computer is signed in to a network (for choosing local or remote commands).
 pub fn signed_in() -> bool {
     Store::load().current().is_some_and(|n| n["token"].is_string())
@@ -174,6 +181,65 @@ fn discover() -> Vec<(String, String)> {
     found
 }
 
+/// A QR code drawn with half blocks, two rows of modules per line.
+fn print_qr(text: &str) {
+    let Ok(code) = qrcode::QrCode::new(text.as_bytes()) else { return };
+    let width = code.width();
+    let colors = code.to_colors();
+    let dark = |x: isize, y: isize| x >= 0 && y >= 0 && (x as usize) < width && (y as usize) < width && colors[y as usize * width + x as usize] == qrcode::Color::Dark;
+    let quiet = 2isize;
+    let mut y = -quiet;
+    while y < width as isize + quiet {
+        let mut line = String::from("  ");
+        for x in -quiet..width as isize + quiet {
+            // Light modules drawn, dark ones left as the terminal's background: reads on dark themes.
+            line.push(match (dark(x, y), dark(x, y + 1)) {
+                (false, false) => '█',
+                (false, true) => '▀',
+                (true, false) => '▄',
+                (true, true) => ' ',
+            });
+        }
+        println!("{line}");
+        y += 2;
+    }
+}
+
+fn open_in_browser(url: &str) {
+    if std::env::var_os("TPCLOUD_NO_BROWSER").is_some() {
+        return;
+    }
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let _ = std::process::Command::new(opener).arg(url).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+}
+
+/// Signs in by approving from a browser (where passkeys work) or a phone already signed in.
+fn approve_in_browser(remote: &mut Remote) -> Result<()> {
+    let (url, cookie) = remote.start_approval()?;
+    println!();
+    println!("  Approve this sign-in in the browser that just opened, or scan this with your phone:");
+    println!();
+    print_qr(&url);
+    println!();
+    println!("  {}", ui::dim(&url));
+    open_in_browser(&url);
+    let mut said_scanned = false;
+    for _ in 0..90 {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        match remote.poll_approval(&cookie)?.as_str() {
+            "approved" => return Ok(()),
+            "scanned" if !said_scanned => {
+                ui::step("Opened: approve it there");
+                said_scanned = true;
+            }
+            "denied" => bail!("the sign-in was declined"),
+            "expired" => bail!("the code expired: `tpcloud login` again"),
+            _ => {}
+        }
+    }
+    bail!("nobody approved it in time: `tpcloud login` again")
+}
+
 /// `tpcloud login [address]`.
 pub fn login(address: Option<String>, email: Option<String>) -> Result<()> {
     let mut store = Store::load();
@@ -208,14 +274,24 @@ pub fn login(address: Option<String>, email: Option<String>) -> Result<()> {
     let anchor = anchor.or_else(|| previous.as_ref().and_then(anchor_of));
     let mut remote = Remote::new(&base, anchor.as_deref(), &hosts, None);
     println!("Signing in to {} {}", ui::bold(&card.name), ui::dim(&format!("(TPCloud {} at {base})", card.version)));
-    let default_email = email.or_else(|| previous.as_ref().and_then(|p| p["email"].as_str().map(str::to_string))).unwrap_or_default();
-    let email = read_line("Email", &default_email)?.to_lowercase();
-    let password = ui::secret("Password")?;
-    if remote.login(&email, &password)? {
-        let code = read_line("Code from your authenticator app", "")?;
-        remote.send("POST", "/auth/password/totp/verify", Some(json!({ "code": code })))?;
+    let default_email = email.clone().or_else(|| previous.as_ref().and_then(|p| p["email"].as_str().map(str::to_string))).unwrap_or_default();
+    let in_browser = email.is_none() && {
+        println!("  {} In the browser {}", ui::accent("1."), ui::dim("(a passkey, or approve from a device already signed in)"));
+        println!("  {} Email and password here", ui::accent("2."));
+        read_line("How", "1")? != "2"
+    };
+    if in_browser {
+        approve_in_browser(&mut remote)?;
+    } else {
+        let email = read_line("Email", &default_email)?.to_lowercase();
+        let password = ui::secret("Password")?;
+        if remote.login(&email, &password)? {
+            let code = read_line("Code from your authenticator app", "")?;
+            remote.send("POST", "/auth/password/totp/verify", Some(json!({ "code": code })))?;
+        }
     }
     let me = remote.get("/auth/passkey/me")?;
+    let email = me["email"].as_str().unwrap_or(&default_email).to_string();
     store.put(json!({
         "id": card.id,
         "name": card.name,
@@ -237,14 +313,12 @@ fn sync_tphome(home: bool) {
     let Some(dir) = me.parent() else { return };
     let link = dir.join("tphome");
     let present = link.symlink_metadata().is_ok();
-    if home && !present {
-        if std::os::unix::fs::symlink(&me, &link).is_ok() {
-            println!("  {}", ui::dim("Home is on in this network: `tphome` controls the house."));
-        } else {
-            println!("  {}", ui::dim(&format!("Home is on in this network. For `tphome`: sudo ln -s {} {}", me.display(), link.display())));
-        }
-    } else if !home && present && std::fs::read_link(&link).ok().as_deref() == Some(me.as_path()) {
-        let _ = std::fs::remove_file(&link);
+    // The installer usually made it already (it had the password); otherwise, where we may.
+    if home && !present && std::os::unix::fs::symlink(&me, &link).is_err() {
+        println!("  {}", ui::dim(&format!("Home is on in this network. For `tphome`: sudo ln -s {} {}", me.display(), link.display())));
+    }
+    if home {
+        println!("  {}", ui::dim("`tphome` controls the house; `tpcloud` alone opens everything."));
     }
 }
 

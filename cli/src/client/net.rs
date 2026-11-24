@@ -304,6 +304,32 @@ impl Remote {
         Ok(json_of(res).unwrap_or(Value::Null))
     }
 
+    /// Starts a sign-in someone approves from a browser or a phone already signed in (the web's
+    /// QR sign-in): returns the page that approves it, and the secret to collect the session with.
+    pub fn start_approval(&self) -> Result<(String, String)> {
+        let res = Self::finish(self.request("POST", "/auth/qr/start").call())?;
+        let cookie = res
+            .all("set-cookie")
+            .into_iter()
+            .find(|c| c.contains("tpcloud_qr="))
+            .and_then(|c| c.split(';').next())
+            .map(str::to_string)
+            .context("the server didn't start the sign-in")?;
+        let body = json_of(res)?;
+        Ok((body["url"].as_str().unwrap_or("").to_string(), cookie))
+    }
+
+    /// How that sign-in is going: pending, scanned, approved (then the token is kept), denied
+    /// or expired.
+    pub fn poll_approval(&mut self, cookie: &str) -> Result<String> {
+        let res = Self::finish(self.request("GET", "/auth/qr/poll").set("Cookie", cookie).call())?;
+        if let Some(t) = res.header("x-tp-session") {
+            self.token = Some(t.to_string());
+        }
+        let body = json_of(res)?;
+        Ok(body["status"].as_str().unwrap_or("expired").to_string())
+    }
+
     /// Password sign-in: keeps the session token; Ok(true) when a TOTP code is needed next.
     pub fn login(&mut self, email: &str, password: &str) -> Result<bool> {
         let res = send_json(self.request("POST", "/auth/password/login"), serde_json::json!({ "email": email, "password": password }));

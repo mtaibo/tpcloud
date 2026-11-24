@@ -21,6 +21,8 @@ anyhow = "=1.0.98"
 clap = { version = "=4.5.40", features = ["derive"] }
 crossterm = "=0.28.1"
 libc = "=0.2.186"
+# The QR code `tpcloud login` shows, to approve the sign-in from a phone.
+qrcode = { version = "=0.14.1", default-features = false }
 # Announces the host on the local network (Bonjour) where there's no avahi to do it.
 mdns-sd = { version = "=0.22.0", default-features = false }
 ratatui = "=0.29.0"
