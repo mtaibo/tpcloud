@@ -153,6 +153,6 @@ Each photo is unique per user by checksum, so the same picture is never stored t
 
 ## How to run
 
-Store is part of tpcloud and ships inside its single `tpcloud` file: turn it on in the guided setup (or with `sudo tpcloud module enable store`) and the server runs the API as its `store-api` process, with its database and thumbnails in `/var/lib/tpcloud/data/store/` and users' files in the folder the setup asks for (`EXTERNAL_DISK_PATH`). See tpcloud's [How to run](../../README.md#how-to-run).
+Store is part of tpcloud and ships inside its single `tpcloud` file: turn it on in the guided setup (or with `sudo tpcloud module enable store`) and the server runs the API as its `store-api` process, with its database and thumbnails in `/var/lib/tpcloud/data/store/` and users' files in the folder the setup asks for (`EXTERNAL_DISK_PATH`): a folder on a disk that's already mounted, or the mirrored, optionally encrypted Btrfs pool the setup can make on empty disks. See tpcloud's [How to run](../../README.md#how-to-run).
 
 No routing to configure here: the gateway serves the three web apps and sends `/store/api` and the share endpoints to the API. With Docker instead, it's the `store-api` container behind the `store` profile of tpcloud's [compose file](../../docker-compose.yml).
