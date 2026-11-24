@@ -2,6 +2,15 @@
 
 use std::io::IsTerminal;
 
+/// sudo's password prompt, in line with the rest of the output.
+pub const SUDO_PROMPT: &str = "  Password for %u: ";
+
+/// clap's help or error, as the rest looks: a blank line around it and two spaces in.
+pub fn indented(text: &str) -> String {
+    let body: Vec<String> = text.trim_end().lines().map(|l| if l.is_empty() { String::new() } else { format!("  {l}") }).collect();
+    format!("\n{}\n", body.join("\n"))
+}
+
 fn paint(code: &str, text: &str) -> String {
     if std::io::stdout().is_terminal() {
         format!("\x1b[{code}m{text}\x1b[0m")

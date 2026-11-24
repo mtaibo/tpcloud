@@ -60,6 +60,8 @@ pub fn print(server: bool) {
     println!("  {} {}", ui::bold(&ui::accent("TPCloud")), ui::dim(&format!("v{}", env!("CARGO_PKG_VERSION"))));
     println!("  {}", ui::dim("Your cloud, from the terminal."));
     println!();
+    println!("  {} {} {}", ui::green("›"), ui::accent("tpcloud <command> --help"), ui::dim("tells you everything about one"));
+    println!();
     println!("  {}{}", ui::accent("tpcloud"), "                         Alone: everything in one screen");
     println!();
     #[cfg(feature = "host")]
@@ -72,8 +74,26 @@ pub fn print(server: bool) {
     if !server {
         section("This computer", THIS_COMPUTER);
     }
-    println!("  {} {}", ui::accent("tpcloud <command> --help"), ui::dim("for the details of one"));
-    println!();
+}
+
+/// Parses the arguments; a command's own `--help` comes out like ours (two spaces in, with a
+/// blank line around it), errors as clap prints them.
+pub fn parse<T: clap::Parser>(args: impl IntoIterator<Item = String>) -> T {
+    use clap::error::ErrorKind;
+    use std::io::IsTerminal;
+    match T::try_parse_from(args) {
+        Ok(parsed) => parsed,
+        Err(err) if matches!(err.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand) => {
+            let tty = std::io::stdout().is_terminal();
+            let text = if tty { err.render().ansi().to_string() } else { err.render().to_string() };
+            // The command's line on top in bold, like a title.
+            let (first, rest) = text.split_once('\n').unwrap_or((&text, ""));
+            print!("{}", ui::indented(&format!("{}\n{rest}", ui::bold(first))));
+            println!();
+            std::process::exit(0);
+        }
+        Err(err) => err.exit(),
+    }
 }
 
 /// The same look for clap's own help and errors.
@@ -81,8 +101,8 @@ pub fn styles() -> clap::builder::Styles {
     use clap::builder::styling::{Ansi256Color, Color, Style};
     let accent = Style::new().fg_color(Some(Color::Ansi256(Ansi256Color(75))));
     clap::builder::Styles::styled()
-        .header(Style::new().bold())
-        .usage(Style::new().bold())
+        .header(accent.bold())
+        .usage(accent.bold())
         .literal(accent)
         .placeholder(Style::new().dimmed())
         .valid(accent)

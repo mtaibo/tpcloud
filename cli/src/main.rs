@@ -74,8 +74,12 @@ enum Command {
     Login {
         /// tpcloud.local, cloud.example.com…; left out: the network in use, or the one found here.
         address: Option<String>,
+        /// Sign in with this email and its password, here in the terminal.
         #[arg(long)]
         email: Option<String>,
+        /// Offer «later» too (the installer signs in right after installing).
+        #[arg(long, hide = true)]
+        later: bool,
     },
     /// Sign out of the network in use.
     Logout,
@@ -88,12 +92,14 @@ enum Command {
     },
     /// Who you're signed in as, and where.
     Whoami,
-    /// Your sessions (`--all`: everyone's, admins); `revoke <id>` closes one.
+    /// Where you're signed in (each session's device and number); `revoke <number>` signs it out.
     Sessions {
+        /// Everyone's sessions, not just yours (admins).
         #[arg(long)]
         all: bool,
-        /// revoke
+        /// `revoke` to close one.
         verb: Option<String>,
+        /// The session's number, from the list.
         id: Option<i64>,
     },
     /// The host's TPCloud version (admins); `check` looks for a newer one, `update` installs it.
@@ -277,7 +283,7 @@ fn run() -> Result<()> {
         help::print(host_here());
         return Ok(());
     }
-    let cli = Cli::parse_from(args);
+    let cli: Cli = help::parse(args);
     match cli.command {
         #[cfg(feature = "host")]
         None if host_here() && std::io::stdout().is_terminal() && std::io::stdin().is_terminal() => tui::run(),
@@ -292,7 +298,7 @@ fn run() -> Result<()> {
                 Ok(())
             }
         }
-        Some(Command::Login { address, email }) => client::login(address, email),
+        Some(Command::Login { address, email, later }) => client::login(address, email, later),
         Some(Command::Logout) => client::logout(),
         Some(Command::Networks { verb, name }) => match (verb.as_deref(), name) {
             (None, _) => client::networks(None),

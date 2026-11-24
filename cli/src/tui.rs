@@ -220,15 +220,15 @@ fn handle_key(app: &mut App, code: KeyCode) {
         app.data.lock().unwrap().message = None;
         return;
     }
-    if matches!(code, KeyCode::Esc | KeyCode::Left) {
+    if matches!(code, KeyCode::Esc | KeyCode::Left | KeyCode::Char('h')) {
         app.inside = false;
         return;
     }
     match app.section() {
         Section::Home => home_key(app, code),
         Section::Modules => match code {
-            KeyCode::Up => app.module = app.module.saturating_sub(1),
-            KeyCode::Down => app.module = (app.module + 1).min(1),
+            KeyCode::Up | KeyCode::Char('k') => app.module = app.module.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => app.module = (app.module + 1).min(1),
             KeyCode::Enter | KeyCode::Char(' ') => {
                 let name = ["store", "home"][app.module];
                 let on = !app.data.lock().unwrap().status.as_ref().is_some_and(|s| s.modules.iter().any(|m| m == name));
@@ -297,10 +297,10 @@ fn draw(f: &mut Frame, app: &mut App) {
         Section::Setup => draw_setup(f, body),
     }
     let hint = match (app.inside, app.section()) {
-        (false, _) => "↑↓ choose · enter open · q quit",
-        (true, Section::Home) => "↑↓ blind · u up · d down · s stop · 0–9 position (×10 %) · ← back",
-        (true, Section::Modules) => "↑↓ module · enter turn on/off · ← back",
-        (true, Section::Logs) => "↑↓ service · ← back",
+        (false, _) => "↑↓ jk choose · enter l open · q quit",
+        (true, Section::Home) => "↑↓ blind · u up · d down · s stop · 0–9 position (×10 %) · ← h back",
+        (true, Section::Modules) => "↑↓ module · enter turn on/off · ← h back",
+        (true, Section::Logs) => "↑↓ service · ← h back",
         (true, _) => "← back · q quit",
     };
     let footer = match &data.message {

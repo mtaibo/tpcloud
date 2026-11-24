@@ -260,6 +260,13 @@ fn approve_in_browser(remote: &mut Remote, qr: bool) -> Result<()> {
     bail!("nobody approved it in time: `tpcloud login` again")
 }
 
+fn sign_in_later() -> Result<()> {
+    println!();
+    println!("  {}", ui::dim(&format!("Whenever you like: {}", ui::accent("tpcloud login"))));
+    println!();
+    Ok(())
+}
+
 /// One line of a numbered choice: the number, the option in bold, what it means dimmed, aligned.
 fn option(key: &str, title: &str, detail: &str) {
     let pad = 22usize.saturating_sub(title.chars().count());
@@ -267,7 +274,7 @@ fn option(key: &str, title: &str, detail: &str) {
 }
 
 /// `tpcloud login [address]`.
-pub fn login(address: Option<String>, email: Option<String>) -> Result<()> {
+pub fn login(address: Option<String>, email: Option<String>, later: bool) -> Result<()> {
     let mut store = Store::load();
     let address = match address {
         Some(a) => a,
@@ -281,7 +288,12 @@ pub fn login(address: Option<String>, email: Option<String>) -> Result<()> {
                     0 => {
                         println!("  {}", ui::dim("None answered here."));
                         println!();
-                        read_line("  Its address (e.g. tpcloud.local or cloud.example.com)", "")?
+                        let hint = if later { "  Its address (e.g. tpcloud.local or cloud.example.com; empty: later)" } else { "  Its address (e.g. tpcloud.local or cloud.example.com)" };
+                        let typed = read_line(hint, "")?;
+                        if typed.is_empty() && later {
+                            return sign_in_later();
+                        }
+                        typed
                     }
                     1 => {
                         println!("  {} Found {}  {}", ui::green("✓"), ui::bold(&found[0].0), ui::dim(&found[0].1));
@@ -320,9 +332,20 @@ pub fn login(address: Option<String>, email: Option<String>) -> Result<()> {
         option("1", "In the browser", "opens it here: a passkey, or a session you already have");
         option("2", "With your phone", "a QR code to scan from one already signed in");
         option("3", "Email and password", "here, in the terminal");
+        if later {
+            option("4", "Later", "whenever you like: tpcloud login");
+        }
         println!();
-        (ui::key(&format!("  Choose {}, {} or {}", ui::accent("1"), ui::accent("2"), ui::accent("3")), 3, 0)? + 1).to_string()
+        let prompt = if later {
+            format!("  Choose {}, {}, {} or {}", ui::accent("1"), ui::accent("2"), ui::accent("3"), ui::accent("4"))
+        } else {
+            format!("  Choose {}, {} or {}", ui::accent("1"), ui::accent("2"), ui::accent("3"))
+        };
+        (ui::key(&prompt, if later { 4 } else { 3 }, 0)? + 1).to_string()
     };
+    if how == "4" {
+        return sign_in_later();
+    }
     if how != "3" {
         approve_in_browser(&mut remote, how == "2")?;
     } else {
@@ -747,13 +770,17 @@ pub fn uninstall() -> Result<()> {
     let needs_sudo = !root && (state || user || group || command.iter().chain(&app).any(|p| !writable(p)));
     if needs_sudo {
         println!("  {}", ui::dim("Your password, to remove it for everyone on this computer:"));
-        if !std::process::Command::new("sudo").arg("-v").status().is_ok_and(|s| s.success()) {
+        println!();
+        if !std::process::Command::new("sudo").args(["-v", "-p", ui::SUDO_PROMPT]).status().is_ok_and(|s| s.success()) {
             bail!("without it nothing was removed");
         }
         println!();
     }
     let as_root = |args: &[&str]| {
         let mut cmd = std::process::Command::new(if root { args[0] } else { "sudo" });
+        if !root {
+            cmd.args(["-p", ui::SUDO_PROMPT]);
+        }
         cmd.args(if root { &args[1..] } else { args });
         cmd.status().is_ok_and(|s| s.success())
     };

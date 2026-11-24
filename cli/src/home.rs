@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use serde_json::Value;
 
 #[derive(Parser)]
-#[command(name = "tphome", version, about = "Control the house's blinds and lights from the terminal.")]
+#[command(name = "tphome", version, about = "Control the house's blinds and lights from the terminal.", styles = crate::help::styles())]
 #[command(after_help = "Examples:\n  tphome                     every blind and its state\n  tphome --blind B0301 up    raise it (also: down, stop)\n  tphome --blind B0301 50    move it to 50 % open (0 closed, 100 open)")]
 pub struct HomeCli {
     /// The blind to act on (e.g. B0301); alone, shows its state.
@@ -34,7 +34,7 @@ enum HomeCommand {
 }
 
 pub fn run(args: impl IntoIterator<Item = String>) -> Result<()> {
-    let cli = HomeCli::parse_from(args);
+    let cli: HomeCli = crate::help::parse(args);
     let api = Api::connect()?;
     match (cli.blind, cli.action, cli.command) {
         (Some(id), Some(action), _) => blind_action(&api, &id, &action),

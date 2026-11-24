@@ -200,9 +200,9 @@ fn handle(app: &mut App, key: KeyCode) -> bool {
         let n = app.sections.len();
         let i = app.menu.selected().unwrap_or(0);
         match key {
-            KeyCode::Up => app.menu.select(Some((i + n - 1) % n)),
-            KeyCode::Down => app.menu.select(Some((i + 1) % n)),
-            KeyCode::Enter | KeyCode::Right if current(app) != Section::Overview => {
+            KeyCode::Up | KeyCode::Char('k') => app.menu.select(Some((i + n - 1) % n)),
+            KeyCode::Down | KeyCode::Char('j') => app.menu.select(Some((i + 1) % n)),
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') if current(app) != Section::Overview => {
                 app.focused = true;
                 app.item.select(Some(0));
             }
@@ -224,9 +224,9 @@ fn handle(app: &mut App, key: KeyCode) -> bool {
         .unwrap_or(Value::Null)
     };
     match (current(app), key) {
-        (_, KeyCode::Esc | KeyCode::Left) => app.focused = false,
-        (_, KeyCode::Up) => app.item.select(Some((i + n - 1) % n)),
-        (_, KeyCode::Down) => app.item.select(Some((i + 1) % n)),
+        (_, KeyCode::Esc | KeyCode::Left | KeyCode::Char('h')) => app.focused = false,
+        (_, KeyCode::Up | KeyCode::Char('k')) => app.item.select(Some((i + n - 1) % n)),
+        (_, KeyCode::Down | KeyCode::Char('j')) => app.item.select(Some((i + 1) % n)),
         (Section::Home, KeyCode::Char(c @ ('u' | 'd' | 's'))) => {
             if let Some(id) = selected(app)["id"].as_str() {
                 let cmd = match c { 'u' => "up", 'd' => "down", _ => "stop" };
@@ -338,12 +338,12 @@ fn draw(f: &mut Frame, app: &mut App, network: &Value) {
     }
     // Footer: the last action, or the keys.
     let hint = match (app.focused, section) {
-        (false, _) => "↑↓ choose  ⏎ open  q quit",
-        (true, Section::Home) => "↑↓ blind  u up  d down  s stop  0–9 position  ← back",
-        (true, Section::Users) => "↑↓ account  a admin on/off  ← back   (add/remove: tpcloud users)",
-        (true, Section::Sessions) => "↑↓ session  r close it  ← back",
-        (true, Section::Server) => "c look for updates  u update the host  ← back",
-        (true, Section::Overview) => "← back",
+        (false, _) => "↑↓ jk choose  ⏎ l open  q quit",
+        (true, Section::Home) => "↑↓ blind  u up  d down  s stop  0–9 position  ← h back",
+        (true, Section::Users) => "↑↓ account  a admin on/off  ← h back   (add/remove: tpcloud users)",
+        (true, Section::Sessions) => "↑↓ session  r close it  ← h back",
+        (true, Section::Server) => "c look for updates  u update the host  ← h back",
+        (true, Section::Overview) => "← h back",
     };
     let footer = match d.message.as_ref().filter(|m| m.2.elapsed() < Duration::from_secs(5)) {
         Some((text, color, _)) => Line::from(Span::styled(format!(" {text}"), Style::default().fg(*color))),
