@@ -760,7 +760,10 @@ pub fn uninstall() -> Result<()> {
         }
     }
     let app: Vec<PathBuf> = if cfg!(target_os = "linux") {
-        APP_FILES.iter().map(PathBuf::from).filter(|p| p.symlink_metadata().is_ok()).collect()
+        // On NixOS /get puts the menu entry and icon in the person's own share folder.
+        let share = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
+        let mine = share.into_iter().flat_map(|s| [s.join("applications/tpcloud.desktop"), s.join("icons/hicolor/scalable/apps/tpcloud.svg")]);
+        APP_FILES.iter().map(PathBuf::from).chain(mine).filter(|p| p.symlink_metadata().is_ok()).collect()
     } else {
         Vec::new()
     };

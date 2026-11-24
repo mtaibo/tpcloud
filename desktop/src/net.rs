@@ -244,7 +244,7 @@ pub struct Api {
     pub token: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, serde::Serialize)]
 pub struct Me {
     pub email: String,
     #[serde(default)]
@@ -277,19 +277,23 @@ impl Host {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, serde::Serialize)]
 pub struct Entry {
     pub name: String,
     #[serde(rename = "type")]
     pub kind: String,
     pub size: Option<u64>,
+    #[serde(default)]
+    pub modified: Option<f64>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, serde::Serialize)]
 pub struct Photo {
     pub id: i64,
     pub path: String,
     pub location: String,
+    #[serde(default)]
+    pub taken_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -441,6 +445,17 @@ impl Api {
         let res = self
             .req(reqwest::Method::GET, "/store/api/files/thumbnail")
             .query(&[("path", photo.path.as_str()), ("location", photo.location.as_str()), ("size", "256")])
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        Self::check(res).await?.bytes().await.map(|b| b.to_vec()).map_err(|e| e.to_string())
+    }
+
+    /// A file's thumbnail (photos and videos; the server makes and keeps it), `size` px.
+    pub async fn file_thumbnail(&self, path: &str, size: u32) -> Result<Vec<u8>> {
+        let res = self
+            .req(reqwest::Method::GET, "/store/api/files/thumbnail")
+            .query(&[("path", path), ("location", "external"), ("size", &size.to_string())])
             .send()
             .await
             .map_err(|e| e.to_string())?;
