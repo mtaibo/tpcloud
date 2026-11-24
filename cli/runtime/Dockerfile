@@ -80,7 +80,11 @@ FROM alpine:3.22 AS btrfs
 ARG BTRFS_VERSION
 ARG BTRFS_SHA256
 RUN apk add --no-cache build-base curl linux-headers util-linux-dev util-linux-static zlib-dev zlib-static lzo-dev zstd-dev zstd-static e2fsprogs-dev libeconf-dev pkgconf
-RUN curl -fsSL -o /tmp/src.tar.xz https://mirrors.edge.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/btrfs-progs-v${BTRFS_VERSION}.tar.xz \
+# kernel.org's mirrors drop a connection now and then (two releases failed on it): retried, then
+# the same file from its other hosts; the checksum is what decides.
+RUN for host in mirrors.edge.kernel.org cdn.kernel.org www.kernel.org; do \
+      curl -fsSL --retry 4 --retry-all-errors --retry-delay 3 -o /tmp/src.tar.xz https://$host/pub/linux/kernel/people/kdave/btrfs-progs/btrfs-progs-v${BTRFS_VERSION}.tar.xz && break; \
+    done \
  && echo "${BTRFS_SHA256}  /tmp/src.tar.xz" | sha256sum -c - && tar -xJf /tmp/src.tar.xz -C /tmp
 WORKDIR /tmp/btrfs-progs-v${BTRFS_VERSION}
 RUN ./configure --disable-documentation --disable-python --disable-libudev --disable-convert --disable-zoned --disable-backtrace >/dev/null \
@@ -98,7 +102,9 @@ RUN curl -fsSL -o /tmp/jsonc.tar.gz https://s3.amazonaws.com/json-c_releases/rel
  && echo "${JSONC_SHA256}  /tmp/jsonc.tar.gz" | sha256sum -c - && tar -xzf /tmp/jsonc.tar.gz -C /tmp \
  && cmake -S /tmp/json-c-${JSONC_VERSION} -B /tmp/json-c-build -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DDISABLE_EXTRA_LIBS=ON >/dev/null \
  && cmake --build /tmp/json-c-build -j"$(nproc)" >/dev/null && cmake --install /tmp/json-c-build >/dev/null
-RUN curl -fsSL -o /tmp/src.tar.xz https://www.kernel.org/pub/linux/utils/cryptsetup/v${CRYPTSETUP_VERSION%.*}/cryptsetup-${CRYPTSETUP_VERSION}.tar.xz \
+RUN for host in www.kernel.org cdn.kernel.org mirrors.edge.kernel.org; do \
+      curl -fsSL --retry 4 --retry-all-errors --retry-delay 3 -o /tmp/src.tar.xz https://$host/pub/linux/utils/cryptsetup/v${CRYPTSETUP_VERSION%.*}/cryptsetup-${CRYPTSETUP_VERSION}.tar.xz && break; \
+    done \
  && echo "${CRYPTSETUP_SHA256}  /tmp/src.tar.xz" | sha256sum -c - && tar -xJf /tmp/src.tar.xz -C /tmp
 WORKDIR /tmp/cryptsetup-${CRYPTSETUP_VERSION}
 RUN LIBS=-leconf ./configure --enable-static-cryptsetup --disable-asciidoc --disable-ssh-token --disable-nls --disable-external-tokens \
