@@ -297,13 +297,18 @@ On a Mac that installs the `tpcloud` command (the app for Mac and iPhone is on T
 | Command | What it does |
 |---|---|
 | `tpcloud login [address]` | Find the server on this network (or at an address) and sign in, approving it in the browser or with email, password and code |
-| `tpcloud` | The network in a terminal app: overview, the house, accounts, sessions and the server |
+| `tpcloud` | The network in a terminal app: overview, your files (browse, download, upload, share), synced folders, share links, the house, accounts, sessions and the server |
+| `tpcloud sync add [folder] [--full]` | Your files in a folder here (`~/TPCloud` by default): on demand, or a full two-way copy with `--full` |
+| `tpcloud sync keep <path>` · `free <path>` | Keep a folder on demand here for good, or give back the room what was fetched takes |
+| `tpcloud sync mode <folder> demand\|full` · `sync` | Switch a folder between on demand and a full copy; how each one is doing |
 | `tpcloud networks` · `networks use <name>` | The networks this computer knows, and which one is in use |
 | `tpcloud users [add\|remove\|admin]` | Accounts (admins) |
 | `tpcloud sessions [--all] [revoke <id>]` | Your sessions, or everyone's (admins), and close one |
 | `tpcloud host [check\|update]` | The server's version, and update it (admins) |
 | `tphome` | The house, over the network |
 | `tpcloud update` · `delete` | Update this command, or remove every trace of it, sign-ins included |
+
+**Folders on demand** (Linux, through FUSE): the folder shows every file in the cloud with its name, size and date, but they take no room until one is opened; then it's fetched and kept for a day (or for good, inside what `tpcloud sync keep` marks), and whatever is written there goes up when it's closed. On a Mac, and anywhere without FUSE, a synced folder is a full two-way copy, like `--full`: changes go both ways every few seconds, and a file changed on both sides keeps both versions. A small user service (systemd, or launchd on a Mac) keeps them going after a restart.
 
 The first time it reaches a server at home it checks the server's own certificate authority against the fingerprint the server publishes, and from then on trusts that authority only for that network's local names, like the apps do. Sign-ins are kept in `~/.config/tpcloud` (on a Mac, `~/Library/Application Support/tpcloud`), shared with the Linux app.
 
