@@ -2,79 +2,235 @@
 # TPCloud for this computer: curl -fsSL https://tpcloud.migueltaibo.com/get | sh
 #
 #   Mac    the `tpcloud` command (the app itself is on TestFlight for now)
-#   Linux  the TPCloud app (in the applications menu) and the `tpcloud` command
+#   Linux  asks first: signed in to a cloud (the TPCloud app and the `tpcloud` command), or as
+#          the cloud itself (the server, the same as /install)
 #
 # Always the same places, so running it again (or after anything else) updates, never duplicates:
 # /usr/local/bin/tpcloud, /usr/local/bin/tpcloud-app, /usr/local/share/applications/tpcloud.desktop.
 # On a TPCloud server its own `tpcloud` stays: it's a client too.
-#   `tpcloud uninstall` takes it all away again, sign-ins included (… | sh -s -- --uninstall: all but those).
+#   `tpcloud uninstall` (or … | sh -s -- --uninstall) takes it all away again, sign-ins included.
 set -eu
 
-say() { printf '%s\n' "$*"; }
-bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 base="https://github.com/mtaibo/tpcloud/releases/latest/download"
 bin=/usr/local/bin
 apps=/usr/local/share/applications
 icons=/usr/local/share/icons/hicolor/scalable/apps
 
+# ── How it looks ──
+if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ]; then
+  tty=1 B='\033[1m' D='\033[2m' G='\033[32m' A='\033[38;5;75m' Y='\033[33m' R='\033[0m' CL='\r\033[2K'
+else
+  tty='' B='' D='' G='' A='' Y='' R='' CL=''
+fi
+say() { printf '%b\n' "$*"; }
+ok() { printf "${CL}  ${G}✓${R} %-10s ${D}%s${R}\n" "$1" "${2:-}"; } # ok <what> [detail]
+note() { printf "  ${Y}!${R} %b\n" "$*"; }
+hint() { printf "    ${D}%b${R}\n" "$*"; }
+cmd() { printf "${A}%s${R}" "$*"; }
+
+human() { # bytes → "2.9 MB"
+  awk -v b="$1" 'BEGIN { if (b >= 1048576) printf "%.1f MB", b / 1048576; else printf "%d KB", b / 1024 }'
+}
+
+bar() { # bar <label> <done> <total>: one line, redrawn in place
+  w=24 filled=0 pct=''
+  if [ "$3" -gt 0 ]; then
+    filled=$(($2 * w / $3)); [ "$filled" -gt "$w" ] && filled=$w
+    pct="$(($2 * 100 / $3))%"
+  fi
+  full='' rest='' i=0
+  while [ $i -lt $w ]; do
+    if [ $i -lt $filled ]; then full="$full━"; else rest="$rest━"; fi
+    i=$((i + 1))
+  done
+  printf "${CL}  ${A}↓${R} %-10s ${A}%s${D}%s${R}  %4s ${D}%s${R}" "$1" "$full" "$rest" "$pct" "$(human "$2")"
+}
+
+die() { printf "${CL}  ${Y}✗${R} %b\n" "$*" >&2; exit 1; }
+
 as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
 
-fetch() { # fetch <asset> <file>: from the latest release (or $TPCLOUD_FROM, a folder, for testing)
+# Asks for the password once, before any bar is drawn (sudo's prompt would break the line).
+need_root() {
+  [ "$(id -u)" -eq 0 ] && return
+  sudo -n true 2>/dev/null && return
+  say "  ${D}Installing for everyone on this computer needs your password.${R}"
+  sudo -v </dev/tty || die "Without it nothing can be installed."
+}
+
+size_of() { if [ -s "$1" ]; then wc -c <"$1" | tr -d " "; else echo 0; fi; }
+
+fetch() { # fetch <asset> <file> <label>: from the latest release (or $TPCLOUD_FROM, a folder, for testing)
   if [ -n "${TPCLOUD_FROM:-}" ]; then cp "$TPCLOUD_FROM/$1" "$2"; return; fi
-  if command -v curl >/dev/null 2>&1; then curl -fL --progress-bar "$base/$1" -o "$2"; else wget -q --show-progress -O "$2" "$base/$1"; fi
+  if command -v curl >/dev/null 2>&1; then
+    total="$(curl -fsIL "$base/$1" 2>/dev/null | tr -d '\r' | awk 'tolower($1) == "content-length:" { n = $2 } END { print n + 0 }')"
+    curl -fsL "$base/$1" -o "$2" &
+  else
+    total=0
+    wget -q -O "$2" "$base/$1" &
+  fi
+  pid=$!
+  if [ -n "$tty" ]; then
+    while kill -0 "$pid" 2>/dev/null; do bar "$3" "$(size_of "$2")" "$total"; sleep 0.1; done
+  fi
+  wait "$pid" || die "Couldn't download $3. Check the connection and run it again."
+  [ -n "$tty" ] && bar "$3" "$(size_of "$2")" "$(size_of "$2")"
+  return 0
 }
 
 os="$(uname -s)"
 case "$(uname -m)" in
   aarch64 | arm64) arch=arm64 ;;
   x86_64 | amd64) arch=amd64 ;;
-  *) say "There's no TPCloud for $(uname -m) yet." >&2; exit 1 ;;
+  *) die "There's no TPCloud for $(uname -m) yet." ;;
 esac
+nixos=''; [ -e /etc/NIXOS ] && nixos=1
 
-# A TPCloud server already has `tpcloud` (the full one, with every client command).
-is_host() { [ -e /opt/tpcloud/VERSION ] || [ -e /var/lib/tpcloud/tpcloud.env ]; }
+# A TPCloud server already has `tpcloud` (the full one, with every client command). Its program
+# is what counts: a server's settings left behind (an uninstall that kept them, a setup that
+# stopped halfway) without it are leftovers, and this computer gets the client like any other.
+is_host() { [ -e /opt/tpcloud/VERSION ] && [ -x "$bin/tpcloud" ]; }
+state=/var/lib/tpcloud
+leftovers() { ! is_host && { [ -e "$state" ] || getent passwd tpcloud >/dev/null 2>&1; }; }
 
+remove_leftovers() { # an old server's settings, databases and user; asks only about people's photos
+  leftovers || return 0
+  if [ -d "$state/files" ] && [ -n "$(as_root ls -A "$state/files" 2>/dev/null)" ]; then
+    note "An old TPCloud server left people's files and photos here, in $state/files."
+    printf "    Type ${B}delete${R} to remove them too, anything else keeps them: "
+    answer=""; [ -r /dev/tty ] && { read -r answer </dev/tty || answer=""; }
+    [ "$answer" = delete ] || { hint "Kept, with the rest of that server."; return 0; }
+  fi
+  as_root rm -rf "$state"
+  getent passwd tpcloud >/dev/null 2>&1 && as_root userdel tpcloud 2>/dev/null
+  getent group tpcloud >/dev/null 2>&1 && as_root groupdel tpcloud 2>/dev/null
+  ok "Old server" "what an earlier TPCloud server left: settings, databases, its system user"
+}
+
+# The folders the files went in, once empty. /usr/local itself only on NixOS, where nothing but
+# TPCloud made it (elsewhere it's the system's).
+remove_empty_dirs() {
+  for d in "$icons" "${icons%/apps}" "${icons%/scalable/apps}" "${icons%/hicolor/scalable/apps}" "$apps"; do
+    [ -d "$d" ] && as_root rmdir "$d" 2>/dev/null || true
+  done
+  if [ -n "$nixos" ]; then
+    for d in "$bin" /usr/local/share /usr/local; do [ -d "$d" ] && as_root rmdir "$d" 2>/dev/null || true; done
+  fi
+}
+
+say ""
+say "  ${B}TPCloud${R} ${D}for this computer${R}"
+say ""
+
+# ── Uninstall: on a computer that isn't a server, everything, no questions ──
 if [ "${1:-}" = "--uninstall" ]; then
-  is_host || as_root rm -f "$bin/tpcloud" "$bin/tphome"
-  as_root rm -f "$bin/tpcloud-app" "$apps/tpcloud.desktop" "$icons/tpcloud.svg"
-  say "TPCloud's app and command are gone from this computer (your sign-ins stay in ~/.config/tpcloud)."
+  if is_host; then
+    die "This computer is a TPCloud server: $(cmd 'sudo tpcloud uninstall') asks what to keep."
+  fi
+  need_root
+  rm -rf "${HOME:-/nonexistent}/.config/tpcloud" "${HOME:-/nonexistent}/Library/Application Support/tpcloud"
+  ok "Sign-ins" "this computer's, for every network"
+  as_root rm -f "$bin/tpcloud" "$bin/tphome"
+  ok "Command" "tpcloud and tphome"
+  if [ "$os" = Linux ]; then
+    as_root rm -f "$bin/tpcloud-app" "$apps/tpcloud.desktop" "$icons/tpcloud.svg"
+    ok "App" "and its place in the applications menu"
+  fi
+  remove_leftovers
+  remove_empty_dirs
+  say ""
+  say "  ${B}TPCloud is gone from this computer.${R}"
+  say ""
   exit 0
+fi
+
+# ── Which TPCloud: signed in to a cloud, or the cloud itself ──
+role=client
+if is_host; then
+  say "  ${D}This computer is your TPCloud server: its tpcloud already does everything.${R}"
+  say ""
+elif [ "$os" = Linux ]; then
+  if [ -r /dev/tty ] && [ -n "$tty" ]; then
+    say "  ${B}How do you want it here?${R}"
+    say ""
+    say "    ${A}1${R}  ${B}Signed in to your cloud${R}   ${D}the TPCloud app and the tpcloud command${R}"
+    say "    ${A}2${R}  ${B}As your cloud${R}             ${D}this computer keeps the accounts, files, photos and home${R}"
+    say ""
+    while :; do
+      printf "  Choose ${A}1${R} or ${A}2${R} ${D}[1]${R}: "
+      read -r answer </dev/tty || answer=1
+      case "${answer:-1}" in
+        1) break ;;
+        2) role=host; break ;;
+      esac
+    done
+    say ""
+  fi
 fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+
+# ── As the cloud: the server program, whose own setup asks the rest ──
+if [ "$role" = host ]; then
+  if [ -n "$nixos" ] && [ ! -e /etc/systemd/system/tpcloud.service ]; then
+    note "On NixOS the server's service goes in your configuration first."
+    hint "Add this to configuration.nix, run sudo nixos-rebuild switch, then run this again:"
+    say ""
+    printf "${D}%s${R}\n" '  systemd.services.tpcloud = {
+    description = "TPCloud";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      ExecStart = "/usr/local/bin/tpcloud serve";
+      Restart = "always";
+      RestartSec = 3;
+      KillMode = "mixed";
+      TimeoutStopSec = 30;
+      LimitNOFILE = 65536;
+    };
+  };
+  environment.extraInit = '"''"'export PATH="$PATH:/usr/local/bin"'"''"';'
+    say ""
+    exit 1
+  fi
+  need_root
+  fetch "tpcloud-linux-$arch" "$tmp/tpcloud" "Server"
+  chmod 755 "$tmp/tpcloud"
+  ok "Server" "downloaded, now its setup"
+  say ""
+  # Its questions are read from the terminal (this script's stdin is the download).
+  if [ "$(id -u)" -eq 0 ]; then "$tmp/tpcloud" install </dev/tty; else sudo "$tmp/tpcloud" install </dev/tty; fi
+  exit $?
+fi
+
+# ── Signed in to a cloud: the command, and on Linux the app ──
+need_root
 as_root mkdir -p "$bin"
 
 install_cli() { # install_cli <asset>
-  if is_host; then
-    say "This computer is a TPCloud server: its tpcloud does everything, it stays."
-    return
-  fi
-  bold "The tpcloud command"
-  fetch "$1" "$tmp/tpcloud"
-  chmod 755 "$tmp/tpcloud"
-  as_root mv -f "$tmp/tpcloud" "$bin/tpcloud"
+  is_host && return
+  fetch "$1" "$tmp/tpcloud" "Command"
+  as_root install -m 755 "$tmp/tpcloud" "$bin/tpcloud"
   # tphome is the same program (it says so when a network has no Home).
   as_root ln -sf "$bin/tpcloud" "$bin/tphome"
-  say "  $bin/tpcloud $("$bin/tpcloud" --version | cut -d' ' -f2)"
+  ok "Command" "tpcloud $("$bin/tpcloud" --version | cut -d' ' -f2)"
 }
 
 case "$os" in
   Darwin)
     install_cli tpcloud-cli-macos
-    say ""
-    say "The TPCloud app for Mac and iPhone is on TestFlight for now."
+    ok "App" "for Mac and iPhone, on TestFlight for now"
     ;;
   Linux)
     install_cli "tpcloud-cli-linux-$arch"
-    bold "The TPCloud app"
-    fetch "tpcloud-app-linux-$arch" "$tmp/tpcloud-app"
-    chmod 755 "$tmp/tpcloud-app"
-    as_root mv -f "$tmp/tpcloud-app" "$bin/tpcloud-app"
+    fetch "tpcloud-app-linux-$arch" "$tmp/tpcloud-app" "App"
+    as_root install -m 755 "$tmp/tpcloud-app" "$bin/tpcloud-app"
     as_root mkdir -p "$apps" "$icons"
     if [ -n "${TPCLOUD_FROM:-}" ] && [ -e "$TPCLOUD_FROM/favicon.svg" ]; then cp "$TPCLOUD_FROM/favicon.svg" "$tmp/tpcloud.svg"
     else curl -fsSL https://tpcloud.migueltaibo.com/favicon.svg -o "$tmp/tpcloud.svg" 2>/dev/null || true; fi
-    [ -s "$tmp/tpcloud.svg" ] && as_root mv -f "$tmp/tpcloud.svg" "$icons/tpcloud.svg"
+    [ -s "$tmp/tpcloud.svg" ] && as_root install -m 644 "$tmp/tpcloud.svg" "$icons/tpcloud.svg"
     cat > "$tmp/tpcloud.desktop" <<EOF
 [Desktop Entry]
 Type=Application
@@ -85,15 +241,37 @@ Icon=tpcloud
 Categories=Network;FileTransfer;
 Terminal=false
 EOF
-    as_root mv -f "$tmp/tpcloud.desktop" "$apps/tpcloud.desktop"
-    say "  $bin/tpcloud-app, and TPCloud in the applications menu"
-    if [ -e /etc/NIXOS ]; then
-      say ""
-      say "NixOS: /usr/local/bin needs to be in PATH, and the app needs nix-ld (programs.nix-ld.enable = true)."
-    fi
+    as_root install -m 644 "$tmp/tpcloud.desktop" "$apps/tpcloud.desktop"
+    ok "App" "TPCloud, in the applications menu"
     ;;
-  *) say "TPCloud's apps are for Mac and Linux; on $os, open your cloud's address in a browser." >&2; exit 1 ;;
+  *) die "TPCloud's apps are for Mac and Linux; on $os, open your cloud's address in a browser." ;;
 esac
 
+# ── What's left to do, only when there is something ──
+loader=/lib64/ld-linux-x86-64.so.2; [ "$arch" = arm64 ] && loader=/lib/ld-linux-aarch64.so.1
+on_path=''; case ":$PATH:" in *":$bin:"*) on_path=1 ;; esac
+needs_ld=''; [ "$os" = Linux ] && [ -n "$nixos" ] && [ ! -e "$loader" ] && needs_ld=1
+if [ -n "$needs_ld" ] || [ -z "$on_path" ] || leftovers; then
+  say ""
+  if [ -n "$needs_ld" ]; then
+    note "The app needs nix-ld to open. Add to configuration.nix and rebuild:"
+    hint "programs.nix-ld.enable = true;"
+  fi
+  if [ -z "$on_path" ]; then
+    if [ -n "$nixos" ] && grep -qs "$bin" /etc/set-environment; then
+      note "This session started before NixOS learnt where tpcloud is: log out and back in."
+      hint "In this terminal, for now: export PATH=\"\$PATH:$bin\""
+    elif [ -n "$nixos" ]; then
+      note "NixOS doesn't look where tpcloud is yet. Add to configuration.nix and rebuild:"
+      hint "environment.extraInit = ''export PATH=\"\$PATH:$bin\"'';"
+    else
+      note "Your shell doesn't look where tpcloud is yet. Add to your shell's profile:"
+      hint "export PATH=\"\$PATH:$bin\""
+    fi
+  fi
+  leftovers && note "An old TPCloud server's settings are still here: $(cmd 'tpcloud uninstall') removes them."
+fi
+
 say ""
-bold "Done. Sign in with: tpcloud login"
+say "  ${B}Ready.${R} Sign in with $(cmd 'tpcloud login')"
+say ""
