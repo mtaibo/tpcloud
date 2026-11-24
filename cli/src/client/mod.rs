@@ -626,42 +626,91 @@ pub fn host(action: Option<&str>) -> Result<()> {
 
 // ── Keeping this program up to date where it isn't a host ──
 
-/// `tpcloud update` on a computer that isn't a host: the newest `tpcloud` for this system,
-/// checked against GitHub's checksum, in place of this file.
+/// `tpcloud update` on a computer that isn't a host: the newest `tpcloud` for this system and,
+/// on Linux with the app installed, the newest app, each checked against GitHub's checksum and put
+/// where `/get` put it (asking for the password once, only if a file needs it).
 pub fn self_update() -> Result<()> {
-    let asset = if cfg!(target_os = "macos") {
-        "tpcloud-cli-macos".to_string()
-    } else {
-        format!("tpcloud-cli-linux-{}", match std::env::consts::ARCH { "aarch64" => "arm64", "x86_64" => "amd64", other => other })
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "amd64",
+        other => other,
     };
-    let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(300)).user_agent(&format!("tpcloud/{}", env!("CARGO_PKG_VERSION"))).build();
-    let release = agent.get("https://api.github.com/repos/mtaibo/tpcloud/releases/latest").call()?;
-    let release = net::json_of(release)?;
+    let me = std::env::current_exe()?.canonicalize()?;
+    let mut wanted: Vec<(String, PathBuf, &str)> = vec![(if cfg!(target_os = "macos") { "tpcloud-cli-macos".to_string() } else { format!("tpcloud-cli-linux-{arch}") }, me.clone(), "Command")];
+    let app = PathBuf::from("/usr/local/bin/tpcloud-app");
+    if cfg!(target_os = "linux") && app.exists() {
+        wanted.push((format!("tpcloud-app-linux-{arch}"), app, "App"));
+    }
+
+    println!();
+    println!("  {} {}", ui::bold("TPCloud"), ui::dim("for this computer"));
+    println!();
+    let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(600)).user_agent(&format!("tpcloud/{}", env!("CARGO_PKG_VERSION"))).build();
+    let release = net::json_of(agent.get("https://api.github.com/repos/mtaibo/tpcloud/releases/latest").call()?)?;
     let version = release["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
     let newer = |a: &str, b: &str| {
         let p = |v: &str| v.split('.').map(|x| x.parse::<u64>().unwrap_or(0)).collect::<Vec<_>>();
         p(a) > p(b)
     };
     if !newer(&version, env!("CARGO_PKG_VERSION")) {
-        ui::done(&format!("tpcloud {} is the latest.", env!("CARGO_PKG_VERSION")));
+        println!("  {} {}", ui::green("✓"), format!("tpcloud {} is the latest.", env!("CARGO_PKG_VERSION")));
+        println!();
         return Ok(());
     }
-    let a = release["assets"].as_array().into_iter().flatten().find(|a| a["name"] == asset.as_str()).cloned().with_context(|| format!("the release has no {asset}"))?;
-    ui::step(&format!("Downloading tpcloud {version}"));
-    let mut bytes = Vec::new();
-    std::io::Read::read_to_end(&mut agent.get(a["browser_download_url"].as_str().unwrap_or("")).call()?.into_reader(), &mut bytes)?;
-    if let Some(expected) = a["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")) {
-        if net::fingerprint(&bytes) != expected {
-            bail!("the download doesn't match GitHub's checksum; nothing was changed");
+
+    // Everything downloaded and checked first; nothing replaced unless all of it is good.
+    let mut ready: Vec<(PathBuf, PathBuf, &str)> = Vec::new();
+    let tmp_dir = std::env::temp_dir().join(format!("tpcloud-update-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp_dir)?;
+    for (asset, dest, label) in &wanted {
+        let a = release["assets"].as_array().into_iter().flatten().find(|a| a["name"] == asset.as_str()).cloned().with_context(|| format!("the release has no {asset}"))?;
+        print!("  {} {label:<10} {}", ui::accent("↓"), ui::dim(&format!("downloading {version}…")));
+        let _ = std::io::stdout().flush();
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut agent.get(a["browser_download_url"].as_str().unwrap_or("")).call()?.into_reader(), &mut bytes)?;
+        if let Some(expected) = a["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")) {
+            if net::fingerprint(&bytes) != expected {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                println!();
+                bail!("the {} download doesn't match GitHub's checksum; nothing was changed", label.to_lowercase());
+            }
         }
+        let file = tmp_dir.join(asset);
+        std::fs::write(&file, &bytes)?;
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755))?;
+        print!("\r\x1b[2K");
+        let _ = std::io::stdout().flush();
+        ready.push((file, dest.clone(), label));
     }
-    let me = std::env::current_exe()?.canonicalize()?;
-    let tmp = me.with_extension("new");
-    std::fs::write(&tmp, &bytes).with_context(|| format!("can't write next to {} (try with sudo)", me.display()))?;
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
-    std::fs::rename(&tmp, &me)?;
-    ui::done(&format!("tpcloud {version} installed."));
+
+    let writable = |p: &PathBuf| p.parent().and_then(|d| std::ffi::CString::new(d.as_os_str().as_encoded_bytes()).ok()).is_some_and(|d| unsafe { libc::access(d.as_ptr(), libc::W_OK) } == 0);
+    let root = unsafe { libc::geteuid() } == 0;
+    if !root && ready.iter().any(|(_, dest, _)| !writable(dest)) {
+        println!("  {}", ui::dim("Updating it for everyone on this computer needs your password."));
+        println!();
+        if !std::process::Command::new("sudo").args(["-v", "-p", ui::SUDO_PROMPT]).status().is_ok_and(|s| s.success()) {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            bail!("without it nothing was changed");
+        }
+        println!();
+    }
+    for (file, dest, label) in &ready {
+        let placed = if writable(dest) || root {
+            std::fs::copy(file, dest.with_extension("new")).and_then(|_| std::fs::rename(dest.with_extension("new"), dest)).is_ok()
+        } else {
+            std::process::Command::new("sudo").args(["-p", ui::SUDO_PROMPT, "install", "-m", "755"]).arg(file).arg(dest).status().is_ok_and(|s| s.success())
+        };
+        if !placed {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            bail!("couldn't put the new {} in {}", label.to_lowercase(), dest.display());
+        }
+        println!("  {} {label:<10} {}", ui::green("✓"), ui::dim(&format!("tpcloud {version}")));
+    }
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    println!();
+    println!("  {} {}", ui::bold("Up to date."), ui::dim("An open TPCloud app picks it up the next time it starts."));
+    println!();
     Ok(())
 }
 

@@ -25,7 +25,7 @@ const ADMINS: &[Row] = &[
 ];
 
 const THIS_COMPUTER: &[Row] = &[
-    ("update", "", "The latest tpcloud"),
+    ("update", "", "The latest tpcloud, and the app"),
     ("delete", "", "Every trace of TPCloud, gone"),
 ];
 
