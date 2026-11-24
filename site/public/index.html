@@ -4,94 +4,34 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TPCloud</title>
-  <meta name="description" content="Your own cloud in one file: files, photos and your house on a machine at home.">
   <meta name="theme-color" content="#000000">
+  <meta name="description" content="Your own cloud in one file: files, photos and your house on a machine at home.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta property="og:title" content="TPCloud">
   <meta property="og:description" content="Your own cloud in one file: files, photos and your house on a machine at home.">
   <link rel="stylesheet" href="/site.css">
   <script src="/site.js" defer></script>
-  <script src="/hero.js" defer></script>
+  <script src="/scene.js" defer></script>
 </head>
 <body>
-  <div class="wrap"><header class="top"><a class="brand" href="/"><span class="plate"><svg viewBox="0 0 1024 1024" aria-hidden="true"><rect x="224" y="272" width="576" height="128" rx="64"/><circle cx="512" cy="592" r="96"/><circle cx="512" cy="800" r="70"/></svg></span>TPCloud</a>
-    <nav class="links"><a href="#download">Download</a><a href="#what">What it is</a><a href="#how">How it works</a><a href="https://github.com/mtaibo/tpcloud">GitHub</a></nav></header></div>
-  <main class="wrap heroS">
-    <div class="heroS-text">
-    <h1>Your own cloud,<br>in one file.</h1>
-    <p class="lede">Files, photos and your house on a machine at home, and apps for every device to reach them. <b>Nothing else to install.</b></p>
-      <div class="actions">
-        <a class="btn primary" href="#download"><span class="label">Download</span></a>
-      </div>
-      <p class="hint" data-note></p>
-    </div>
-    <div class="visual" id="visual" aria-hidden="true"></div>
-  </main>
+  <header class="top"><a class="brand" href="/"><span class="plate"><svg viewBox="0 0 1024 1024" aria-hidden="true"><rect x="224" y="272" width="576" height="128" rx="64"/><circle cx="512" cy="592" r="96"/><circle cx="512" cy="800" r="70"/></svg></span>TPCloud</a><a class="get" href="#download">Download</a></header>
+  <div class="stage" aria-hidden="true"><canvas id="pts"></canvas><div class="label" id="label"><b>tpcloud</b><span>68 MB</span></div>
+    <div class="race" id="race"><div><b id="ta">16 ms</b><span>at home, tpcloud.local</span></div><div class="slow"><b id="tb">180 ms</b><span>through the internet</span></div><small>measured from a Mac, slowed down 20×</small></div></div>
 
-  <section class="block" id="download"><div class="wrap">
-    <h2>Download</h2>
-    <div class="tabs" role="tablist">
-      <button type="button" role="tab" data-tab="mac">Mac</button>
-      <button type="button" role="tab" data-tab="linux">Linux</button>
-      <button type="button" role="tab" data-tab="iphone">iPhone and iPad</button>
-      <button type="button" role="tab" data-tab="other">Windows and Android</button>
-      <button type="button" role="tab" data-tab="server">Your cloud (server)</button>
-    </div>
+  <div class="cap wide" data-at="0"><h1>Your own cloud,<br>in one file.</h1><p>Files, photos and your house, on a machine at home.</p><a class="btn" href="#download">Download</a></div>
+  <div class="cap" data-at="1"><h2>Everything inside.</h2><p><b>7,341 files</b>: Python, Caddy, ffmpeg, eight web apps. No Docker, nothing else to install.</p></div>
+  <div class="cap" data-at="2"><h2>On a machine at home.</h2><p>A Raspberry Pi or any PC with Linux. Your files stay on its disks.</p></div>
+  <div class="cap" data-at="3"><h2>Every device finds it.</h2><p>On the Wi-Fi by itself, and at your own address when you’re out.</p></div>
+  <div class="cap" data-at="4"><h2>Ten times faster.</h2><p>At home it goes straight to it, not around the internet.</p></div>
+  <div class="cap wide" data-at="5"><h1>Your own cloud,<br>in one file.</h1><a class="btn" href="#download">Download</a></div>
 
-    <div class="panel" data-panel="mac">
-      <div class="row"><div><h3>The app</h3><p>Files, photos with backup, your home. The same app as the iPhone’s.</p></div><span class="tag">On TestFlight</span></div>
-      <div class="row col"><div><h3>The terminal</h3><p>The <span class="mono">tpcloud</span> command: sign in, run accounts and update your server; <span class="mono">tphome</span> for the house.</p></div>
-        <div class="cmd"><code data-copy="curl -fsSL https://tpcloud.migueltaibo.com/get | sh"><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/get | sh</code><button class="copy" type="button">Copy</button></div>
-        <p class="note">Then <span class="mono">tpcloud login</span>. Running it again updates it; <span class="mono">tpcloud uninstall</span> takes it away. Or the file: <a href="/download/cli/macos">tpcloud for Mac</a>.</p></div>
-    </div>
-
-    <div class="panel" data-panel="linux">
-      <div class="row col"><div><h3>The app and the terminal, in one go</h3><p>The TPCloud app (in your applications menu) and the <span class="mono">tpcloud</span> command.</p></div>
-        <div class="cmd"><code data-copy="curl -fsSL https://tpcloud.migueltaibo.com/get | sh"><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/get | sh</code><button class="copy" type="button">Copy</button></div>
-        <p class="note">Then open TPCloud, or <span class="mono">tpcloud login</span>. Running it again updates it; <span class="mono">tpcloud uninstall</span> takes it all away. On NixOS it needs nix-ld.</p></div>
-      <div class="row"><div><h3>Or the files</h3><p>One file each, nothing to install.</p></div>
-        <div class="files"><a class="btn small" data-file="app">App <small></small></a><a class="btn small" data-file="cli">tpcloud <small></small></a></div></div>
-    </div>
-
-    <div class="panel" data-panel="iphone">
-      <div class="row"><div><h3>The app</h3><p>Your files, your photos backed up in the background, your home. It finds your cloud on your Wi-Fi by itself.</p></div><span class="tag">On TestFlight</span></div>
-    </div>
-
-    <div class="panel" data-panel="other">
-      <div class="row"><div><h3>The browser</h3><p>Open your cloud’s address: <span class="mono">tpcloud.local</span> at home, or your own domain. Apps of their own come later.</p></div><span class="tag">Nothing to install</span></div>
-    </div>
-
-    <div class="panel" data-panel="server">
-      <div class="row col"><div><h3>Make a machine your cloud</h3><p>A Raspberry Pi or a PC with Linux, at home. On it:</p></div>
-        <div class="cmd"><code data-copy="curl -fsSL https://tpcloud.migueltaibo.com/install | sh"><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/install | sh</code><button class="copy" type="button">Copy</button></div>
-        <p class="note">It asks how you want to set it up: right there, or from the app or a browser at <span class="mono">http://tpcloud.local</span>. Its <span class="mono">tpcloud</span> does everything, server and client; <span class="mono">sudo tpcloud uninstall</span> asks what to keep. On NixOS it gives you the lines for configuration.nix first.</p></div>
-      <div class="row"><div><h3>Or the file</h3><p>Then <span class="mono">sudo ./tpcloud-linux-&lt;arch&gt; install</span>.</p></div>
-        <div class="files"><a class="btn small" href="/download/linux/arm64">Raspberry Pi <small>arm64 · 71 MB</small></a><a class="btn small" href="/download/linux/amd64">PC <small>amd64 · 80 MB</small></a></div></div>
-    </div>
-  </div></section>
-  <section class="block" id="what"><div class="wrap">
-    <h2>Your files, your photos and your house, on a machine at home.</h2>
-    <p class="intro">Instead of somebody else’s servers. One sign-in for all of it, at your own address, from the browser or the TPCloud app.</p>
-    <div class="grid3">
-      <div class="card"><span class="k">/store · /photos</span><h3>Files and photos</h3><p>A file browser for everyone at home, the iPhone’s photos backed up in the background, and share links with or without a password.</p></div>
-      <div class="card"><span class="k">/home</span><h3>The house</h3><p>Blinds and lights on a floor plan, with switches running tphome’s own firmware. And from the terminal: <code class="mono">tphome --blind B0301 up</code>.</p></div>
-      <div class="card"><span class="k">/login</span><h3>One sign-in</h3><p>Passkeys on the web, password and two-factor in the app, and every session listed so you can close the ones you don’t know.</p></div>
-    </div>
-  </div></section>
-  <section class="block" id="how"><div class="wrap">
-    <h2>How it works</h2>
-    <div class="steps">
-      <div class="step"><h3>Set up your cloud</h3><p>On a Raspberry Pi or a PC with Linux: one command, then a few questions in the terminal, the app or a browser. Files go in a folder or on disks it mirrors.</p></div>
-      <div class="step"><h3>Get the apps</h3><p>On your Mac, iPhone and Linux computers. They find your cloud on your Wi-Fi by themselves, and use your own address when you’re out.</p></div>
-      <div class="step"><h3>Sign in</h3><p>Everyone at home with their own account. Admins run it from anywhere: accounts, sessions and updates, from the apps, the web or <code>tpcloud</code>.</p></div>
-    </div>
-    <div class="facts">
-      <div class="fact"><b>1</b><span>File for the server, everything inside: no Docker, no Python</span></div>
-      <div class="fact"><b>2 MB</b><span>The tpcloud command on a Mac or a Linux computer</span></div>
-      <div class="fact"><b>3</b><span>Ways to reach it: at home, Tailscale, your own domain</span></div>
-      <div class="fact"><b>0</b><span>Servers of anyone else’s in the way</span></div>
-    </div>
-  </div></section>
-  <div class="wrap"><footer class="bottom"><span>TPCloud 0.4</span><a href="https://github.com/mtaibo/tpcloud">Source on GitHub</a><a href="https://migueltaibo.com">Made by Miguel Taibo</a></footer></div>
-</body></html>
+  <div class="track" id="track"></div>
+  <section data-download></section>
+  <noscript><section class="dl" id="download"><h2>Get TPCloud.</h2>
+    <div class="pane on"><h3>On your Mac or Linux computer</h3><div class="cmd"><code><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/get | sh</code></div></div>
+    <div class="pane on"><h3>The machine that is your cloud</h3><div class="cmd"><code><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/install | sh</code></div></div>
+  </section></noscript>
+  <footer class="foot"><span>TPCloud 0.4</span><a href="https://github.com/mtaibo/tpcloud">Source on GitHub</a><a href="https://migueltaibo.com">Made by Miguel Taibo</a></footer>
+</body>
+</html>
