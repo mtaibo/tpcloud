@@ -111,7 +111,9 @@ jobs:
 
   release:
     needs: [build, desktop, client-linux, client-macos]
-    if: startsWith(github.ref, 'refs/tags/')
+    # GitHub's macOS runners are sometimes not handed out at all (three times on Nov 24 2026): the
+    # release doesn't wait on the Mac client; without a new one it carries the previous one.
+    if: startsWith(github.ref, 'refs/tags/') && !cancelled() && needs.build.result == 'success' && needs.desktop.result == 'success' && needs.client-linux.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -124,8 +126,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [ ! -e dist/tpcloud-cli-macos ]; then
+            prev="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 10 --json tagName --jq '.[].tagName' | grep -vx "$GITHUB_REF_NAME" | head -1)"
+            echo "No new Mac client (its runner didn't come): carrying the one from $prev."
+            gh release download "$prev" --repo "$GITHUB_REPOSITORY" --pattern tpcloud-cli-macos --dir dist
+            MAC_NOTE=" (The Mac command is the one from ${prev#v}: GitHub's macOS runner wasn't available.)"
+          fi
           chmod +x dist/*
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "TPCloud ${GITHUB_REF_NAME#v}" \
-                 --notes "Install on a Raspberry Pi or a Linux PC with \`curl -fsSL https://tpcloud.migueltaibo.com/install | sh\`, or download the file for that machine below and run \`sudo ./tpcloud-linux-<arch> install\`. On a computer that uses it (Mac or Linux): \`curl -fsSL https://tpcloud.migueltaibo.com/get | sh\`."
+                 --notes "Install on a Raspberry Pi or a Linux PC with \`curl -fsSL https://tpcloud.migueltaibo.com/install | sh\`, or download the file for that machine below and run \`sudo ./tpcloud-linux-<arch> install\`. On a computer that uses it (Mac or Linux): \`curl -fsSL https://tpcloud.migueltaibo.com/get | sh\`.${MAC_NOTE:-}"
           gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
