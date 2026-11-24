@@ -70,7 +70,7 @@ fn read_line() -> Result<String> {
     Ok(line.trim().to_string())
 }
 
-fn ask(question: &str, default: &str) -> Result<String> {
+pub fn ask(question: &str, default: &str) -> Result<String> {
     if default.is_empty() {
         print!("  {question}: ");
     } else {

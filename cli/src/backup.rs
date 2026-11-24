@@ -1,6 +1,6 @@
 //! Copies of TPCloud's own data: the settings, every database (accounts, Store's index, albums and
-//! share links, the house), Home's firmware and broker state. Not the files themselves (those are
-//! on their own disk, with their own backup) and not the caches (thumbnails and previews are made
+//! share links, the house), Home's firmware and broker state. Not the files themselves (on their own
+//! disk with their own backup, or left out when their folder is inside the state one) and not the caches (thumbnails and previews are made
 //! again). A few MB each, made every night by the service into TPCLOUD_BACKUP_DIR, which should
 //! be on another disk; the last TPCLOUD_BACKUP_KEEP (14) are kept.
 
@@ -98,6 +98,11 @@ pub fn run() -> Result<PathBuf> {
     result
 }
 
+/// One copy into `root`, whatever folder is set (the uninstall's last backup).
+pub fn make_into(root: &Path) -> Result<PathBuf> {
+    make(root)
+}
+
 fn make(root: &Path) -> Result<PathBuf> {
     // One at a time (the service's nightly one and a `tpcloud backup` could meet).
     let lock = paths::state_dir().join("run/backup.lock");
@@ -137,7 +142,11 @@ fn make_locked(root: &Path) -> Result<PathBuf> {
 
     let state = paths::state_dir();
     let mut databases = Vec::new();
-    copy_tree(&state, Path::new(""), &tmp, &mut databases)?;
+    // Everyone's files, when their folder is inside the state one (a plain folder's default).
+    let files = envfile::get(&paths::env_file(), "EXTERNAL_DISK_PATH")
+        .and_then(|f| PathBuf::from(f).strip_prefix(&state).ok().map(Path::to_path_buf))
+        .filter(|rel| !rel.as_os_str().is_empty());
+    copy_tree(&state, Path::new(""), &tmp, files.as_deref(), &mut databases)?;
     snapshot_databases(&databases)?;
     std::fs::write(
         tmp.join(MANIFEST),
@@ -151,18 +160,18 @@ fn make_locked(root: &Path) -> Result<PathBuf> {
 
 /// Copies `src/rel` into `dst/rel`, leaving out SKIP and SQLite's side files; databases are only
 /// listed, to be copied through SQLite itself (a plain copy of a live one can be torn).
-fn copy_tree(src: &Path, rel: &Path, dst: &Path, databases: &mut Vec<(PathBuf, PathBuf)>) -> Result<()> {
+fn copy_tree(src: &Path, rel: &Path, dst: &Path, files: Option<&Path>, databases: &mut Vec<(PathBuf, PathBuf)>) -> Result<()> {
     std::fs::create_dir_all(dst.join(rel))?;
     for entry in std::fs::read_dir(src.join(rel))? {
         let entry = entry?;
         let child = rel.join(entry.file_name());
         let text = child.to_string_lossy();
-        if SKIP.iter().any(|s| text == *s) {
+        if SKIP.iter().any(|s| text == *s) || files == Some(child.as_path()) {
             continue;
         }
         let kind = entry.file_type()?;
         if kind.is_dir() {
-            copy_tree(src, &child, dst, databases)?;
+            copy_tree(src, &child, dst, files, databases)?;
         } else if kind.is_file() {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.ends_with("-wal") || name.ends_with("-shm") || name.ends_with("-journal") {
@@ -201,7 +210,16 @@ fn snapshot_databases(pairs: &[(PathBuf, PathBuf)]) -> Result<()> {
         \x20   dst.close()\n\
         \x20   if ok != 'ok':\n\
         \x20       sys.exit(f'{d}: {ok}')\n";
-    let mut cmd = Command::new(paths::runtime_dir().join("python/bin/python3"));
+    let python = paths::runtime_dir().join("python/bin/python3");
+    if !python.exists() && !crate::platform::service::running() {
+        // The program was uninstalled before (its runtime with it) and nothing's writing them:
+        // a plain copy is whole.
+        for (s, d) in pairs {
+            std::fs::copy(s, d).with_context(|| format!("copying {}", s.display()))?;
+        }
+        return Ok(());
+    }
+    let mut cmd = Command::new(python);
     cmd.arg("-c").arg(script).env_clear().env("PYTHONDONTWRITEBYTECODE", "1");
     for (s, d) in pairs {
         cmd.arg(s).arg(d);
@@ -324,7 +342,7 @@ fn put_back(copy: &Path, rel: &Path, state: &Path) -> Result<()> {
     Ok(())
 }
 
-fn du(path: &Path) -> u64 {
+pub fn du(path: &Path) -> u64 {
     let Ok(entries) = std::fs::read_dir(path) else { return 0 };
     entries
         .flatten()

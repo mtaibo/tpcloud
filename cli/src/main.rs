@@ -45,6 +45,8 @@ mod supervisor;
 mod tui;
 mod ui;
 #[cfg(feature = "host")]
+mod uninstall;
+#[cfg(feature = "host")]
 mod update;
 #[cfg(feature = "host")]
 mod users;
@@ -178,8 +180,8 @@ enum Command {
         #[command(subcommand)]
         action: Option<StorageAction>,
     },
-    #[cfg(feature = "host")]
-    /// Remove TPCloud from this machine, keeping every account, file and setting: needs sudo.
+    /// Remove TPCloud from this computer. On a server (sudo) it asks what goes: only the program,
+    /// or everything (with a backup first, or nothing kept); elsewhere, every trace at once.
     Uninstall,
     /// Control the house (the same as the `tphome` command).
     #[command(disable_help_flag = true)]
@@ -377,7 +379,8 @@ fn run() -> Result<()> {
             Some(StorageAction::Unlock) => storage::unlock(),
         },
         #[cfg(feature = "host")]
-        Some(Command::Uninstall) => install::uninstall(),
+        Some(Command::Uninstall) if host_here() || std::path::Path::new(platform::APP_DIR).exists() => uninstall::run(),
+        Some(Command::Uninstall) => client::uninstall(),
         #[cfg(feature = "host")]
         Some(Command::Serve) => supervisor::serve(),
     }

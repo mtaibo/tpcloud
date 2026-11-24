@@ -43,13 +43,13 @@
       <div class="row"><div><h3>The app</h3><p>Files, photos with backup, your home. The same app as the iPhone’s.</p></div><span class="tag">On TestFlight</span></div>
       <div class="row col"><div><h3>The terminal</h3><p>The <span class="mono">tpcloud</span> command: sign in, run accounts and update your server; <span class="mono">tphome</span> for the house.</p></div>
         <div class="cmd"><code data-copy="curl -fsSL https://tpcloud.migueltaibo.com/get | sh"><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/get | sh</code><button class="copy" type="button">Copy</button></div>
-        <p class="note">Then <span class="mono">tpcloud login</span>. Running it again updates it. Or the file: <a href="/download/cli/macos">tpcloud for Mac</a>.</p></div>
+        <p class="note">Then <span class="mono">tpcloud login</span>. Running it again updates it; <span class="mono">tpcloud uninstall</span> takes it away. Or the file: <a href="/download/cli/macos">tpcloud for Mac</a>.</p></div>
     </div>
 
     <div class="panel" data-panel="linux">
       <div class="row col"><div><h3>The app and the terminal, in one go</h3><p>The TPCloud app (in your applications menu) and the <span class="mono">tpcloud</span> command.</p></div>
         <div class="cmd"><code data-copy="curl -fsSL https://tpcloud.migueltaibo.com/get | sh"><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/get | sh</code><button class="copy" type="button">Copy</button></div>
-        <p class="note">Then open TPCloud, or <span class="mono">tpcloud login</span>. Running it again updates it; <span class="mono">… | sh -s -- --uninstall</span> takes it away. On NixOS it needs nix-ld.</p></div>
+        <p class="note">Then open TPCloud, or <span class="mono">tpcloud login</span>. Running it again updates it; <span class="mono">tpcloud uninstall</span> takes it all away. On NixOS it needs nix-ld.</p></div>
       <div class="row"><div><h3>Or the files</h3><p>One file each, nothing to install.</p></div>
         <div class="files"><a class="btn small" data-file="app">App <small></small></a><a class="btn small" data-file="cli">tpcloud <small></small></a></div></div>
     </div>
@@ -65,7 +65,7 @@
     <div class="panel" data-panel="server">
       <div class="row col"><div><h3>Make a machine your cloud</h3><p>A Raspberry Pi or a PC with Linux, at home. On it:</p></div>
         <div class="cmd"><code data-copy="curl -fsSL https://tpcloud.migueltaibo.com/install | sh"><span class="p">$</span>curl -fsSL https://tpcloud.migueltaibo.com/install | sh</code><button class="copy" type="button">Copy</button></div>
-        <p class="note">It asks how you want to set it up: right there, or from the app or a browser at <span class="mono">http://tpcloud.local</span>. Its <span class="mono">tpcloud</span> does everything, server and client. On NixOS it gives you the lines for configuration.nix first.</p></div>
+        <p class="note">It asks how you want to set it up: right there, or from the app or a browser at <span class="mono">http://tpcloud.local</span>. Its <span class="mono">tpcloud</span> does everything, server and client; <span class="mono">sudo tpcloud uninstall</span> asks what to keep. On NixOS it gives you the lines for configuration.nix first.</p></div>
       <div class="row"><div><h3>Or the file</h3><p>Then <span class="mono">sudo ./tpcloud-linux-&lt;arch&gt; install</span>.</p></div>
         <div class="files"><a class="btn small" href="/download/linux/arm64">Raspberry Pi <small>arm64 · 71 MB</small></a><a class="btn small" href="/download/linux/amd64">PC <small>amd64 · 80 MB</small></a></div></div>
     </div>

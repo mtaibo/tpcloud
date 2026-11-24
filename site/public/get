@@ -7,7 +7,7 @@
 # Always the same places, so running it again (or after anything else) updates, never duplicates:
 # /usr/local/bin/tpcloud, /usr/local/bin/tpcloud-app, /usr/local/share/applications/tpcloud.desktop.
 # On a TPCloud server its own `tpcloud` stays: it's a client too.
-#   … | sh -s -- --uninstall   takes it all away again (your sign-ins are kept in ~/.config/tpcloud).
+#   `tpcloud uninstall` takes it all away again, sign-ins included (… | sh -s -- --uninstall: all but those).
 set -eu
 
 say() { printf '%s\n' "$*"; }

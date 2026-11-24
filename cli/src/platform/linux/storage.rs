@@ -202,6 +202,27 @@ pub fn write_units(mount: &Path, uuid: &str, luks: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// The pool stops being TPCloud's: unmounted, its disks closed, its boot units gone. What's on
+/// the disks stays.
+pub fn remove_units(mount: &Path, luks: &[String]) {
+    let unit = mount_unit(mount);
+    let _ = Command::new("systemctl").args(["disable", "--now", "--quiet", &unit]).status();
+    if Command::new("mountpoint").args(["-q"]).arg(mount).status().is_ok_and(|s| s.success()) {
+        let _ = Command::new("umount").arg(mount).status();
+    }
+    for id in luks {
+        let name = mapper_name(id);
+        if Path::new("/dev/mapper").join(&name).exists() {
+            let _ = Command::new(tool("cryptsetup")).args(["close", &name]).status();
+        }
+    }
+    let _ = Command::new("systemctl").args(["stop", "--quiet", UNLOCK_UNIT]).status();
+    for file in [unit.as_str(), UNLOCK_UNIT] {
+        let _ = std::fs::remove_file(unit_dir().join(file));
+    }
+    let _ = Command::new("systemctl").arg("daemon-reload").status();
+}
+
 /// `tpcloud storage unlock` (run at boot): opens every disk of the encrypted pool not open yet.
 pub fn unlock(luks: &[String], key: &Path) -> Result<()> {
     for id in luks {

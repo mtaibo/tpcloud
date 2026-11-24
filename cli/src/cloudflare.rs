@@ -117,6 +117,19 @@ pub fn login(on_link: &mut dyn FnMut(&str)) -> Result<()> {
     Ok(())
 }
 
+/// Deletes the tunnel the setup made from Cloudflare (it needs the login the setup used). Its DNS
+/// record isn't cloudflared's to delete: it's left pointing at nothing.
+pub fn delete(id: &str) -> Result<()> {
+    if !origin_cert().exists() {
+        bail!("this machine isn't signed in to Cloudflare any more");
+    }
+    let out = run(&["tunnel", "delete", "-f", id])?;
+    if !out.status.success() {
+        bail!("{}", text(&out));
+    }
+    Ok(())
+}
+
 /// Forgets the login, so the next one can pick another domain.
 pub fn logout() {
     let _ = std::fs::remove_file(origin_cert());

@@ -17,10 +17,14 @@ use std::path::PathBuf;
 
 fn config_file() -> PathBuf {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    config_file_in(&home, std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from))
+}
+
+fn config_file_in(home: &std::path::Path, xdg: Option<PathBuf>) -> PathBuf {
     let dir = if cfg!(target_os = "macos") {
         home.join("Library/Application Support")
     } else {
-        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"))
+        xdg.unwrap_or_else(|| home.join(".config"))
     };
     dir.join("tpcloud/networks.json")
 }
@@ -31,6 +35,10 @@ impl Store {
     fn load() -> Store {
         let v = std::fs::read_to_string(config_file()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
         Store(v)
+    }
+
+    fn load_from(path: &std::path::Path) -> Store {
+        Store(std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({})))
     }
 
     fn save(&self) -> Result<()> {
@@ -116,6 +124,10 @@ fn candidates(n: &Value) -> Vec<String> {
 pub fn connect() -> Result<(Remote, Value)> {
     let store = Store::load();
     let Some(n) = store.current() else { bail!("not signed in to any network: `tpcloud login`") };
+    connect_to(n)
+}
+
+fn connect_to(n: Value) -> Result<(Remote, Value)> {
     if n["token"].as_str().is_none() {
         bail!("signed out of {}: `tpcloud login`", n["name"].as_str().unwrap_or("it"));
     }
@@ -568,5 +580,106 @@ pub fn self_update() -> Result<()> {
     std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
     std::fs::rename(&tmp, &me)?;
     ui::done(&format!("tpcloud {version} installed."));
+    Ok(())
+}
+
+// ── Uninstalling ──
+
+/// What the installer puts on a Linux computer besides the command: the app and its menu entry.
+pub const APP_FILES: [&str; 3] = [
+    "/usr/local/bin/tpcloud-app",
+    "/usr/local/share/applications/tpcloud.desktop",
+    "/usr/local/share/icons/hicolor/scalable/apps/tpcloud.svg",
+];
+
+/// Whoever is using the terminal: under sudo, the person who ran it, not root.
+pub fn person_home() -> Option<PathBuf> {
+    if unsafe { libc::geteuid() } == 0 {
+        if let Some(user) = std::env::var("SUDO_USER").ok().filter(|u| !u.is_empty() && u != "root") {
+            let name = std::ffi::CString::new(user).ok()?;
+            let pw = unsafe { libc::getpwnam(name.as_ptr()) };
+            if !pw.is_null() {
+                let dir = unsafe { std::ffi::CStr::from_ptr((*pw).pw_dir) };
+                return Some(PathBuf::from(dir.to_string_lossy().into_owned()));
+            }
+        }
+    }
+    std::env::var_os("HOME").map(PathBuf::from)
+}
+
+/// Every place this computer's sign-ins can be (this user's, and under sudo the person's).
+fn signin_files() -> Vec<PathBuf> {
+    let mut files = vec![config_file()];
+    if let Some(home) = person_home() {
+        let theirs = config_file_in(&home, None);
+        if !files.contains(&theirs) {
+            files.push(theirs);
+        }
+    }
+    files
+}
+
+/// Forgets every network this computer signed in to (the folder, which the Linux app shares).
+pub fn forget_signins() {
+    for file in signin_files() {
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+/// `tpcloud uninstall` on a computer that isn't a host: signs out of every network (so the
+/// sessions don't stay open on them), then removes the sign-ins, this command, `tphome` and, on
+/// Linux, the TPCloud app. Nothing on the networks themselves changes.
+pub fn uninstall() -> Result<()> {
+    for file in signin_files() {
+        for n in Store::load_from(&file).networks().into_iter().filter(|n| n["token"].is_string()) {
+            let name = n["name"].as_str().unwrap_or("a network").to_string();
+            match connect_to(n) {
+                Ok((remote, _)) if remote.send("POST", "/auth/passkey/logout", None).is_ok() => ui::done(&format!("Signed out of {name}.")),
+                _ => ui::warn(&format!("{name} didn't answer: its session stays open there (an admin can close it from Sessions).")),
+            }
+        }
+    }
+    forget_signins();
+
+    let me = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
+    let mut files: Vec<PathBuf> = Vec::new();
+    if let Some(me) = &me {
+        files.push(me.clone());
+        let home = me.with_file_name("tphome");
+        if std::fs::read_link(&home).is_ok() {
+            files.push(home);
+        }
+    }
+    for dir in ["/usr/local/bin", "/opt/homebrew/bin"] {
+        let link = std::path::Path::new(dir).join("tphome");
+        if !files.contains(&link) && std::fs::read_link(&link).is_ok_and(|t| t.file_name().is_some_and(|n| n == "tpcloud")) {
+            files.push(link);
+        }
+    }
+    if cfg!(target_os = "linux") {
+        files.extend(APP_FILES.iter().map(PathBuf::from).filter(|p| p.symlink_metadata().is_ok()));
+    }
+    let mut needs_root = Vec::new();
+    for file in &files {
+        match std::fs::remove_file(file) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => needs_root.push(file.clone()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => bail!("removing {}: {err}", file.display()),
+        }
+    }
+    if !needs_root.is_empty() {
+        println!("{}", ui::dim("Removing the command needs your password:"));
+        let ok = std::process::Command::new("sudo").arg("rm").arg("-f").arg("--").args(&needs_root).status().is_ok_and(|s| s.success());
+        if !ok {
+            bail!("couldn't remove {} (the sign-ins are gone already)", needs_root.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "));
+        }
+    }
+    ui::done("TPCloud is gone from this computer.");
+    if cfg!(target_os = "macos") {
+        println!("  {}", ui::dim("The TPCloud app, if you have it, goes like any other: drag it from Applications to the Bin."));
+    }
     Ok(())
 }

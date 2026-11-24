@@ -116,11 +116,12 @@ pub mod service {
             eprintln!("Stopped. On NixOS, take `systemd.services.tpcloud` out of configuration.nix too.");
             return Ok(());
         }
-        let _ = Command::new("systemctl").args(["disable", "--now", NAME]).status();
         let unit = unit_path();
-        if unit.exists() {
-            std::fs::remove_file(&unit)?;
+        if !unit.exists() {
+            return Ok(());
         }
+        let _ = Command::new("systemctl").args(["disable", "--now", "--quiet", NAME]).status();
+        std::fs::remove_file(&unit)?;
         systemctl(&["daemon-reload"])
     }
 
@@ -170,6 +171,12 @@ pub mod accounts {
                 .args(["--system", "--gid", name, "--no-create-home", "--home-dir", "/nonexistent", "--shell", "/usr/sbin/nologin", name])
                 .status();
         }
+    }
+
+    /// The system user and its group, gone (people in the group just stop being in it).
+    pub fn remove_group_and_user(name: &str) {
+        let _ = Command::new("userdel").arg(name).stderr(std::process::Stdio::null()).status();
+        let _ = Command::new("groupdel").arg(name).stderr(std::process::Stdio::null()).status();
     }
 
     /// Adds a person to a group (takes effect from their next login).
