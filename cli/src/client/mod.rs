@@ -628,58 +628,147 @@ pub fn forget_signins() {
     }
 }
 
-/// `tpcloud uninstall` on a computer that isn't a host: signs out of every network (so the
-/// sessions don't stay open on them), then removes the sign-ins, this command, `tphome` and, on
-/// Linux, the TPCloud app. Nothing on the networks themselves changes.
+/// The folders TPCloud's files went in, once they're empty (`rmdir` leaves any that aren't).
+/// `/usr/local` itself only on NixOS, where nothing but TPCloud made it; elsewhere it's the system's.
+pub fn remove_empty_dirs(rmdir: &dyn Fn(&str) -> bool) {
+    let mut dirs = vec![
+        "/usr/local/share/icons/hicolor/scalable/apps",
+        "/usr/local/share/icons/hicolor/scalable",
+        "/usr/local/share/icons/hicolor",
+        "/usr/local/share/icons",
+        "/usr/local/share/applications",
+    ];
+    if std::path::Path::new("/etc/NIXOS").exists() {
+        dirs.extend(["/usr/local/bin", "/usr/local/share", "/usr/local"]);
+    }
+    for dir in dirs {
+        let empty = std::fs::read_dir(dir).is_ok_and(|mut d| d.next().is_none());
+        if empty && std::fs::remove_dir(dir).is_err() {
+            rmdir(dir);
+        }
+    }
+}
+
+/// `tpcloud uninstall` on a computer that isn't a host: everything TPCloud put here goes, with
+/// no questions. It signs out of every network (so the sessions don't stay open on them), then
+/// removes the sign-ins, this command, `tphome`, on Linux the TPCloud app, and whatever an old
+/// server left behind without its program (settings, databases, its system user). The only thing
+/// it asks about is people's files and photos, if such leftovers hold any. Nothing on the networks
+/// themselves changes.
 pub fn uninstall() -> Result<()> {
+    const STATE: &str = "/var/lib/tpcloud";
+    println!();
+    println!("  {}", ui::bold("Uninstalling TPCloud"));
+    println!();
+
+    // What goes, all worked out first, so the password (if any) is asked once, before anything.
+    let me = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
+    let mut command: Vec<PathBuf> = Vec::new();
+    if let Some(me) = &me {
+        command.push(me.clone());
+        let home = me.with_file_name("tphome");
+        if std::fs::read_link(&home).is_ok() {
+            command.push(home);
+        }
+    }
+    for dir in ["/usr/local/bin", "/opt/homebrew/bin"] {
+        let link = std::path::Path::new(dir).join("tphome");
+        if !command.contains(&link) && std::fs::read_link(&link).is_ok_and(|t| t.file_name().is_some_and(|n| n == "tpcloud")) {
+            command.push(link);
+        }
+    }
+    let app: Vec<PathBuf> = if cfg!(target_os = "linux") {
+        APP_FILES.iter().map(PathBuf::from).filter(|p| p.symlink_metadata().is_ok()).collect()
+    } else {
+        Vec::new()
+    };
+    let in_db = |db: &str| std::fs::read_to_string(db).is_ok_and(|t| t.lines().any(|l| l.starts_with("tpcloud:")));
+    let old_server = !std::path::Path::new("/opt/tpcloud").exists();
+    let mut state = old_server && std::path::Path::new(STATE).exists();
+    let (user, group) = (old_server && in_db("/etc/passwd"), old_server && in_db("/etc/group"));
+    let photos = std::path::Path::new(STATE).join("files");
+    if state && std::fs::read_dir(&photos).is_ok_and(|mut d| d.next().is_some()) {
+        ui::warn(&format!("An old TPCloud server left people's files and photos here, in {}.", photos.display()));
+        let answer = if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            read_line("  Type delete to remove them too, anything else keeps them", "").unwrap_or_default()
+        } else {
+            String::new()
+        };
+        state = answer == "delete";
+        println!();
+    }
+
+    let root = unsafe { libc::geteuid() } == 0;
+    let writable = |p: &PathBuf| {
+        p.parent().and_then(|d| std::ffi::CString::new(d.as_os_str().as_encoded_bytes()).ok()).is_some_and(|d| unsafe { libc::access(d.as_ptr(), libc::W_OK) } == 0)
+    };
+    let needs_sudo = !root && (state || user || group || command.iter().chain(&app).any(|p| !writable(p)));
+    if needs_sudo {
+        println!("  {}", ui::dim("Your password, to remove it for everyone on this computer:"));
+        if !std::process::Command::new("sudo").arg("-v").status().is_ok_and(|s| s.success()) {
+            bail!("without it nothing was removed");
+        }
+        println!();
+    }
+    let as_root = |args: &[&str]| {
+        let mut cmd = std::process::Command::new(if root { args[0] } else { "sudo" });
+        cmd.args(if root { &args[1..] } else { args });
+        cmd.status().is_ok_and(|s| s.success())
+    };
+    let remove = |files: &[PathBuf]| -> Result<()> {
+        for file in files {
+            match std::fs::remove_file(file) {
+                Ok(()) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                    let path = file.to_string_lossy();
+                    if !as_root(&["rm", "-f", "--", &path]) {
+                        bail!("couldn't remove {path}");
+                    }
+                }
+                Err(err) => bail!("removing {}: {err}", file.display()),
+            }
+        }
+        Ok(())
+    };
+    let row = |what: &str, detail: &str| println!("  {} {what:<11} {}", ui::green("✓"), ui::dim(detail));
+
     for file in signin_files() {
         for n in Store::load_from(&file).networks().into_iter().filter(|n| n["token"].is_string()) {
             let name = n["name"].as_str().unwrap_or("a network").to_string();
             match connect_to(n) {
-                Ok((remote, _)) if remote.send("POST", "/auth/passkey/logout", None).is_ok() => ui::done(&format!("Signed out of {name}.")),
+                Ok((remote, _)) if remote.send("POST", "/auth/passkey/logout", None).is_ok() => row("Signed out", &format!("of {name}")),
                 _ => ui::warn(&format!("{name} didn't answer: its session stays open there (an admin can close it from Sessions).")),
             }
         }
     }
     forget_signins();
+    row("Sign-ins", "this computer's, for every network");
+    remove(&command)?;
+    row("Command", "tpcloud and tphome");
+    if !app.is_empty() {
+        remove(&app)?;
+        row("App", "and its place in the applications menu");
+    }
+    if state || user || group {
+        if state && !as_root(&["rm", "-rf", "--", STATE]) {
+            bail!("couldn't remove {STATE}");
+        }
+        if user {
+            as_root(&["userdel", "tpcloud"]);
+        }
+        if in_db("/etc/group") {
+            as_root(&["groupdel", "tpcloud"]);
+        }
+        row("Old server", "what an earlier TPCloud server left: settings, databases, its system user");
+    }
 
-    let me = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
-    let mut files: Vec<PathBuf> = Vec::new();
-    if let Some(me) = &me {
-        files.push(me.clone());
-        let home = me.with_file_name("tphome");
-        if std::fs::read_link(&home).is_ok() {
-            files.push(home);
-        }
-    }
-    for dir in ["/usr/local/bin", "/opt/homebrew/bin"] {
-        let link = std::path::Path::new(dir).join("tphome");
-        if !files.contains(&link) && std::fs::read_link(&link).is_ok_and(|t| t.file_name().is_some_and(|n| n == "tpcloud")) {
-            files.push(link);
-        }
-    }
-    if cfg!(target_os = "linux") {
-        files.extend(APP_FILES.iter().map(PathBuf::from).filter(|p| p.symlink_metadata().is_ok()));
-    }
-    let mut needs_root = Vec::new();
-    for file in &files {
-        match std::fs::remove_file(file) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => needs_root.push(file.clone()),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => bail!("removing {}: {err}", file.display()),
-        }
-    }
-    if !needs_root.is_empty() {
-        println!("{}", ui::dim("Removing the command needs your password:"));
-        let ok = std::process::Command::new("sudo").arg("rm").arg("-f").arg("--").args(&needs_root).status().is_ok_and(|s| s.success());
-        if !ok {
-            bail!("couldn't remove {} (the sign-ins are gone already)", needs_root.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "));
-        }
-    }
-    ui::done("TPCloud is gone from this computer.");
+    remove_empty_dirs(&|dir| as_root(&["rmdir", "--", dir]));
+    println!();
+    println!("  {}", ui::bold("TPCloud is gone from this computer."));
     if cfg!(target_os = "macos") {
         println!("  {}", ui::dim("The TPCloud app, if you have it, goes like any other: drag it from Applications to the Bin."));
     }
+    println!();
     Ok(())
 }

@@ -188,6 +188,7 @@ pub fn run() -> Result<()> {
     }
     client::forget_signins();
     platform::accounts::remove_group_and_user(crate::harden::USER);
+    client::remove_empty_dirs(&|_| false);
 
     ui::done("TPCloud is gone from this machine.");
     if let Some(root) = &backup_root {
@@ -284,7 +285,8 @@ fn program_only() -> Result<()> {
     if storage::configured(&paths::env_file()).is_some() {
         println!("  {}", ui::dim("  the storage pool, still mounted at every boot"));
     }
-    println!("  {}", ui::dim("Installing TPCloud again finds all of it and carries on; `sudo tpcloud uninstall` again removes it all."));
+    println!("  {}", ui::dim("Installing TPCloud again finds all of it and carries on."));
+    println!("  {}", ui::dim(&format!("To remove it too: `curl -fsSL https://tpcloud.migueltaibo.com/get | sh -s -- --uninstall` (or `sudo rm -rf {}`).", state.display())));
     Ok(())
 }
 
