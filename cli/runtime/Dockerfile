@@ -27,6 +27,8 @@ ARG SMARTMONTOOLS_VERSION=7.5
 # SHA-256 of every download, checked before it's unpacked: a changed or tampered file stops the
 # build instead of ending up in the release. Changing a version above means updating its sum here
 # (`curl -fsSL <url> | shasum -a 256`; Python's and Caddy's are also published with their releases).
+# Every download retries a few times, spaced out: upstream servers (VideoLAN, samba.org) answer
+# 429/503 to GitHub's runners now and then, and one refusal used to fail a whole release.
 ARG MOSQUITTO_SHA256=fd905380691ac65ea5a93779e8214941829e3d6e038d5edff9eac5fd74cbed02
 ARG RSYNC_SHA256=a10d591825251e070f74c98df3daad195def4ed81b4a2de16169026aea33f6c8
 ARG ZIMG_SHA256=be89390f13a5c9b2388ce0f44a5e89364a20c1c57ce46d382b1fcc3967057577
@@ -48,7 +50,7 @@ FROM alpine:3.22 AS mosquitto
 ARG MOSQUITTO_VERSION
 ARG MOSQUITTO_SHA256
 RUN apk add --no-cache build-base cmake curl linux-headers cjson-dev cjson-static
-RUN curl -fsSL -o /tmp/src.tar.gz https://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz \
+RUN curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o /tmp/src.tar.gz https://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz \
  && echo "${MOSQUITTO_SHA256}  /tmp/src.tar.gz" | sha256sum -c - && tar -xzf /tmp/src.tar.gz -C /tmp
 WORKDIR /tmp/mosquitto-${MOSQUITTO_VERSION}
 # musl has getrandom(), but 2.1 only looks for it through glibc's version macro.
@@ -66,7 +68,7 @@ FROM alpine:3.22 AS rsync
 ARG RSYNC_VERSION
 ARG RSYNC_SHA256
 RUN apk add --no-cache build-base curl perl acl-dev acl-static attr-dev popt-dev popt-static zlib-dev zlib-static
-RUN curl -fsSL -o /tmp/src.tar.gz https://download.samba.org/pub/rsync/src/rsync-${RSYNC_VERSION}.tar.gz \
+RUN curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o /tmp/src.tar.gz https://download.samba.org/pub/rsync/src/rsync-${RSYNC_VERSION}.tar.gz \
  && echo "${RSYNC_SHA256}  /tmp/src.tar.gz" | sha256sum -c - && tar -xzf /tmp/src.tar.gz -C /tmp
 WORKDIR /tmp/rsync-${RSYNC_VERSION}
 RUN ./configure --disable-openssl --disable-xxhash --disable-zstd --disable-lz4 --disable-md2man --disable-idn \
@@ -98,7 +100,7 @@ ARG JSONC_VERSION
 ARG JSONC_SHA256
 RUN apk add --no-cache build-base curl cmake linux-headers util-linux-dev util-linux-static lvm2-dev device-mapper-static popt-dev popt-static openssl-dev openssl-libs-static argon2-dev argon2-static libeconf-dev pkgconf
 # json-c has no static library in Alpine.
-RUN curl -fsSL -o /tmp/jsonc.tar.gz https://s3.amazonaws.com/json-c_releases/releases/json-c-${JSONC_VERSION}.tar.gz \
+RUN curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o /tmp/jsonc.tar.gz https://s3.amazonaws.com/json-c_releases/releases/json-c-${JSONC_VERSION}.tar.gz \
  && echo "${JSONC_SHA256}  /tmp/jsonc.tar.gz" | sha256sum -c - && tar -xzf /tmp/jsonc.tar.gz -C /tmp \
  && cmake -S /tmp/json-c-${JSONC_VERSION} -B /tmp/json-c-build -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DDISABLE_EXTRA_LIBS=ON >/dev/null \
  && cmake --build /tmp/json-c-build -j"$(nproc)" >/dev/null && cmake --install /tmp/json-c-build >/dev/null
@@ -115,7 +117,7 @@ FROM alpine:3.22 AS smartctl
 ARG SMARTMONTOOLS_VERSION
 ARG SMARTMONTOOLS_SHA256
 RUN apk add --no-cache build-base curl linux-headers
-RUN curl -fsSL -o /tmp/src.tar.gz https://github.com/smartmontools/smartmontools/releases/download/RELEASE_${SMARTMONTOOLS_VERSION%.*}_${SMARTMONTOOLS_VERSION#*.}/smartmontools-${SMARTMONTOOLS_VERSION}.tar.gz \
+RUN curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o /tmp/src.tar.gz https://github.com/smartmontools/smartmontools/releases/download/RELEASE_${SMARTMONTOOLS_VERSION%.*}_${SMARTMONTOOLS_VERSION#*.}/smartmontools-${SMARTMONTOOLS_VERSION}.tar.gz \
  && echo "${SMARTMONTOOLS_SHA256}  /tmp/src.tar.gz" | sha256sum -c - && tar -xzf /tmp/src.tar.gz -C /tmp
 WORKDIR /tmp/smartmontools-${SMARTMONTOOLS_VERSION}
 RUN ./configure LDFLAGS=-static --without-libsystemd --without-nvme-devicescan >/dev/null \
@@ -132,7 +134,7 @@ ARG ZIMG_SHA256
 ARG X264_SHA256
 RUN apk add --no-cache build-base nasm curl pkgconf autoconf automake libtool linux-headers bash xz git
 WORKDIR /tmp
-RUN curl -fsSL -o zimg.tar.gz https://github.com/sekrit-twc/zimg/archive/refs/tags/release-${ZIMG_VERSION}.tar.gz \
+RUN curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o zimg.tar.gz https://github.com/sekrit-twc/zimg/archive/refs/tags/release-${ZIMG_VERSION}.tar.gz \
  && echo "${ZIMG_SHA256}  zimg.tar.gz" | sha256sum -c - && tar -xzf zimg.tar.gz \
  && cd zimg-release-${ZIMG_VERSION} && ./autogen.sh >/dev/null 2>&1 \
  && ./configure --enable-static --disable-shared --prefix=/usr/local >/dev/null && make -j"$(nproc)" >/dev/null && make install >/dev/null
@@ -146,7 +148,7 @@ RUN if curl -fsSL --retry 4 --retry-all-errors --retry-delay 15 -o x264.tar.gz h
       && test "$(git -C x264-${X264_COMMIT} rev-parse HEAD)" = "${X264_COMMIT}"; fi \
  && cd x264-${X264_COMMIT} && ./configure --enable-static --disable-cli --enable-pic --prefix=/usr/local >/dev/null \
  && make -j"$(nproc)" >/dev/null && make install >/dev/null
-RUN curl -fsSL -o ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz \
+RUN curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz \
  && echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - && tar -xJf ffmpeg.tar.xz && cd ffmpeg-${FFMPEG_VERSION} \
  && PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure --prefix=/usr/local \
       --disable-everything --disable-autodetect --disable-doc --disable-network --disable-debug --disable-ffplay \
@@ -182,7 +184,7 @@ ARG PY_SHA256_amd64
 RUN apt-get update -qq && apt-get install -qq -y --no-install-recommends curl ca-certificates >/dev/null
 RUN arch=$([ "$TARGETARCH" = arm64 ] && echo aarch64 || echo x86_64) \
  && sum=$([ "$TARGETARCH" = arm64 ] && echo "$PY_SHA256_arm64" || echo "$PY_SHA256_amd64") \
- && curl -fsSL -o /tmp/py.tar.gz "https://github.com/astral-sh/python-build-standalone/releases/download/${PY_RELEASE}/cpython-${PY_VERSION}+${PY_RELEASE}-${arch}-unknown-linux-gnu-install_only_stripped.tar.gz" \
+ && curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o /tmp/py.tar.gz "https://github.com/astral-sh/python-build-standalone/releases/download/${PY_RELEASE}/cpython-${PY_VERSION}+${PY_RELEASE}-${arch}-unknown-linux-gnu-install_only_stripped.tar.gz" \
  && echo "$sum  /tmp/py.tar.gz" | sha256sum -c - && tar -xzf /tmp/py.tar.gz -C /opt && rm /tmp/py.tar.gz
 COPY tpcloud/services/auth/requirements.txt /req/auth.txt
 COPY tpcloud/services/store/requirements.txt /req/store.txt
@@ -205,9 +207,9 @@ RUN apt-get update -qq && apt-get install -qq -y --no-install-recommends curl ca
 WORKDIR /runtime/bin
 RUN caddy_sum=$([ "$TARGETARCH" = arm64 ] && echo "$CADDY_SHA256_arm64" || echo "$CADDY_SHA256_amd64") \
  && cf_sum=$([ "$TARGETARCH" = arm64 ] && echo "$CLOUDFLARED_SHA256_arm64" || echo "$CLOUDFLARED_SHA256_amd64") \
- && curl -fsSL -o /tmp/caddy.tar.gz "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_${TARGETARCH}.tar.gz" \
+ && curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o /tmp/caddy.tar.gz "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_${TARGETARCH}.tar.gz" \
  && echo "$caddy_sum  /tmp/caddy.tar.gz" | sha256sum -c - && tar -xzf /tmp/caddy.tar.gz caddy && rm /tmp/caddy.tar.gz \
- && curl -fsSL -o cloudflared "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${TARGETARCH}" \
+ && curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o cloudflared "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${TARGETARCH}" \
  && echo "$cf_sum  cloudflared" | sha256sum -c - && chmod +x cloudflared
 COPY --from=ffmpeg /ffmpeg /ffprobe ./
 COPY --from=mosquitto /mosquitto ./mosquitto
