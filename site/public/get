@@ -40,7 +40,7 @@ bar() { # bar <label> <done> <total>: one line, redrawn in place
   fi
   full='' rest='' i=0
   while [ $i -lt $w ]; do
-    if [ $i -lt $filled ]; then full="$full━"; else rest="$rest━"; fi
+    if [ $i -lt $filled ]; then full="${full}━"; else rest="${rest}━"; fi
     i=$((i + 1))
   done
   printf "${CL}  ${A}↓${R} %-10s ${A}%s${D}%s${R}  %4s ${D}%s${R}" "$1" "$full" "$rest" "$pct" "$(human "$2")"
