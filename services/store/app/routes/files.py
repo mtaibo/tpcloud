@@ -301,11 +301,18 @@ async def tree(
             raise HTTPException(400, "Path is not a directory")
         files: list[dict] = []
         dirs: list[str] = []
+        # Folders' dates, apart from `dirs` so clients that read it as a list of names keep working.
+        dir_modified: dict[str, float] = {}
         for current, subdirs, names in os.walk(root, followlinks=False):
             subdirs[:] = sorted(d for d in subdirs if not d.startswith("."))
             rel = Path(current).relative_to(root).as_posix()
             prefix = "" if rel == "." else rel + "/"
             dirs.extend(prefix + d for d in subdirs)
+            for d in subdirs:
+                try:
+                    dir_modified[prefix + d] = (Path(current) / d).stat().st_mtime
+                except OSError:
+                    pass
             for name in sorted(names):
                 if name.startswith("."):
                     continue
@@ -314,7 +321,11 @@ async def tree(
                 except OSError:
                     continue
                 files.append({"path": prefix + name, "size": st.st_size, "modified": st.st_mtime})
-        return {"path": path, "files": files, "dirs": dirs}
+        try:
+            modified = root.stat().st_mtime
+        except OSError:
+            modified = None
+        return {"path": path, "files": files, "dirs": dirs, "dir_modified": dir_modified, "modified": modified}
 
     return await run_in_threadpool(_walk)
 
@@ -379,6 +390,7 @@ async def upload_chunk(
     file_size: int = Query(...),
     path: str = Query(default=""),
     location: str = Query(default="external"),
+    mtime: float | None = Query(default=None),
     db: Session = Depends(get_session),
 ):
     user = await get_current_user(request)
@@ -459,6 +471,9 @@ async def upload_chunk(
     if actual_size != file_size:
         raise HTTPException(409, "Upload incomplete: assembled size does not match file_size")
     await run_in_threadpool(lambda: part_file.replace(dest))
+    if mtime is not None:
+        # Like /upload's: a file from a computer keeps that computer's date.
+        os.utime(dest, (mtime, mtime))
     with lock:
         db.delete(pending)
         db.commit()
