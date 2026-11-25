@@ -1,6 +1,6 @@
 [package]
 name = "tpcloud"
-version = "0.5.3"
+version = "0.5.5"
 edition = "2021"
 # The release builds with Rust 1.88: dependencies are resolved for it.
 rust-version = "1.88"
