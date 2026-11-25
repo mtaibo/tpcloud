@@ -130,15 +130,20 @@ ARG X264_COMMIT
 ARG FFMPEG_SHA256
 ARG ZIMG_SHA256
 ARG X264_SHA256
-RUN apk add --no-cache build-base nasm curl pkgconf autoconf automake libtool linux-headers bash xz
+RUN apk add --no-cache build-base nasm curl pkgconf autoconf automake libtool linux-headers bash xz git
 WORKDIR /tmp
 RUN curl -fsSL -o zimg.tar.gz https://github.com/sekrit-twc/zimg/archive/refs/tags/release-${ZIMG_VERSION}.tar.gz \
  && echo "${ZIMG_SHA256}  zimg.tar.gz" | sha256sum -c - && tar -xzf zimg.tar.gz \
  && cd zimg-release-${ZIMG_VERSION} && ./autogen.sh >/dev/null 2>&1 \
  && ./configure --enable-static --disable-shared --prefix=/usr/local >/dev/null && make -j"$(nproc)" >/dev/null && make install >/dev/null
-# A fixed commit of x264's stable branch (the branch itself moves).
-RUN curl -fsSL -o x264.tar.gz https://code.videolan.org/videolan/x264/-/archive/${X264_COMMIT}/x264-${X264_COMMIT}.tar.gz \
- && echo "${X264_SHA256}  x264.tar.gz" | sha256sum -c - && tar -xzf x264.tar.gz \
+# A fixed commit of x264's stable branch (the branch itself moves). VideoLAN's server turns
+# GitHub's runners away with 429 at busy times: a few spaced tries, then the same commit from
+# GitHub's mirror (git checks it's exactly that commit).
+RUN if curl -fsSL --retry 4 --retry-all-errors --retry-delay 15 -o x264.tar.gz https://code.videolan.org/videolan/x264/-/archive/${X264_COMMIT}/x264-${X264_COMMIT}.tar.gz \
+      && echo "${X264_SHA256}  x264.tar.gz" | sha256sum -c -; then tar -xzf x264.tar.gz; \
+    else rm -rf x264-${X264_COMMIT} && git clone --quiet https://github.com/mirror/x264.git x264-${X264_COMMIT} \
+      && git -C x264-${X264_COMMIT} checkout --quiet ${X264_COMMIT} \
+      && test "$(git -C x264-${X264_COMMIT} rev-parse HEAD)" = "${X264_COMMIT}"; fi \
  && cd x264-${X264_COMMIT} && ./configure --enable-static --disable-cli --enable-pic --prefix=/usr/local >/dev/null \
  && make -j"$(nproc)" >/dev/null && make install >/dev/null
 RUN curl -fsSL -o ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz \
