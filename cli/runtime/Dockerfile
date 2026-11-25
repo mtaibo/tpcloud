@@ -68,7 +68,10 @@ FROM alpine:3.22 AS rsync
 ARG RSYNC_VERSION
 ARG RSYNC_SHA256
 RUN apk add --no-cache build-base curl perl acl-dev acl-static attr-dev popt-dev popt-static zlib-dev zlib-static
-RUN curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o /tmp/src.tar.gz https://download.samba.org/pub/rsync/src/rsync-${RSYNC_VERSION}.tar.gz \
+# The project's GitHub release first (the same file, same checksum), samba.org if that fails:
+# samba.org was down for hours on Nov 25 2026 and held a release up.
+RUN { curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o /tmp/src.tar.gz https://github.com/RsyncProject/rsync/releases/download/v${RSYNC_VERSION}/rsync-${RSYNC_VERSION}.tar.gz \
+      || curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o /tmp/src.tar.gz https://download.samba.org/pub/rsync/src/rsync-${RSYNC_VERSION}.tar.gz; } \
  && echo "${RSYNC_SHA256}  /tmp/src.tar.gz" | sha256sum -c - && tar -xzf /tmp/src.tar.gz -C /tmp
 WORKDIR /tmp/rsync-${RSYNC_VERSION}
 RUN ./configure --disable-openssl --disable-xxhash --disable-zstd --disable-lz4 --disable-md2man --disable-idn \
