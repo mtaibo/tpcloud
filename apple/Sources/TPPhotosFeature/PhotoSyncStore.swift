@@ -71,9 +71,11 @@ public final class PhotoSyncStore: ObservableObject {
     /// idle timer additionally stops the screen from auto-locking while the run is in the
     /// foreground. Long unattended runs are kept alive by `ContinuedProcessingTask`; this
     /// remains as the fallback when the system declines that request.
-    private func beginBackgroundExecution(name: String) -> () -> Void {
+    private func beginBackgroundExecution(name: String, onExpire: (@MainActor () -> Void)? = nil) -> () -> Void {
         var taskID: UIBackgroundTaskIdentifier = .invalid
         taskID = UIApplication.shared.beginBackgroundTask(withName: name) {
+            // The grace time is up: stop starting uploads (the background uploader takes over).
+            MainActor.assumeIsolated { onExpire?() }
             UIApplication.shared.endBackgroundTask(taskID)
             taskID = .invalid
         }
@@ -101,19 +103,25 @@ public final class PhotoSyncStore: ObservableObject {
         stopRequested = false
 
         #if os(iOS)
-        let endBackgroundExecution = beginBackgroundExecution(name: "PhotoBackup")
+        let endBackgroundExecution = beginBackgroundExecution(name: "PhotoBackup", onExpire: { [weak self] in self?.stopRequested = true })
         defer { endBackgroundExecution() }
 
         PhotoBackgroundUploader.shared.setPaused(true)
-        defer { PhotoBackgroundUploader.shared.setPaused(false) }
+        defer {
+            PhotoBackgroundUploader.shared.setPaused(false)
+            // Whatever this run didn't get to (the app went to the background) carries on there.
+            if stopRequested { Task { await PhotoBackgroundUploader.shared.refill() } }
+        }
 
-        let continuedTask = ContinuedProcessingTask(
-            identifierPrefix: "com.migueltaibo.tpcloud.photobackup.continued",
-            title: "Photo Backup",
-            itemName: "photos"
-        )
-        continuedTask.start(onExpire: { [weak self] in self?.stopRequested = true })
-        defer { continuedTask.finish(success: lastError == nil) }
+        let activity = TransferActivity(title: "Photo Backup", itemName: "photos and videos", kind: TransferActivity.photoBackupKind)
+        activity.start()
+        defer {
+            if stopRequested {
+                activity.finish(text: nil) // handed over: the background uploader keeps counting
+            } else {
+                activity.finish(text: lastError == nil ? "Done" : (progressFailed > 0 ? "\(progressFailed) failed" : "Stopped"))
+            }
+        }
         #endif
 
         let status = await PhotoLibraryAuthorization.requestReadOnlyAccess()
@@ -137,7 +145,7 @@ public final class PhotoSyncStore: ObservableObject {
         let pending = scan.assets.filter { !knownIds.contains($0.localIdentifier) }
         progressTotal = pending.count
         #if os(iOS)
-        continuedTask.update(completed: 0, total: progressTotal)
+        activity.update(completed: 0, total: progressTotal)
         #endif
 
         // Bounded-concurrency pool instead of one-at-a-time: each in-flight upload still goes
@@ -186,7 +194,7 @@ public final class PhotoSyncStore: ObservableObject {
                     Self.logger.error("Photo backup failed: \(String(describing: error), privacy: .public)")
                 }
                 #if os(iOS)
-                continuedTask.update(completed: progressDone, total: progressTotal)
+                activity.update(completed: progressDone, total: progressTotal)
                 #endif
                 stopping = stopRequested
                 enqueueNext()
@@ -196,9 +204,9 @@ public final class PhotoSyncStore: ObservableObject {
         guard !sessionExpired else { return }
 
         if stopRequested {
-            // iOS (or the user, from the system progress UI) stopped the background run; what's
-            // left isn't known to the server yet, so the next backupNow() picks it up.
-            lastError = "The backup stopped before finishing. It will resume on the next backup."
+            // The app went to the background: what's left goes on in the background uploader (as
+            // fast as iOS lets it), and the next backupNow() picks up anything it hasn't done.
+            lastError = "The backup carries on in the background, more slowly. Open the app to speed it up."
             return
         }
 

@@ -144,14 +144,9 @@ final class StoreUploadQueue {
     private func run() async {
         let activity = BackgroundActivity.begin(named: "Store uploads")
         #if os(iOS)
-        // Keeps the batch going once the app is in the background or the screen locks, with its
-        // progress in the system's own UI; without it iOS suspends the app within seconds.
-        let continuedTask = ContinuedProcessingTask(
-            identifierPrefix: "com.migueltaibo.tpcloud.storeupload.continued",
-            title: "Uploading to Store",
-            itemName: "files"
-        )
-        continuedTask.start(onExpire: { [weak self] in self?.cancelAll() })
+        // The batch's progress on the Lock Screen and in the Dynamic Island.
+        let liveActivity = TransferActivity(title: "Uploading to Store", itemName: "files", kind: "store-upload")
+        liveActivity.start()
         #endif
 
         let poller = Task {
@@ -176,7 +171,7 @@ final class StoreUploadQueue {
                 await group.next()
                 running -= 1
                 #if os(iOS)
-                continuedTask.update(completed: doneCount + failedItems.count, total: totalCount)
+                liveActivity.update(completed: doneCount + failedItems.count, total: totalCount)
                 #endif
             }
         }
@@ -184,7 +179,7 @@ final class StoreUploadQueue {
         poller.cancel()
         for item in items where item.state == .waiting { item.state = .cancelled }
         #if os(iOS)
-        continuedTask.finish(success: failedItems.isEmpty)
+        liveActivity.finish(text: failedItems.isEmpty ? "Done" : "\(failedItems.count) failed")
         #endif
         activity.end()
         runner = nil

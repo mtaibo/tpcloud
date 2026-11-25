@@ -160,6 +160,11 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
             candidates.append(asset)
         }
 
+        // Nothing in flight and nothing left: the backup's Live Activity, if it's showing, is done.
+        if active.isEmpty, candidates.isEmpty {
+            await TransferActivity.endBackupIfShowing()
+        }
+
         for asset in candidates {
             do {
                 try await plan(asset: asset, ownerEmail: ownerEmail)
@@ -198,6 +203,7 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
         }
         await ledger.remove(uploadId: upload.uploadId)
         await cancelChunks(of: upload.uploadId)
+        await TransferActivity.noteBackedUp()
         return true
     }
 
