@@ -52,7 +52,8 @@ pub fn photos(network: &str) -> Option<Vec<Photo>> {
 }
 
 pub fn save_photos(network: &str, photos: &[Photo]) {
-    if let Ok(json) = serde_json::to_vec(&photos[..photos.len().min(600)]) {
+    // The whole library (12,000 rows are ~1.5 MB): it opens laid out, at once.
+    if let Ok(json) = serde_json::to_vec(photos) {
         write(root(network).join("photos.json"), &json);
     }
 }

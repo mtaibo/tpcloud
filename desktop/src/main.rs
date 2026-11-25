@@ -13,7 +13,8 @@ mod theme;
 
 use iced::widget::{button, column, container, horizontal_space, image, row, scrollable, slider, svg, text, text_input, Column, Row, Space};
 use iced::{keyboard, window, Alignment, Color, Element, Length, Padding, Size, Subscription, Task, Theme};
-use net::{Api, Blind, Entry, Host, Me, Photo, PhotoPage};
+use net::{Api, Blind, Entry, Host, Me, Photo};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 use store::Store;
@@ -29,6 +30,12 @@ const FONTS: [&[u8]; 4] = [
 /// Thumbnails asked of the server at once: enough to fill a screen quickly, few enough not to
 /// queue the Pi.
 const THUMBS_AT_ONCE: usize = 8;
+
+/// Photos: thumbnails asked for per bulk request, bulk requests at once, and how many decoded
+/// thumbnails stay in memory (those far from what's on screen go first).
+const PHOTO_BATCH: usize = 60;
+const PHOTO_BATCHES: usize = 3;
+const PHOTO_KEEP: usize = 1500;
 
 /// The sidebar's width, its margin, and the heights around the file list (for working out
 /// what fits and what's on screen).
@@ -133,16 +140,32 @@ enum Screen {
 #[derive(Debug, Clone, PartialEq)]
 enum ThumbKey {
     File(String, u64),
-    Photo(i64),
 }
 
 impl ThumbKey {
     fn id(&self) -> String {
         match self {
             ThumbKey::File(p, v) => format!("f:{p}:{v}"),
-            ThumbKey::Photo(id) => format!("p:{id}"),
         }
     }
+}
+
+/// The photo grid worked out once (not every frame): its rows, where each starts, and how tall
+/// it all is, so only the rows near the screen are built.
+struct PhotoLayout {
+    key: (usize, i64, usize, u32),
+    cell: f32,
+    month_h: f32,
+    row_h: f32,
+    rows: Vec<PhotoRow>,
+    tops: Vec<f32>,
+    total: f32,
+}
+
+enum PhotoRow {
+    Month(String),
+    /// Photos `start..end` of the library.
+    Tiles(usize, usize),
 }
 
 struct App {
@@ -187,8 +210,15 @@ struct App {
     in_flight: usize,
     // Photos
     photos: Vec<Photo>,
-    cursor: Option<String>,
-    more_loading: bool,
+    /// The library's index came from the server in this session (else it's the cached one).
+    photos_fresh: bool,
+    photo_layout: RefCell<Option<PhotoLayout>>,
+    /// How far the grid is scrolled and how tall its viewport is.
+    photos_scroll: (f32, f32),
+    photo_thumbs: HashMap<i64, image::Handle>,
+    photo_loading: HashSet<i64>,
+    photo_failed: HashSet<i64>,
+    photo_batches: usize,
     // House and account
     blinds: Vec<Blind>,
     host: Option<Host>,
@@ -229,7 +259,8 @@ enum Message {
     Dropped(std::path::PathBuf),
     Uploaded(Result<usize, String>),
     Thumb(String, Result<Vec<u8>, String>),
-    PhotosLoaded(bool, Result<PhotoPage, String>),
+    PhotoIndex(Result<Vec<Photo>, String>),
+    PhotoThumbs(Vec<i64>, Vec<(i64, image::Handle)>),
     PhotosScrolled(scrollable::Viewport),
     FilesScrolled(scrollable::Viewport),
     Blinds(Result<Vec<Blind>, String>),
@@ -304,8 +335,13 @@ impl App {
             queue: VecDeque::new(),
             in_flight: 0,
             photos: vec![],
-            cursor: None,
-            more_loading: false,
+            photos_fresh: false,
+            photo_layout: RefCell::new(None),
+            photos_scroll: (0.0, 0.0),
+            photo_thumbs: HashMap::new(),
+            photo_loading: HashSet::new(),
+            photo_failed: HashSet::new(),
+            photo_batches: 0,
             blinds: vec![],
             host: None,
         };
@@ -495,10 +531,10 @@ impl App {
         match self.place {
             Place::Files | Place::Shared => self.list(),
             Place::Photos => {
-                if !self.photos.is_empty() && self.cursor.is_some() {
-                    return self.want_thumbs();
+                if self.photos_fresh {
+                    return self.want_photo_thumbs();
                 }
-                Task::batch([Task::perform(async move { api.photos(None).await }, |r| Message::PhotosLoaded(true, r)), self.want_thumbs()])
+                Task::batch([Task::perform(async move { api.photo_index().await }, Message::PhotoIndex), self.want_photo_thumbs()])
             }
             Place::House => Task::perform(async move { api.blinds().await }, Message::Blinds),
             Place::Account => {
@@ -526,7 +562,6 @@ impl App {
                     }
                 }
             }
-            Place::Photos => keys.extend(self.photos.iter().map(|p| ThumbKey::Photo(p.id))),
             _ => {}
         }
         for k in keys {
@@ -547,7 +582,6 @@ impl App {
     fn pump(&mut self) -> Task<Message> {
         let Some(api) = self.api.clone() else { return Task::none() };
         let mut tasks = Vec::new();
-        let photos: HashMap<i64, Photo> = self.photos.iter().map(|p| (p.id, p.clone())).collect();
         while self.in_flight < THUMBS_AT_ONCE {
             let Some(k) = self.queue.pop_front() else { break };
             self.in_flight += 1;
@@ -555,13 +589,130 @@ impl App {
             let api = api.clone();
             match k {
                 ThumbKey::File(path, _) => tasks.push(Task::perform(async move { api.file_thumbnail(&path, 240).await }, move |r| Message::Thumb(id.clone(), r))),
-                ThumbKey::Photo(pid) => match photos.get(&pid).cloned() {
-                    Some(photo) => tasks.push(Task::perform(async move { api.thumbnail(&photo).await }, move |r| Message::Thumb(id.clone(), r))),
-                    None => self.in_flight -= 1,
-                },
             }
         }
         Task::batch(tasks)
+    }
+
+    // ── Photos: laid out once, only what's near the screen built, thumbnails in bulk ──
+
+    fn photo_layout(&self) -> std::cell::Ref<'_, PhotoLayout> {
+        let usable = (self.width - sidebar() - u(8.0 + 28.0)).max(200.0);
+        let per_row = ((usable / u(150.0)).round() as usize).clamp(2, 24);
+        let key = (self.photos.len(), self.photos.first().map(|p| p.id).unwrap_or(0), per_row, (usable * 10.0) as u32 ^ self.p.scale.to_bits());
+        if self.photo_layout.borrow().as_ref().map(|l| l.key) != Some(key) {
+            let gap = u(2.0);
+            let cell = ((usable - (per_row as f32 - 1.0) * gap) / per_row as f32).floor();
+            let month_h = u(26.0) + 22.0 * self.p.scale * 1.3;
+            let row_h = cell + gap;
+            let mut rows = Vec::new();
+            let mut i = 0;
+            while i < self.photos.len() {
+                let month = photo_month(&self.photos[i]);
+                let mut end = i + 1;
+                while end < self.photos.len() && photo_month(&self.photos[end]) == month {
+                    end += 1;
+                }
+                rows.push(PhotoRow::Month(month));
+                let mut start = i;
+                while start < end {
+                    rows.push(PhotoRow::Tiles(start, (start + per_row).min(end)));
+                    start += per_row;
+                }
+                i = end;
+            }
+            let mut tops = Vec::with_capacity(rows.len());
+            let mut y = 0.0;
+            for row in &rows {
+                tops.push(y);
+                y += if matches!(row, PhotoRow::Month(_)) { month_h } else { row_h };
+            }
+            *self.photo_layout.borrow_mut() = Some(PhotoLayout { key, cell, month_h, row_h, rows, tops, total: y });
+        }
+        std::cell::Ref::map(self.photo_layout.borrow(), |l| l.as_ref().unwrap())
+    }
+
+    /// The rows from a screen above to two below what's shown (the ones worth building and
+    /// loading).
+    fn photo_rows_near(&self) -> std::ops::Range<usize> {
+        let l = self.photo_layout();
+        let (offset, mut view) = self.photos_scroll;
+        if view <= 0.0 {
+            view = self.height;
+        }
+        let (lo, hi) = (offset - view, offset + view * 2.0);
+        let a = l.tops.partition_point(|&t| t < lo).saturating_sub(1);
+        let b = l.tops.partition_point(|&t| t <= hi);
+        a..b.max(a)
+    }
+
+    /// The photos near the screen whose thumbnails aren't here yet, asked for in bulk (from the
+    /// disk cache first, then the server), decoded off the UI thread.
+    fn want_photo_thumbs(&mut self) -> Task<Message> {
+        if self.place != Place::Photos || self.photos.is_empty() {
+            return Task::none();
+        }
+        let Some(api) = self.api.clone() else { return Task::none() };
+        let range = self.photo_rows_near();
+        let (first, last) = {
+            let l = self.photo_layout();
+            let tiles = l.rows[range.clone()].iter().filter_map(|r| if let PhotoRow::Tiles(a, b) = r { Some((*a, *b)) } else { None });
+            tiles.fold((usize::MAX, 0), |(lo, hi), (a, b)| (lo.min(a), hi.max(b)))
+        };
+        if first >= last {
+            return Task::none();
+        }
+        let mut want: Vec<i64> = self.photos[first..last].iter().map(|p| p.id).filter(|id| !self.photo_thumbs.contains_key(id) && !self.photo_loading.contains(id) && !self.photo_failed.contains(id)).collect();
+        let mut tasks = Vec::new();
+        let net = self.net_id();
+        let side = u(170.0).min(340.0) as u32;
+        while self.photo_batches < PHOTO_BATCHES && !want.is_empty() {
+            let ids: Vec<i64> = want.drain(..want.len().min(PHOTO_BATCH)).collect();
+            self.photo_loading.extend(ids.iter().copied());
+            self.photo_batches += 1;
+            let (api, net, asked) = (api.clone(), net.clone(), ids.clone());
+            tasks.push(Task::perform(
+                async move {
+                    let mut found = Vec::new();
+                    let mut missing = Vec::new();
+                    for id in ids {
+                        match tokio::fs::read(cache::thumb_file(&net, &format!("p:{id}"))).await {
+                            Ok(b) => found.push((id, b)),
+                            Err(_) => missing.push(id),
+                        }
+                    }
+                    let fresh = if missing.is_empty() { vec![] } else { api.photo_thumbnails(&missing).await.unwrap_or_default() };
+                    tokio::task::spawn_blocking(move || {
+                        for (id, b) in &fresh {
+                            cache::save_thumb(&net, &format!("p:{id}"), b);
+                        }
+                        found.into_iter().chain(fresh).filter_map(|(id, b)| square_thumb(&b, side).map(|h| (id, h))).collect::<Vec<_>>()
+                    })
+                    .await
+                    .unwrap_or_default()
+                },
+                move |got| Message::PhotoThumbs(asked.clone(), got),
+            ));
+        }
+        Task::batch(tasks)
+    }
+
+    /// Keeps memory bounded: when there are too many, only the thumbnails near the screen stay.
+    fn evict_photo_thumbs(&mut self) {
+        if self.photo_thumbs.len() <= PHOTO_KEEP {
+            return;
+        }
+        let range = self.photo_rows_near();
+        let (first, last) = {
+            let l = self.photo_layout();
+            let tiles = l.rows[range].iter().filter_map(|r| if let PhotoRow::Tiles(a, b) = r { Some((*a, *b)) } else { None });
+            tiles.fold((usize::MAX, 0), |(lo, hi), (a, b)| (lo.min(a), hi.max(b)))
+        };
+        let margin = PHOTO_KEEP / 3;
+        let lo = first.saturating_sub(margin).min(self.photos.len());
+        let hi = (last + margin).min(self.photos.len()).max(lo);
+        let keep: HashSet<i64> = self.photos[lo..hi].iter().map(|p| p.id).collect();
+        self.photo_thumbs.retain(|id, _| keep.contains(id));
     }
 
     fn signed_out(&mut self) {
@@ -850,26 +1001,35 @@ impl App {
                 }
                 return self.pump();
             }
-            Message::PhotosLoaded(first, Ok(page)) => {
-                self.more_loading = false;
-                self.cursor = page.next_cursor;
-                if first {
-                    self.photos = page.items;
+            Message::PhotoIndex(Ok(photos)) => {
+                self.photos_fresh = true;
+                cache::save_photos(&self.net_id(), &photos);
+                self.photos = photos;
+                return self.want_photo_thumbs();
+            }
+            Message::PhotoIndex(Err(e)) => {
+                if e == "signed-out" {
+                    self.signed_out();
                 } else {
-                    self.photos.extend(page.items);
+                    self.error = Some(e);
                 }
-                cache::save_photos(&self.net_id(), &self.photos);
-                return self.want_thumbs();
+            }
+            Message::PhotoThumbs(asked, got) => {
+                self.photo_batches = self.photo_batches.saturating_sub(1);
+                for id in &asked {
+                    self.photo_loading.remove(id);
+                }
+                let arrived: HashSet<i64> = got.iter().map(|(id, _)| *id).collect();
+                // Ones the server had nothing for aren't asked again in this session.
+                self.photo_failed.extend(asked.iter().filter(|id| !arrived.contains(id)));
+                self.photo_thumbs.extend(got);
+                self.evict_photo_thumbs();
+                return self.want_photo_thumbs();
             }
             Message::FilesScrolled(viewport) => self.files_scroll = (viewport.absolute_offset().y, viewport.bounds().height),
             Message::PhotosScrolled(viewport) => {
-                let near_end = viewport.relative_offset().y > 0.85;
-                if near_end && !self.more_loading {
-                    if let (Some(api), Some(cursor)) = (self.api.clone(), self.cursor.clone()) {
-                        self.more_loading = true;
-                        return Task::perform(async move { api.photos(Some(&cursor)).await }, |r| Message::PhotosLoaded(false, r));
-                    }
-                }
+                self.photos_scroll = (viewport.absolute_offset().y, viewport.bounds().height);
+                return self.want_photo_thumbs();
             }
             Message::Blinds(Ok(b)) => self.blinds = b,
             Message::BlindCommand(id, command) => {
@@ -927,9 +1087,8 @@ impl App {
                 self.say(format!("TPCloud is installed here and waiting to be set up at {page}."));
                 let _ = std::process::Command::new("xdg-open").arg(&page).spawn();
             }
-            Message::Listed(_, Err(e)) | Message::Opened(Err(e)) | Message::Downloaded(Err(e)) | Message::Uploaded(Err(e)) | Message::PhotosLoaded(_, Err(e)) | Message::Blinds(Err(e)) | Message::Done(Err(e)) => {
+            Message::Listed(_, Err(e)) | Message::Opened(Err(e)) | Message::Downloaded(Err(e)) | Message::Uploaded(Err(e)) | Message::Blinds(Err(e)) | Message::Done(Err(e)) => {
                 self.loading = false;
-                self.more_loading = false;
                 if e == "signed-out" {
                     self.signed_out();
                 } else {
@@ -973,6 +1132,21 @@ impl App {
             keyboard::Key::Named(Named::ArrowUp) if mods.alt() && !self.path.is_empty() => {
                 let up = self.path.len() - 1;
                 return self.update(Message::Crumb(up));
+            }
+            // Photos: a screen at a time, or to either end of the library.
+            keyboard::Key::Named(k @ (Named::PageDown | Named::PageUp | Named::Home | Named::End)) if self.place == Place::Photos && !self.photos.is_empty() => {
+                let total = self.photo_layout().total;
+                let (offset, view) = self.photos_scroll;
+                let view = if view > 0.0 { view } else { self.height - toolbar() };
+                let to = match k {
+                    Named::PageDown => offset + view * 0.9,
+                    Named::PageUp => offset - view * 0.9,
+                    Named::Home => 0.0,
+                    _ => total,
+                }
+                .clamp(0.0, (total - view).max(0.0));
+                self.photos_scroll = (to, view);
+                return Task::batch([scrollable::scroll_to(scrollable::Id::new("photos"), scrollable::AbsoluteOffset { x: 0.0, y: to }), self.want_photo_thumbs()]);
             }
             keyboard::Key::Named(Named::ArrowUp) if !mods.alt() => return self.move_selection(-(self.columns() as isize)),
             keyboard::Key::Named(Named::ArrowDown) if !mods.alt() => return self.move_selection(self.columns() as isize),
@@ -1060,13 +1234,17 @@ impl App {
     fn reset_network(&mut self) {
         self.listings.clear();
         self.photos.clear();
+        self.photos_fresh = false;
+        self.photo_thumbs.clear();
+        self.photo_loading.clear();
+        self.photo_failed.clear();
+        self.photos_scroll = (0.0, 0.0);
         self.thumbs.clear();
         self.queue.clear();
         self.queued.clear();
         self.path.clear();
         self.back.clear();
         self.forward.clear();
-        self.cursor = None;
         self.place = Place::Files;
     }
 
@@ -1346,54 +1524,42 @@ impl App {
 
     fn photos_view(&self) -> Element<'_, Message> {
         let p = self.p;
-        let usable = (self.width - sidebar() - 8.0 - 28.0).max(200.0);
-        let target = 150.0;
-        let per_row = ((usable / target).round() as usize).clamp(2, 16);
-        let cell = (usable - (per_row as f32 - 1.0) * 2.0) / per_row as f32;
-        let mut col = Column::new().spacing(u(2.0)).padding([u(4.0), u(14.0)]);
-        let mut month = String::new();
-        let mut current: Vec<&Photo> = Vec::new();
-        for ph in &self.photos {
-            let m = ph.taken_at.as_deref().map(month_label).unwrap_or_else(|| "Undated".into());
-            if m != month {
-                col = self.month_block(col, &current, &month, per_row, cell);
-                current.clear();
-                month = m;
-            }
-            current.push(ph);
-        }
-        col = self.month_block(col, &current, &month, per_row, cell);
-        if self.more_loading {
-            col = col.push(container(spinner_dot(p)).center_x(Length::Fill).padding(u(16.0)));
-        }
         let body: Element<Message> = if self.photos.is_empty() {
-            center(column![line_icon("photo", 44.0, p.label3), text("No photos yet").size(p.sz(15.0)).font(SEMIBOLD).color(p.label2), text("The iPhone app backs them up here.").size(p.sz(13.0)).color(p.label3)].spacing(u(8.0)).align_x(Alignment::Center).into())
+            center(column![line_icon("photo", 44.0, p.label3), text("No photos yet").size(p.sz(17.0)).font(SEMIBOLD).color(p.label2), text("The iPhone app backs them up here.").size(p.sz(14.0)).color(p.label3)].spacing(u(8.0)).align_x(Alignment::Center).into())
         } else {
-            scrollable(col).height(Length::Fill).width(Length::Fill).on_scroll(Message::PhotosScrolled).style(theme::scroll(p)).into()
+            // Only the rows near the screen are built; the rest are empty space of the right
+            // height, so the scroll bar and position stay true (iced builds every widget each
+            // frame: 12,000 tiles as one column made the whole app crawl).
+            let near = self.photo_rows_near();
+            let l = self.photo_layout();
+            let mut col = Column::new().padding([u(4.0), u(14.0)]);
+            let before = l.tops.get(near.start).copied().unwrap_or(0.0);
+            if before > 0.0 {
+                col = col.push(Space::with_height(before));
+            }
+            for row in &l.rows[near.clone()] {
+                col = col.push(match row {
+                    PhotoRow::Month(label) => Element::from(container(text(label.clone()).size(p.sz(22.0)).font(BOLD)).height(l.month_h).padding(Padding { top: u(18.0), right: 0.0, bottom: u(8.0), left: u(2.0) }).align_y(Alignment::End)),
+                    PhotoRow::Tiles(a, b) => {
+                        let mut r = Row::new().spacing(u(2.0));
+                        for ph in &self.photos[*a..*b] {
+                            r = r.push(match self.photo_thumbs.get(&ph.id) {
+                                Some(h) => Element::from(image(h.clone()).width(l.cell).height(l.cell).content_fit(iced::ContentFit::Cover)),
+                                None => container(Space::new(l.cell, l.cell)).style(theme::fill(p, p.fill4, 0.0)).into(),
+                            });
+                        }
+                        container(r).height(l.row_h).into()
+                    }
+                });
+            }
+            let after = l.total - l.tops.get(near.end).copied().unwrap_or(l.total);
+            if after > 0.0 {
+                col = col.push(Space::with_height(after));
+            }
+            scrollable(col).id(scrollable::Id::new("photos")).height(Length::Fill).width(Length::Fill).on_scroll(Message::PhotosScrolled).style(theme::scroll(p)).into()
         };
         let count = text(format!("{} photos", self.photos.len())).size(p.sz(13.5)).color(p.label2);
         column![self.toolbar("Photos".into(), count.into()), body].into()
-    }
-
-    /// One month of photos: its name written large, like Apple's Photos, then its rows.
-    fn month_block<'a>(&'a self, mut col: Column<'a, Message>, items: &[&Photo], label: &str, per_row: usize, cell: f32) -> Column<'a, Message> {
-        let p = self.p;
-        if items.is_empty() {
-            return col;
-        }
-        col = col.push(container(text(label.to_string()).size(p.sz(22.0)).font(BOLD)).padding(Padding { top: u(18.0), right: 0.0, bottom: u(8.0), left: u(2.0) }));
-        for chunk in items.chunks(per_row) {
-            let mut r = Row::new().spacing(u(2.0));
-            for ph in chunk {
-                let tile: Element<Message> = match self.thumbs.get(&ThumbKey::Photo(ph.id).id()) {
-                    Some(h) => image(h.clone()).width(cell).height(cell).content_fit(iced::ContentFit::Cover).into(),
-                    None => container(Space::new(cell, cell)).style(theme::fill(p, p.fill4, 0.0)).into(),
-                };
-                r = r.push(tile);
-            }
-            col = col.push(r);
-        }
-        col
     }
 
     fn house_view(&self) -> Element<'_, Message> {
@@ -1722,6 +1888,30 @@ fn when(secs: f64) -> String {
     unsafe { localtime_r(&t, &mut tm) };
     const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     format!("{} {} {} at {:02}:{:02}", tm.tm_mday, MONTHS[(tm.tm_mon as usize).min(11)], tm.tm_year + 1900, tm.tm_hour, tm.tm_min)
+}
+
+/// A photo's month as shown over its rows: «November 2026», local time.
+fn photo_month(photo: &Photo) -> String {
+    const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    if let Some(ms) = photo.taken_ms {
+        let t = (ms / 1000) as libc_time_t;
+        let mut tm: Tm = unsafe { std::mem::zeroed() };
+        unsafe { localtime_r(&t, &mut tm) };
+        return format!("{} {}", MONTHS[(tm.tm_mon as usize).min(11)], tm.tm_year + 1900);
+    }
+    photo.taken_at.as_deref().map(month_label).unwrap_or_else(|| "Undated".into())
+}
+
+/// A thumbnail decoded here (not by the renderer on the UI thread when it's first drawn),
+/// cropped square and shrunk to the tile's size so a screenful costs little memory.
+fn square_thumb(bytes: &[u8], side: u32) -> Option<image::Handle> {
+    let img = ::image::load_from_memory(bytes).ok()?;
+    let (w, h) = (img.width(), img.height());
+    let s = w.min(h).max(1);
+    let img = img.crop_imm((w - s) / 2, (h - s) / 2, s, s);
+    let side = side.min(s);
+    let img = img.resize_exact(side, side, ::image::imageops::FilterType::Triangle).to_rgba8();
+    Some(image::Handle::from_rgba(side, side, img.into_raw()))
 }
 
 /// «November 2026» from the photo's ISO date.

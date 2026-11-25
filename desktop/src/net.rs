@@ -294,12 +294,14 @@ pub struct Photo {
     pub location: String,
     #[serde(default)]
     pub taken_at: Option<String>,
+    /// When it was taken, in ms since the epoch (what the photo index gives).
+    #[serde(default)]
+    pub taken_ms: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct PhotoPage {
     pub items: Vec<Photo>,
-    pub next_cursor: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -441,6 +443,41 @@ impl Api {
         Self::check(res).await?.json().await.map_err(|e| e.to_string())
     }
 
+    /// The whole library at once, newest first, as compact rows (`/photos/index`, what the web
+    /// gallery lays itself out from): one request instead of one per 120 photos.
+    pub async fn photo_index(&self) -> Result<Vec<Photo>> {
+        #[derive(Deserialize)]
+        struct Index {
+            items: Vec<(i64, Option<String>, String, Option<i64>, Option<String>, Option<i64>)>,
+        }
+        let res = self.req(reqwest::Method::GET, "/store/api/photos/index").send().await.map_err(|e| e.to_string())?;
+        let index: Index = Self::check(res).await?.json().await.map_err(|e| e.to_string())?;
+        Ok(index.items.into_iter().map(|(id, _, path, ms, _, _)| Photo { id, path, location: "external".into(), taken_at: None, taken_ms: ms }).collect())
+    }
+
+    /// Up to 300 photos' thumbnails (320 px) in one response, the iPhone app's bulk endpoint:
+    /// for each id a 4-byte id and a 4-byte length (big-endian), then that much JPEG.
+    pub async fn photo_thumbnails(&self, ids: &[i64]) -> Result<Vec<(i64, Vec<u8>)>> {
+        let res = self.req(reqwest::Method::POST, "/store/api/photos/thumbnails").json(&serde_json::json!({ "ids": ids })).send().await.map_err(|e| e.to_string())?;
+        let body = Self::check(res).await?.bytes().await.map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        let mut at = 0;
+        while at + 8 <= body.len() {
+            let id = u32::from_be_bytes(body[at..at + 4].try_into().unwrap()) as i64;
+            let len = u32::from_be_bytes(body[at + 4..at + 8].try_into().unwrap()) as usize;
+            at += 8;
+            if at + len > body.len() {
+                break;
+            }
+            if len > 0 {
+                out.push((id, body[at..at + len].to_vec()));
+            }
+            at += len;
+        }
+        Ok(out)
+    }
+
+    #[allow(dead_code)]
     pub async fn thumbnail(&self, photo: &Photo) -> Result<Vec<u8>> {
         let res = self
             .req(reqwest::Method::GET, "/store/api/files/thumbnail")
