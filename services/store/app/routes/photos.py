@@ -18,7 +18,7 @@ from app import media
 from app.auth import get_current_user
 from app.database import engine, get_session
 from app.models import AlbumPhoto, Photo
-from app.utils import get_base, resolve_path, guess_media_type
+from app.utils import check_access, get_base, resolve_path, guess_media_type
 
 router = APIRouter(prefix="/api/photos", tags=["photos"])
 log = logging.getLogger(__name__)
@@ -71,7 +71,19 @@ def _serialize(photo: Photo) -> dict:
         "status": photo.status,
         "uploaded_at": photo.uploaded_at.isoformat(),
         "verified_at": photo.verified_at.isoformat() if photo.verified_at else None,
+        # A video's length, once its poster's been made (the grid's badge shows it).
+        "duration": _duration(photo),
     }
+
+
+def _duration(photo: Photo) -> Optional[float]:
+    if not (photo.mime_type or "").startswith("video/"):
+        return None
+    try:
+        info = media.cached_video_info(resolve_path(get_base(photo.location), photo.path))
+    except Exception:
+        return None
+    return round(info["duration"], 2) if info and info.get("duration") else None
 
 
 class PhotoCreateBody(BaseModel):
@@ -508,6 +520,123 @@ def rename_photos_to_readable_names() -> int:
                 log.exception("Couldn't rename photo %s", photo.id)
         db.commit()
     return renamed
+
+
+class ImportBody(BaseModel):
+    path: str
+    location: str = "external"
+
+
+@router.post("/import")
+async def import_folder(request: Request, body: ImportBody, db: Session = Depends(get_session)):
+    """Puts the photos and videos of a folder of the user's files (or of the shared folder) into
+    their gallery: each one is copied to its place under photos/ — the folder stays as it is —
+    with its date from EXIF (photos) or the video's own creation time, else the file's date.
+    Ones the gallery already has (same content) are skipped, so it can be run again."""
+    user = await get_current_user(request)
+    email = user["email"]
+    check_access(body.location, body.path, email)
+    base = get_base(body.location)
+    folder = resolve_path(base, body.path)
+    if not folder.is_dir():
+        raise HTTPException(404, "Folder not found")
+
+    files = await run_in_threadpool(lambda: sorted(
+        p for p in folder.rglob("*")
+        if p.is_file() and not p.name.startswith(".") and (media.is_image(p) or media.is_video(p))
+    ))
+    added = skipped = failed = 0
+    photos_base = get_base("external")
+    for src in files:
+        try:
+            checksum = await run_in_threadpool(_sha256_file, src)
+            if db.exec(select(Photo.id).where(Photo.owner_email == email, Photo.checksum == checksum)).first():
+                skipped += 1
+                continue
+            is_video = media.is_video(src)
+            taken_at, width, height = None, None, None
+            if is_video:
+                taken_at = await _video_created_at(src)
+                try:
+                    info = await media.video_info(src)
+                    width, height = info.get("width") or None, info.get("height") or None
+                except Exception:
+                    pass
+            else:
+                taken_at = await run_in_threadpool(_exif_taken_at, src)
+                width, height = await run_in_threadpool(_image_size, src)
+            if taken_at is None:
+                taken_at = datetime.fromtimestamp(src.stat().st_mtime, timezone.utc)
+            ext = src.suffix.lower() or (".mov" if is_video else ".jpg")
+            # Named by checksum first, like an upload from the app; registered, it gets its
+            # readable name.
+            rel = f"photos/{email}/{_local(taken_at):%Y/%m}/{checksum}{ext}"
+            dest = resolve_path(photos_base, rel)
+            await run_in_threadpool(_copy_file, src, dest)
+            photo = Photo(
+                owner_email=email,
+                checksum=checksum,
+                path=rel,
+                location="external",
+                original_filename=src.name,
+                file_size=dest.stat().st_size,
+                mime_type=guess_media_type(src),
+                width=width,
+                height=height,
+                taken_at=taken_at,
+                is_screenshot=False,
+                is_camera_original=False,
+                source_type="imported",
+                status="verified",
+                verified_at=datetime.now(timezone.utc),
+            )
+            db.add(photo)
+            db.commit()
+            db.refresh(photo)
+            if await run_in_threadpool(_give_readable_name, photo, photos_base):
+                db.add(photo)
+                db.commit()
+            added += 1
+        except Exception:
+            log.exception("Couldn't import %s", src)
+            failed += 1
+    return {"added": added, "skipped": skipped, "failed": failed}
+
+
+def _copy_file(src: Path, dest: Path) -> None:
+    import shutil
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f".{dest.name}.importing")
+    shutil.copy2(src, tmp)
+    tmp.replace(dest)
+
+
+def _image_size(file_path: Path) -> tuple[Optional[int], Optional[int]]:
+    """The size it's seen at (EXIF-turned photos swap width and height)."""
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(file_path) as img:
+            width, height = img.size
+            if img.getexif().get(0x0112, 1) in (5, 6, 7, 8):
+                width, height = height, width
+            return width, height
+    except Exception:
+        return None, None
+
+
+async def _video_created_at(file_path: Path) -> Optional[datetime]:
+    """The creation time a camera writes into a video (QuickTime/MP4 `creation_time`)."""
+    if not media.FFPROBE:
+        return None
+    try:
+        import json
+        out = await media._run(media.FFPROBE, "-v", "error", "-show_entries", "format_tags=creation_time", "-of", "json", str(file_path))
+        raw = (json.loads(out).get("format", {}).get("tags") or {}).get("creation_time")
+        if raw:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        pass
+    return None
 
 
 def _exif_taken_at(file_path: Path) -> Optional[datetime]:

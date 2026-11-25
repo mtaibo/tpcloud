@@ -19,7 +19,10 @@ public struct ExtractedPhotoMetadata: Sendable {
     public let cameraModel: String?
     public let gpsLat: Double?
     public let gpsLon: Double?
-    public let data: Data
+    /// The original, written to a temporary file the caller owns (moves or deletes): videos run
+    /// to gigabytes, far too much to hold in memory the way photos used to be.
+    public let fileURL: URL
+    public var isVideo: Bool { mimeType?.hasPrefix("video/") ?? false }
 }
 
 public struct LightweightPhotoMetadata: Sendable {
@@ -39,19 +42,22 @@ public enum PhotoMetadataExtractor {
     /// iCloud-sourced originals can stall indefinitely inside PhotoKit's own download queue;
     /// without a timeout a single stuck asset would hang `backupNow()` forever (stuck
     /// "uploading" button, no retry possible). Each network-capable request below races
-    /// against this and cancels itself on expiry so the backup loop can move on.
-    private static let perRequestTimeout: Duration = .seconds(90)
+    /// against this and cancels itself on expiry so the backup loop can move on. A video can be
+    /// gigabytes coming down from iCloud, so it gets far longer.
+    private static let photoTimeout: Duration = .seconds(90)
+    private static let videoTimeout: Duration = .seconds(45 * 60)
 
     /// Runs `operation` against a timeout, invoking `onTimeout` (e.g. to cancel the underlying
     /// PhotoKit request) and throwing if the timeout wins the race.
     private static func withTimeout<T: Sendable>(
+        _ timeout: Duration = photoTimeout,
         onTimeout: @escaping @Sendable () -> Void,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask { try await operation() }
             group.addTask {
-                try await Task.sleep(for: perRequestTimeout)
+                try await Task.sleep(for: timeout)
                 onTimeout()
                 throw ExtractionError.timedOut
             }
@@ -60,27 +66,41 @@ public enum PhotoMetadataExtractor {
         }
     }
 
-    public static func extract(from asset: PHAsset) async throws -> ExtractedPhotoMetadata {
-        guard asset.mediaType == .image else { throw ExtractionError.noPhotoResource }
-
-        // Live Photos also carry a `.pairedVideo` resource; v1 backs up stills only, so it's ignored here.
+    /// The asset's original resource: the photo (a Live Photo's still; its paired clip stays on
+    /// the phone, like Photos' own export) or the video.
+    static func originalResource(of asset: PHAsset) -> PHAssetResource? {
         let resources = PHAssetResource.assetResources(for: asset)
-        guard let resource = resources.first(where: { $0.type == .photo }) ?? resources.first(where: { $0.type == .fullSizePhoto }) else {
-            throw ExtractionError.noPhotoResource
+        switch asset.mediaType {
+        case .image: return resources.first { $0.type == .photo } ?? resources.first { $0.type == .fullSizePhoto }
+        case .video: return resources.first { $0.type == .video } ?? resources.first { $0.type == .fullSizeVideo }
+        default: return nil
         }
+    }
 
-        let (data, checksum) = try await loadDataAndChecksum(for: resource)
+    public static func extract(from asset: PHAsset) async throws -> ExtractedPhotoMetadata {
+        guard let resource = originalResource(of: asset) else { throw ExtractionError.noPhotoResource }
+        let isVideo = asset.mediaType == .video
+
+        let (fileURL, size, checksum) = try await writeFileAndChecksum(for: resource, timeout: isVideo ? videoTimeout : photoTimeout)
 
         let isScreenshot = asset.mediaSubtypes.contains(.photoScreenshot)
         let sourceType = classifySourceType(asset.sourceType)
-        let exif = await loadEXIF(for: asset)
-        let isCameraOriginal = !isScreenshot && sourceType != "cloud_shared" && exif.cameraMake != nil
+        var exif = isVideo ? EXIFInfo() : await loadEXIF(for: asset)
+        // Videos carry no EXIF; the library knows where they were made all the same.
+        if exif.gpsLat == nil, let location = asset.location {
+            exif.gpsLat = location.coordinate.latitude
+            exif.gpsLon = location.coordinate.longitude
+        }
+        let filename = resource.filename ?? "untitled"
+        let isCameraOriginal = isVideo
+            ? sourceType == "user_library" && !filename.hasPrefix("RPReplay")
+            : !isScreenshot && sourceType != "cloud_shared" && exif.cameraMake != nil
 
         return ExtractedPhotoMetadata(
             sourceAssetId: asset.localIdentifier,
             // `filename` (iOS 27) is optional where the deprecated `originalFilename` wasn't.
-            originalFilename: resource.filename ?? "untitled",
-            fileSize: data.count,
+            originalFilename: filename,
+            fileSize: size,
             checksum: checksum,
             mimeType: mimeType(for: resource),
             width: asset.pixelWidth,
@@ -93,7 +113,7 @@ public enum PhotoMetadataExtractor {
             cameraModel: exif.cameraModel,
             gpsLat: exif.gpsLat,
             gpsLon: exif.gpsLon,
-            data: data
+            fileURL: fileURL
         )
     }
 
@@ -101,9 +121,7 @@ public enum PhotoMetadataExtractor {
     /// NOT trigger a download (it only reads already-known resource descriptors), unlike `extract(from:)`'s
     /// `requestData`/`requestContentEditingInput` calls — safe to call for every asset, even iCloud-only ones.
     public static func extractLightweight(from asset: PHAsset) -> LightweightPhotoMetadata {
-        let resources = PHAssetResource.assetResources(for: asset)
-        let originalFilename = resources.first(where: { $0.type == .photo })?.filename
-            ?? resources.first(where: { $0.type == .fullSizePhoto })?.filename
+        let originalFilename = originalResource(of: asset)?.filename
         return LightweightPhotoMetadata(
             sourceAssetId: asset.localIdentifier,
             originalFilename: originalFilename,
@@ -124,35 +142,44 @@ public enum PhotoMetadataExtractor {
         UTType(resource.uniformTypeIdentifier)?.preferredMIMEType
     }
 
-    /// Streams the asset's bytes once, hashing as it goes — the same read produces the upload
-    /// payload, its size, and the checksum the server will later re-verify from disk.
-    private static func loadDataAndChecksum(for resource: PHAssetResource) async throws -> (Data, String) {
-        let accumulator = ChunkAccumulator()
+    /// Streams the asset's bytes once into a temporary file, hashing them as they go by: the same
+    /// read gives the upload's file, its size, and the checksum the server checks again on disk.
+    /// Nothing is held in memory but the chunk going past.
+    private static func writeFileAndChecksum(for resource: PHAssetResource, timeout: Duration) async throws -> (URL, Int, String) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("tpextract-\(UUID().uuidString)", isDirectory: false)
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        let writer = try FileHasher(url: url)
         let requestBox = Box<PHAssetResourceDataRequestID>()
         let manager = PHAssetResourceManager.default()
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
 
-        try await withTimeout(onTimeout: {
-            if let id = requestBox.value { manager.cancelDataRequest(id) }
-        }) {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                requestBox.value = manager.requestData(
-                    for: resource,
-                    options: options,
-                    dataReceivedHandler: { chunk in accumulator.append(chunk) },
-                    completionHandler: { error in
-                        if let error {
-                            continuation.resume(throwing: error)
-                        } else {
-                            continuation.resume()
+        do {
+            try await withTimeout(timeout, onTimeout: {
+                if let id = requestBox.value { manager.cancelDataRequest(id) }
+            }) {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    requestBox.value = manager.requestData(
+                        for: resource,
+                        options: options,
+                        dataReceivedHandler: { chunk in writer.append(chunk) },
+                        completionHandler: { error in
+                            if let error {
+                                continuation.resume(throwing: error)
+                            } else {
+                                continuation.resume()
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
+            let (size, checksum) = try writer.finish()
+            return (url, size, checksum)
+        } catch {
+            try? writer.finish()
+            try? FileManager.default.removeItem(at: url)
+            throw error
         }
-
-        return (accumulator.data, accumulator.checksum())
     }
 
     private struct EXIFInfo: Sendable {
@@ -212,16 +239,33 @@ private final class Box<T>: @unchecked Sendable {
     var value: T?
 }
 
-private final class ChunkAccumulator: @unchecked Sendable {
+/// Writes PhotoKit's chunks to a file as they arrive, hashing them on the way. Called serially
+/// from PhotoKit's callback queue.
+private final class FileHasher: @unchecked Sendable {
     private var hasher = SHA256()
-    private(set) var data = Data()
+    private let handle: FileHandle
+    private var size = 0
+    private var writeError: Error?
+    private var closed = false
 
-    func append(_ chunk: Data) {
-        hasher.update(data: chunk)
-        data.append(chunk)
+    init(url: URL) throws {
+        handle = try FileHandle(forWritingTo: url)
     }
 
-    func checksum() -> String {
-        hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    func append(_ chunk: Data) {
+        guard writeError == nil else { return }
+        hasher.update(data: chunk)
+        size += chunk.count
+        do { try handle.write(contentsOf: chunk) } catch { writeError = error }
+    }
+
+    @discardableResult
+    func finish() throws -> (Int, String) {
+        if !closed {
+            closed = true
+            try? handle.close()
+        }
+        if let writeError { throw writeError }
+        return (size, hasher.finalize().map { String(format: "%02x", $0) }.joined())
     }
 }

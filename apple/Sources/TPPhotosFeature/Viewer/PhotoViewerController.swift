@@ -137,6 +137,12 @@ final class PhotoViewerController: UIViewController, UICollectionViewDataSource,
             PhotoGridHitchMonitor.current?.sharpPhotoShown()
         }
         prefetchNeighbours()
+        currentCell?.play()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        for case let cell as PhotoPageCell in collectionView.visibleCells { cell.pause() }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -256,10 +262,14 @@ final class PhotoViewerController: UIViewController, UICollectionViewDataSource,
         guard clamped != index else { return }
         index = clamped
         updateTitle()
+        // Swiping away from a video stops it.
+        for case let cell as PhotoPageCell in collectionView.visibleCells where cell !== currentCell { cell.pause() }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         prefetchNeighbours()
+        // Landing on a video plays it, like Photos.
+        currentCell?.play()
     }
 
     private func prefetchNeighbours() {
@@ -286,6 +296,7 @@ final class PhotoViewerController: UIViewController, UICollectionViewDataSource,
 
     /// A photo swiped away comes back whole, as in Photos.
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? PhotoPageCell)?.pause()
         (cell as? PhotoPageCell)?.zoomView.reset()
     }
 }

@@ -18,9 +18,6 @@ public final class PhotoSyncStore: ObservableObject {
     /// Why each of `progressFailed` failed, grouped by human-readable reason — the count alone
     /// gave no way to tell an iCloud download stall from a dropped connection.
     @Published public private(set) var failureReasons: [String: Int] = [:]
-    /// v1 backs up stills only; videos found during the scan are counted here so the UI can
-    /// say "N videos not included" instead of silently never mentioning them.
-    @Published public private(set) var excludedVideoCount = 0
     @Published public private(set) var lastError: String?
     /// Set alongside `lastError` specifically when the failure was the Photos permission being
     /// denied/restricted — the only case where the fix is "go change it in Settings", not retry.
@@ -43,7 +40,6 @@ public final class PhotoSyncStore: ObservableObject {
     public var progressLabel: String {
         var label = "\(progressDone)/\(progressTotal)"
         if progressFailed > 0 { label += " · \(progressFailed) failed" }
-        if excludedVideoCount > 0 { label += " · \(excludedVideoCount) video(s) skipped" }
         return label
     }
 
@@ -100,7 +96,6 @@ public final class PhotoSyncStore: ObservableObject {
         progressFailed = 0
         progressTotal = 0
         failureReasons = [:]
-        excludedVideoCount = 0
         defer { isRunning = false }
 
         stopRequested = false
@@ -128,19 +123,18 @@ public final class PhotoSyncStore: ObservableObject {
             return
         }
 
-        let scan = await PhotoBackupPlanner.scanImageAssets()
-        excludedVideoCount = scan.excludedVideoCount
-        guard !scan.images.isEmpty else { return }
+        let scan = await PhotoBackupPlanner.scanAssets()
+        guard !scan.assets.isEmpty else { return }
 
         let knownIds: Set<String>
         do {
-            knownIds = try await PhotoBackupPlanner.checkKnownAssetIds(scan.images.map(\.localIdentifier), client: client)
+            knownIds = try await PhotoBackupPlanner.checkKnownAssetIds(scan.assets.map(\.localIdentifier), client: client)
         } catch {
             lastError = "Couldn't check which photos are already backed up"
             return
         }
 
-        let pending = scan.images.filter { !knownIds.contains($0.localIdentifier) }
+        let pending = scan.assets.filter { !knownIds.contains($0.localIdentifier) }
         progressTotal = pending.count
         #if os(iOS)
         continuedTask.update(completed: 0, total: progressTotal)
@@ -288,15 +282,15 @@ public final class PhotoSyncStore: ObservableObject {
             return
         }
 
-        let scan = await PhotoBackupPlanner.scanImageAssets()
-        guard !scan.images.isEmpty else {
+        let scan = await PhotoBackupPlanner.scanAssets()
+        guard !scan.assets.isEmpty else {
             lastCheckMessage = "There are no photos in the library"
             return
         }
 
         let serverMetadata: [String: PhotosClient.AssetMetadata]
         do {
-            serverMetadata = try await fetchServerMetadata(scan.images.map(\.localIdentifier))
+            serverMetadata = try await fetchServerMetadata(scan.assets.map(\.localIdentifier))
         } catch {
             lastError = "Couldn't check the server's photos"
             return
@@ -304,7 +298,7 @@ public final class PhotoSyncStore: ObservableObject {
 
         var missing: [PHAsset] = []
         var known: [PHAsset] = []
-        for asset in scan.images {
+        for asset in scan.assets {
             if serverMetadata[asset.localIdentifier] != nil {
                 known.append(asset)
             } else {
@@ -362,7 +356,7 @@ public final class PhotoSyncStore: ObservableObject {
             await PhotoThumbnailCache.ensureThumbnail(for: asset, checksum: serverInfo.checksum)
         }
 
-        var message = "Checked \(scan.images.count) photos"
+        var message = "Checked \(scan.assets.count) photos and videos"
         if uploaded > 0 { message += " · \(uploaded) uploaded" }
         if uploadFailed > 0 { message += " · \(uploadFailed) failed" }
         if !mismatches.isEmpty { message += " · \(mismatches.count) with different metadata" }
@@ -398,20 +392,25 @@ public final class PhotoSyncStore: ObservableObject {
         return result
     }
 
+    /// One video at a time: each is written whole to a temporary file before it goes up, and four
+    /// at once could fill the phone.
+    private let videoGate = AsyncGate()
+
     private func backup(asset: PHAsset, ownerEmail: String) async throws {
+        let isVideo = asset.mediaType == .video
+        if isVideo { await videoGate.enter() }
+        defer { if isVideo { Task { await videoGate.leave() } } }
+
         let metadata = try await PhotoMetadataExtractor.extract(from: asset)
+        defer { try? FileManager.default.removeItem(at: metadata.fileURL) }
         let folderPath = PhotoBackupPlanner.destinationFolder(for: metadata.takenAt, ownerEmail: ownerEmail)
         let filename = "\(metadata.checksum).\(PhotoBackupPlanner.fileExtension(for: metadata.originalFilename))"
         let filePath = "\(folderPath)/\(filename)"
 
-        // Retrying the upload is safe: the server overwrites the file at the same path.
+        // Retrying the upload is safe: the server overwrites the file at the same path. Chunks
+        // read from disk (a video never sits in memory) and retried one by one.
         try await withNetworkRetry {
-            try await client.upload(
-                path: folderPath,
-                filename: filename,
-                data: metadata.data,
-                mimeType: metadata.mimeType ?? "application/octet-stream"
-            )
+            try await client.uploadFile(at: metadata.fileURL, to: folderPath, filename: filename)
         }
 
         let registration = PhotosClient.Registration(
@@ -483,4 +482,26 @@ public final class PhotoSyncStore: ObservableObject {
 
 extension Date {
     var tpISO8601: String { ISO8601DateFormatter().string(from: self) }
+}
+
+/// A one-at-a-time lock for async code: `enter` waits its turn, `leave` lets the next in.
+actor AsyncGate {
+    private var busy = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func enter() async {
+        guard busy else {
+            busy = true
+            return
+        }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func leave() {
+        if waiting.isEmpty {
+            busy = false
+        } else {
+            waiting.removeFirst().resume()
+        }
+    }
 }

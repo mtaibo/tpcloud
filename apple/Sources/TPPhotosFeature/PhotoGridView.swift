@@ -12,8 +12,11 @@ final class PhotoTile {
     var ticket: PhotoThumbnailLoader.Ticket?
     /// The row picture it shows, in the dense grids.
     var rowKey: String?
+    /// A video's length, bottom right.
+    let badge = PhotoVideoBadge.make()
 
     init() {
+        layer.addSublayer(badge)
         layer.contentsGravity = .resizeAspectFill
         layer.masksToBounds = true
         layer.backgroundColor = UIColor.tertiarySystemFill.cgColor

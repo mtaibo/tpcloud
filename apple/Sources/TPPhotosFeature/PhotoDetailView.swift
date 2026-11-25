@@ -1,3 +1,4 @@
+import AVKit
 import ImageIO
 import SwiftUI
 import TPCore
@@ -45,8 +46,13 @@ public struct PhotoDetailView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             if let current {
-                MacPhotoPage(photo: current, client: client, zoom: $zoom)
-                    .id(current.id)
+                if current.isVideo {
+                    MacVideoPage(photo: current, client: client)
+                        .id(current.id)
+                } else {
+                    MacPhotoPage(photo: current, client: client, zoom: $zoom)
+                        .id(current.id)
+                }
             }
         }
         .overlay(alignment: .top) { bar }
@@ -154,6 +160,24 @@ public struct PhotoDetailView: View {
     }
 }
 
+/// A video, streamed from the host and playing as soon as it's shown, with the system's controls.
+private struct MacVideoPage: View {
+    let photo: Photo
+    let client: PhotosClient
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .onAppear {
+                let player = AVPlayer(playerItem: AuthorizedVideoLoader.shared.playerItem(for: client.previewURL(for: photo)))
+                self.player = player
+                player.play()
+            }
+            .onDisappear { player?.pause() }
+            .accessibilityLabel("Video")
+    }
+}
+
 /// One photo, fitted to the window; pinch or double click to zoom, drag to pan while zoomed.
 private struct MacPhotoPage: View {
     let photo: Photo
@@ -250,7 +274,7 @@ final class MacPreviewLoader {
     func image(for photo: Photo, client: PhotosClient) async -> CGImage? {
         if let image = cached(photo) { return image }
         let task = running[photo.checksum] ?? {
-            let url = client.previewURL(for: photo)
+            let url = client.stillURL(for: photo)
             let task = Task.detached(priority: .userInitiated) { await Self.fetch(url) }
             running[photo.checksum] = task
             return task

@@ -33,6 +33,7 @@ struct FolderView: View {
     /// Non-nil while a download or open is in flight; shown as a spinner in the toolbar rather than
     /// a full-screen dimming overlay that blocked the whole folder. Uploads have their own bar.
     @State private var activity: String?
+    @State private var importMessage: String?
 
     @State private var isCreatingFolder = false
     @State private var newFolderName = ""
@@ -137,6 +138,11 @@ struct FolderView: View {
             }
             .quickLookPreview($previewURL)
             .errorAlert($actionError)
+            .alert("Added to Photos", isPresented: Binding(get: { importMessage != nil }, set: { if !$0 { importMessage = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(importMessage ?? "")
+            }
     }
 
     // MARK: - Content
@@ -355,12 +361,31 @@ struct FolderView: View {
                 favorites.toggle(child)
             }
             Button("Change Icon…", systemImage: "folder.badge.gearshape") { iconPickerEntry = entry }
+            Button("Add to Photos", systemImage: "photo.badge.plus") {
+                Task { await addToPhotos(entry) }
+            }
         }
         Button("Rename", systemImage: "pencil") {
             renameDraft = entry.name
             renamingEntry = entry
         }
         Button("Delete", systemImage: "trash", role: .destructive) { entryPendingDelete = entry }
+    }
+
+    /// Copies the folder's photos and videos into the gallery (the folder stays as it is).
+    private func addToPhotos(_ entry: FileEntry) async {
+        activity = "Adding \(entry.name) to Photos"
+        defer { activity = nil }
+        do {
+            let photos = PhotosClient(client: HTTPClient(.store))
+            let result = try await photos.importFolder(path: folder.entryPath(entry.name), location: folder.location)
+            var message = result.added == 1 ? "1 photo or video added to Photos." : "\(result.added) photos and videos added to Photos."
+            if result.skipped > 0 { message += " \(result.skipped) were there already." }
+            if result.failed > 0 { message += " \(result.failed) couldn't be added." }
+            importMessage = message
+        } catch {
+            actionError = apiErrorMessage(error)
+        }
     }
 
     // MARK: - Toolbar

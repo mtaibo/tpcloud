@@ -898,6 +898,7 @@ struct MacPhotoGrid: NSViewRepresentable {
                     }()
                     tile.layer.frame = CGRect(x: 0, y: CGFloat(row) * geometry.pitch, width: geometry.width, height: max(geometry.pitch - geometry.spacing, 0))
                     tile.layer.cornerRadius = 0
+                    tile.badge.isHidden = true
                     tile.layer.contentsGravity = .topLeft
                     tile.layer.backgroundColor = nil
                     configureRow(tile, row: row)
@@ -921,6 +922,7 @@ struct MacPhotoGrid: NSViewRepresentable {
                 tile.layer.contentsGravity = .resizeAspectFill
                 tile.layer.backgroundColor = MacPhotoTile.placeholder
                 configure(tile, item: item, pixels: pixels)
+                PhotoVideoBadge.update(tile.badge, for: photo(at: item), in: tile.layer.bounds, scale: geometry.scale, show: true)
                 #if DEBUG
                 if let tint = Self.debugTint { tile.layer.backgroundColor = tint(item); tile.layer.contents = nil }
                 #endif
@@ -1055,6 +1057,7 @@ struct MacPhotoGrid: NSViewRepresentable {
             tile.pixels = 0
             tile.layer.contents = nil
             tile.layer.isHidden = true
+            tile.badge.isHidden = true
             spare.append(tile)
         }
 
@@ -1228,10 +1231,13 @@ final class MacPhotoTile {
     var ticket: PhotoThumbnailLoader.Ticket?
     /// The row picture it shows, in the dense grids.
     var rowKey: String?
+    /// A video's length, bottom right.
+    let badge = PhotoVideoBadge.make()
 
     static let placeholder = NSColor.quaternaryLabelColor.cgColor
 
     init() {
+        layer.addSublayer(badge)
         layer.contentsGravity = .resizeAspectFill
         layer.masksToBounds = true
         layer.backgroundColor = Self.placeholder

@@ -7,30 +7,25 @@ import TPCore
 /// engine) so the two paths can never drift into different ideas of what "pending" means.
 public enum PhotoBackupPlanner {
     public struct AssetScan: Sendable {
-        public let images: [PHAsset]
-        public let excludedVideoCount: Int
+        /// Photos and videos, newest first.
+        public let assets: [PHAsset]
     }
 
-    /// v1 backs up stills only. Sorted newest-first so a long backup makes the newest photos
-    /// show up almost immediately instead of only after the entire backlog finishes.
+    /// Every photo and video in the library, newest first, so a long backup makes the newest show
+    /// up almost at once instead of only after the whole backlog. (Stills only until Nov 2026.)
     /// Enumerates the whole library, which takes a noticeable while on a large one — `@concurrent`
     /// so it never runs on the main thread, whoever calls it.
     @concurrent
-    public static func scanImageAssets() async -> AssetScan {
+    public static func scanAssets() async -> AssetScan {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         let result = PHAsset.fetchAssets(with: options)
 
-        var images: [PHAsset] = []
-        var videoCount = 0
+        var assets: [PHAsset] = []
         result.enumerateObjects { asset, _, _ in
-            switch asset.mediaType {
-            case .image: images.append(asset)
-            case .video: videoCount += 1
-            default: break
-            }
+            if asset.mediaType == .image || asset.mediaType == .video { assets.append(asset) }
         }
-        return AssetScan(images: images, excludedVideoCount: videoCount)
+        return AssetScan(assets: assets)
     }
 
     public static func checkKnownAssetIds(_ ids: [String], client: PhotosClient) async throws -> Set<String> {

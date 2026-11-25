@@ -61,7 +61,7 @@ final class PhotoViewerImageLoader {
         let key = Self.key(photo, kind)
         if let image = decoded.object(forKey: key) { return image }
         if let task = inFlight[key] { return await task.value }
-        let url = kind == .preview ? client.previewURL(for: photo) : client.originalURL(for: photo)
+        let url = kind == .preview || photo.isVideo ? client.stillURL(for: photo) : client.originalURL(for: photo)
         let maxPixels = kind == .preview ? 2048 : Self.originalMaxPixels
         let session = self.session
         let task = Task { await Self.fetch(url, session: session, maxPixels: maxPixels) }
@@ -96,7 +96,7 @@ final class PhotoViewerImageLoader {
     func warm(_ photos: [Photo], client: PhotosClient) {
         warmQueue = photos
             .filter { !warmed.contains($0.checksum) && decoded.object(forKey: Self.key($0, .preview)) == nil }
-            .map { client.previewURL(for: $0) }
+            .map { client.stillURL(for: $0) }
         pumpWarming()
     }
 

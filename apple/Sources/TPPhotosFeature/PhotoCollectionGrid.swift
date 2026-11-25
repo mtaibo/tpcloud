@@ -612,6 +612,7 @@ struct PhotoCollectionGrid: UIViewRepresentable {
         }
 
         func gridView(_ gridView: PhotoGridView, didRecycle tile: PhotoTile) {
+            tile.badge.isHidden = true
             tile.rowKey = nil
             if let ticket = tile.ticket { loader.release(ticket) }
             tile.ticket = nil
@@ -626,6 +627,7 @@ struct PhotoCollectionGrid: UIViewRepresentable {
             guard item < photos.count else { return }
             let photo = photo(at: item)
             if tile.layer.cornerRadius != cornerRadius { tile.layer.cornerRadius = cornerRadius }
+            PhotoVideoBadge.update(tile.badge, for: photo, in: tile.layer.bounds, scale: gridView?.traitCollection.displayScale ?? 2, show: columns <= 9)
             let samePhoto = photo.checksum == tile.photo?.checksum
             guard !samePhoto || pixels != tile.pixels else { return }
             if let ticket = tile.ticket { loader.release(ticket) }

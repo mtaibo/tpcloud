@@ -179,6 +179,29 @@ public struct PhotosClient: Sendable {
         let _: [String: Int] = try await client.delete("/api/photos/\(id)")
     }
 
+    /// A file from disk, in 32 MB chunks (each its own request, so a video of any size gets past
+    /// Cloudflare's 100 MB limit and only a failed chunk is sent again).
+    public func uploadFile(at fileURL: URL, to path: String, filename: String, progress: Progress? = nil) async throws {
+        try await StoreClient(client: client).uploadFile(at: fileURL, to: path, filename: filename, progress: progress)
+    }
+
+    /// The photos and videos of a folder of the user's files, copied into their gallery. Ones it
+    /// already has are skipped.
+    public func importFolder(path: String, location: StoreLocation = .external) async throws -> ImportResult {
+        try await client.post("/api/photos/import", body: ImportBody(path: path, location: location.rawValue))
+    }
+
+    public struct ImportResult: Decodable, Sendable {
+        public let added: Int
+        public let skipped: Int
+        public let failed: Int
+    }
+
+    private struct ImportBody: Encodable {
+        let path: String
+        let location: String
+    }
+
     public func upload(path: String, location: StoreLocation = .external, filename: String, data: Data, mimeType: String = "application/octet-stream") async throws {
         let _: [String: [String]] = try await client.upload(
             "/api/files/upload",
@@ -270,6 +293,23 @@ public struct PhotosClient: Sendable {
             URLQueryItem(name: "v", value: photo.checksum)
         ]
         return components.url!
+    }
+
+    /// A video's poster frame (a JPEG), cached for good like the preview.
+    public func posterURL(for photo: Photo) -> URL {
+        var components = URLComponents(url: client.baseURL.appending(path: "/api/files/poster"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "path", value: photo.path),
+            URLQueryItem(name: "location", value: photo.location.rawValue),
+            URLQueryItem(name: "v", value: photo.checksum)
+        ]
+        return components.url!
+    }
+
+    /// The picture a viewer shows: the preview of a photo, the poster frame of a video (its
+    /// preview is the video itself).
+    public func stillURL(for photo: Photo) -> URL {
+        photo.isVideo ? posterURL(for: photo) : previewURL(for: photo)
     }
 
     public func originalURL(for photo: Photo) -> URL {

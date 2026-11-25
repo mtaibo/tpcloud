@@ -24,8 +24,13 @@ import TPCore
 public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
     public static let shared = PhotoBackgroundUploader()
 
-    /// Matches the server's offset-based chunk write granularity.
+    /// Matches the server's offset-based chunk write granularity. Videos go in bigger pieces: a
+    /// gigabyte in 2 MB chunks would be 500 tasks.
     static let chunkSize = 2 * 1024 * 1024
+    static let videoChunkSize = 8 * 1024 * 1024
+    /// Chunk tasks one upload keeps in the session at once; more are added as these finish.
+    /// Enqueuing a whole video at once wrote it to disk a second time, chunk by chunk.
+    static let maxChunksInFlight = 16
 
     /// How many not-yet-backed-up assets one refill pass extracts and enqueues. Kept small so a
     /// single wake (especially an events-only one, with a much tighter time budget than a
@@ -129,12 +134,12 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
         let room = Self.refillBatchSize - active.count
         guard room > 0 else { return madeProgress }
 
-        let scan = await PhotoBackupPlanner.scanImageAssets()
-        guard !scan.images.isEmpty else { return madeProgress }
+        let scan = await PhotoBackupPlanner.scanAssets()
+        guard !scan.assets.isEmpty else { return madeProgress }
 
         let knownIds: Set<String>
         do {
-            knownIds = try await PhotoBackupPlanner.checkKnownAssetIds(scan.images.map(\.localIdentifier), client: client)
+            knownIds = try await PhotoBackupPlanner.checkKnownAssetIds(scan.assets.map(\.localIdentifier), client: client)
         } catch {
             return madeProgress
         }
@@ -143,9 +148,17 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
         // server (not registered), so `knownIds` alone wouldn't filter them out, and re-extracting
         // an asset that's already in flight would just waste work.
         let activeAssetIds = Set(active.map(\.assetLocalIdentifier))
-        let candidates = scan.images
-            .filter { !knownIds.contains($0.localIdentifier) && !activeAssetIds.contains($0.localIdentifier) }
-            .prefix(room)
+        // One video in flight at a time: each sits whole in a temporary file until it's up.
+        var videoAllowed = !active.contains { $0.registration.mimeType?.hasPrefix("video/") ?? false }
+        var candidates: [PHAsset] = []
+        for asset in scan.assets where candidates.count < room {
+            guard !knownIds.contains(asset.localIdentifier), !activeAssetIds.contains(asset.localIdentifier) else { continue }
+            if asset.mediaType == .video {
+                guard videoAllowed else { continue }
+                videoAllowed = false
+            }
+            candidates.append(asset)
+        }
 
         for asset in candidates {
             do {
@@ -215,9 +228,11 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
 
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("tpphotoupload-\(metadata.checksum)", isDirectory: false)
-        try metadata.data.write(to: tempURL, options: .atomic)
+        try? FileManager.default.removeItem(at: tempURL)
+        try FileManager.default.moveItem(at: metadata.fileURL, to: tempURL)
 
-        let totalChunks = max(1, (metadata.data.count + Self.chunkSize - 1) / Self.chunkSize)
+        let chunkSize = metadata.isVideo ? Self.videoChunkSize : Self.chunkSize
+        let totalChunks = max(1, (metadata.fileSize + chunkSize - 1) / chunkSize)
         let registration = PhotosClient.Registration(
             path: "\(folderPath)/\(filename)",
             checksum: metadata.checksum,
@@ -242,8 +257,8 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
             assetLocalIdentifier: metadata.sourceAssetId,
             folderPath: folderPath,
             filename: filename,
-            fileSize: metadata.data.count,
-            chunkSize: Self.chunkSize,
+            fileSize: metadata.fileSize,
+            chunkSize: chunkSize,
             totalChunks: totalChunks,
             tempFileURL: tempURL,
             registration: registration
@@ -259,9 +274,11 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
 
     private func enqueueMissingChunks(for upload: PendingPhotoUpload, skipping inFlight: Set<String>) {
         guard FileManager.default.fileExists(atPath: upload.tempFileURL.path) else { return }
+        var queued = inFlight.filter { $0.hasPrefix("\(upload.uploadId)#") }.count
         for index in 0..<upload.totalChunks
-        where !upload.completedChunks.contains(index) && !inFlight.contains("\(upload.uploadId)#\(index)") {
+        where queued < Self.maxChunksInFlight && !upload.completedChunks.contains(index) && !inFlight.contains("\(upload.uploadId)#\(index)") {
             enqueueChunk(index, of: upload)
+            queued += 1
         }
     }
 
@@ -341,7 +358,11 @@ public final class PhotoBackgroundUploader: NSObject, @unchecked Sendable {
         Task { [weak self] in
             guard let self else { return }
             guard let updated = await self.ledger.markChunkComplete(uploadId: info.uploadId, chunkIndex: info.chunkIndex) else { return }
-            guard updated.isComplete else { return }
+            guard updated.isComplete else {
+                // Keep a big upload's window of chunks full as they finish.
+                self.enqueueMissingChunks(for: updated, skipping: await self.chunksInFlight())
+                return
+            }
             _ = await self.finalize(updated)
         }
     }

@@ -1,4 +1,5 @@
 #if os(iOS)
+import AVFoundation
 import TPCore
 import UIKit
 
@@ -13,12 +14,31 @@ final class PhotoPageCell: UICollectionViewCell {
     private var previewTask: Task<Void, Never>?
     private var originalTask: Task<Void, Never>?
     private var hasOriginal = false
+    /// A video plays over its poster, streamed from the host (`AuthorizedVideoLoader`).
+    private var player: AVPlayer?
+    private let playerLayer = AVPlayerLayer()
+    private let playButton = UIButton(type: .system)
+    private var endObserver: NSObjectProtocol?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         zoomView.frame = contentView.bounds
         zoomView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         contentView.addSubview(zoomView)
+        playerLayer.videoGravity = .resizeAspect
+        playerLayer.isHidden = true
+        contentView.layer.addSublayer(playerLayer)
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: "play.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 64, weight: .regular))
+        config.baseForegroundColor = .white
+        playButton.configuration = config
+        playButton.layer.shadowOpacity = 0.35
+        playButton.layer.shadowRadius = 8
+        playButton.layer.shadowOffset = .zero
+        playButton.isHidden = true
+        playButton.accessibilityLabel = "Play"
+        playButton.addAction(UIAction { [weak self] _ in self?.play() }, for: .primaryActionTriggered)
+        contentView.addSubview(playButton)
         zoomView.onZoom = { [weak self] in self?.loadOriginalIfNeeded() }
         isAccessibilityElement = true
         accessibilityTraits = .image
@@ -30,8 +50,54 @@ final class PhotoPageCell: UICollectionViewCell {
     }
 
     override var accessibilityLabel: String? {
-        get { photo?.isScreenshot == true ? "Screenshot" : "Photo" }
+        get { photo?.isVideo == true ? "Video" : photo?.isScreenshot == true ? "Screenshot" : "Photo" }
         set {}
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        playerLayer.frame = contentView.bounds
+        CATransaction.commit()
+        playButton.sizeToFit()
+        playButton.center = CGPoint(x: contentView.bounds.midX, y: contentView.bounds.midY)
+    }
+
+    // MARK: Video
+
+    /// Starts the video on this page (the viewer calls it when the page comes to rest on it).
+    func play() {
+        guard let photo, photo.isVideo, let client else { return }
+        if player == nil {
+            let player = AVPlayer(playerItem: AuthorizedVideoLoader.shared.playerItem(for: client.previewURL(for: photo)))
+            self.player = player
+            playerLayer.player = player
+            endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.player?.seek(to: .zero)
+                    self?.playButton.isHidden = false
+                }
+            }
+        }
+        playerLayer.isHidden = false
+        playButton.isHidden = true
+        player?.play()
+    }
+
+    func pause() {
+        guard let player else { return }
+        player.pause()
+        playButton.isHidden = photo?.isVideo != true
+    }
+
+    private func tearDownVideo() {
+        player?.pause()
+        player = nil
+        playerLayer.player = nil
+        playerLayer.isHidden = true
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
     }
 
     func configure(with photo: Photo, client: PhotosClient) {
@@ -39,6 +105,7 @@ final class PhotoPageCell: UICollectionViewCell {
         cancelLoads()
         self.photo = photo
         self.client = client
+        playButton.isHidden = !photo.isVideo
         let loader = PhotoViewerImageLoader.shared
 
         if let original = loader.cachedImage(for: photo, kind: .original) {
@@ -78,7 +145,7 @@ final class PhotoPageCell: UICollectionViewCell {
     /// Zoomed in past the preview's own pixels: fetch the original and swap it in, keeping the
     /// zoom where it is.
     private func loadOriginalIfNeeded() {
-        guard !hasOriginal, originalTask == nil, let photo, let client,
+        guard photo?.isVideo != true, !hasOriginal, originalTask == nil, let photo, let client,
               let shown = zoomView.imageView.image, zoomView.isZoomedIn,
               zoomView.displayedPixelWidth > shown.size.width * shown.scale * 1.15 else { return }
         originalTask = Task { [weak self] in
@@ -101,6 +168,8 @@ final class PhotoPageCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        tearDownVideo()
+        playButton.isHidden = true
         cancelLoads()
         photo = nil
         zoomView.setImage(nil, aspect: .zero, crossfade: false)

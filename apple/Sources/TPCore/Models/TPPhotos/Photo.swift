@@ -40,6 +40,10 @@ public struct Photo: Codable, Equatable, Sendable, Identifiable {
     public let status: Status
     public let uploadedAt: String
     public let verifiedAt: String?
+    /// A video's length in seconds, once the host has looked at it.
+    public let duration: Double?
+
+    public var isVideo: Bool { mimeType?.hasPrefix("video/") ?? false }
 
     public init(
         id: Int,
@@ -62,7 +66,8 @@ public struct Photo: Codable, Equatable, Sendable, Identifiable {
         gpsLon: Double?,
         status: Status,
         uploadedAt: String,
-        verifiedAt: String?
+        verifiedAt: String?,
+        duration: Double? = nil
     ) {
         self.id = id
         self.path = path
@@ -85,6 +90,7 @@ public struct Photo: Codable, Equatable, Sendable, Identifiable {
         self.status = status
         self.uploadedAt = uploadedAt
         self.verifiedAt = verifiedAt
+        self.duration = duration
     }
 }
 

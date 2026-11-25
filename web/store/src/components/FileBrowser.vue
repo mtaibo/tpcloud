@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   Archive, ArchiveRestore, ArrowUpDown, ChevronLeft, ChevronRight, Copy, CopyPlus, Download,
   Eye, FilePlus, FolderInput, FolderPlus, LayoutGrid, Link, List, MoreHorizontal, Palette, Pencil, Plus,
-  Search, Share, Star, Trash2, Upload, X,
+  Search, Share, Star, Trash2, Upload, X, ImagePlus,
 } from 'lucide-vue-next'
 import Spinner from '@ui/Spinner.vue'
 import { confirmDestructive, prompt, toast } from '@ui/dialog.js'
@@ -542,6 +542,20 @@ async function deleteItems(list) {
   }, one ? tr('Deleted', 'Eliminado') : tr(`${list.length} items deleted`, `${list.length} elementos eliminados`))
 }
 
+// The folder's photos and videos, copied into the gallery (the folder stays as it is).
+async function addToPhotos(entry) {
+  toast(tr('Adding to Photos…', 'Añadiendo a Fotos…'))
+  try {
+    const r = await (await post('/store/api/photos/import', { path: joinPath(store.path, entry.name), location: store.location })).json()
+    let msg = tr(`${r.added} added to Photos`, `${r.added} añadidos a Fotos`)
+    if (r.skipped) msg += tr(`, ${r.skipped} already there`, `, ${r.skipped} ya estaban`)
+    if (r.failed) msg += tr(`, ${r.failed} failed`, `, ${r.failed} fallaron`)
+    toast(msg, r.failed ? 'warning' : 'check-circle')
+  } catch {
+    toast(tr('Couldn’t add them to Photos', 'No se pudieron añadir a Fotos'), 'warning')
+  }
+}
+
 function duplicateItem(entry) {
   run(() => post('/store/api/files/duplicate', { path: joinPath(store.path, entry.name), location: store.location }))
 }
@@ -759,6 +773,7 @@ function entryItems(entry) {
     { label: tr('Rename', 'Renombrar'), icon: Pencil, action: () => renameItem(entry) },
     isDir && { label: tr('Change icon…', 'Cambiar icono…'), icon: Palette, action: () => { iconEntry.value = entry } },
     isDir && { label: tr('Add to Favourites', 'Añadir a Favoritos'), icon: Star, action: () => addFavourite(joinPath(store.path, entry.name)) },
+    isDir && { label: tr('Add to Photos', 'Añadir a Fotos'), icon: ImagePlus, action: () => addToPhotos(entry) },
     { label: tr('Share…', 'Compartir…'), icon: Share, action: () => { shareEntry.value = entry } },
     { separator: true },
     { label: tr('Move to…', 'Mover a…'), icon: FolderInput, action: () => { moveMode.value = 'move'; moveEntry.value = entry } },
