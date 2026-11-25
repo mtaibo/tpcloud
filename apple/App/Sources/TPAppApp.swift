@@ -51,6 +51,9 @@ struct AppRoot: View {
             started = true
             await FinderLocations.keep(only: networks.networks)
         }
+        .onChange(of: networks.hostVersion) { _, version in
+            PhotoThumbnailCache.discardSidewaysIfHostFixed(hostVersion: version)
+        }
     }
 }
 

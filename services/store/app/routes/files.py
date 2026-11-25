@@ -75,20 +75,51 @@ def _inside(path: Path, folder: Path) -> bool:
     return path.resolve().is_relative_to(folder.resolve())
 
 
+# Formats whose rotation is an EXIF tag the picture's pixels don't follow (HEIC's is applied when
+# it's decoded). Cached by path and mtime: reading a header costs a file open per tile otherwise.
+_EXIF_ROTATED = {".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".png"}
+_orientations: dict[tuple[str, int], int] = {}
+
+
+def _orientation(file_path: Path, mtime: int) -> int:
+    if file_path.suffix.lower() not in _EXIF_ROTATED:
+        return 1
+    key = (str(file_path), mtime)
+    cached = _orientations.get(key)
+    if cached is None:
+        from PIL import Image
+        try:
+            with Image.open(file_path) as img:
+                cached = int(img.getexif().get(0x0112, 1) or 1)
+        except Exception:
+            cached = 1
+        if len(_orientations) > 200_000:
+            _orientations.clear()
+        _orientations[key] = cached
+    return cached
+
+
 def _thumb_cache_path(file_path: Path, size: int) -> Path:
     mtime = int(file_path.stat().st_mtime)
     key = f"{media.cache_key_path(file_path)}|{mtime}|{size}"
+    # Thumbnails of photos turned by their EXIF tag used to come out sideways (the preview was
+    # right): those get a key of their own, so the wrong ones already cached are made again,
+    # and every other thumbnail keeps its cache.
+    orientation = _orientation(file_path, mtime)
+    if orientation != 1:
+        key += f"|o{orientation}"
     h = hashlib.sha256(key.encode()).hexdigest()[:24]
     return _THUMB_DIR / f"{h}.jpg"
 
 
 def _build_thumbnail(file_path: Path, cache_path: Path, size: int) -> None:
-    from PIL import Image
+    from PIL import Image, ImageOps
     with Image.open(file_path) as img:
         # A JPEG decodes straight at 1/2, 1/4 or 1/8 scale (still at least `size` each way),
         # several times faster than decoding a 12 MP photo whole just to shrink it.
         img.draft("RGB", (size, size))
-        img = img.convert("RGB")
+        # Upright, as the preview and every viewer show it.
+        img = ImageOps.exif_transpose(img).convert("RGB")
         w, h = img.size
         min_dim = min(w, h)
         left = (w - min_dim) // 2

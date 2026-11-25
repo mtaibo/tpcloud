@@ -11,7 +11,9 @@
 //               flung past are dropped instead of loaded.
 // Messages out: { type: 'thumb', id, size, bitmap, tiny }  (transferred; bitmap null if it failed)
 
-const CACHE = 'tpphotos-thumbs-v1'
+// v2: photos turned by their EXIF tag had sideways thumbnails; the host makes them upright now,
+// and the copies kept in v1 are thrown away.
+const CACHE = 'tpphotos-thumbs-v2'
 const BULK = 150 // per request; the server allows 300, smaller batches come back sooner
 const BULK_PARALLEL = 3
 const PREVIEW_PARALLEL = 4
@@ -26,7 +28,10 @@ let previewRunning = 0
 let cachePromise = null
 
 function cache() {
-  if (!cachePromise) cachePromise = (self.caches ? caches.open(CACHE) : Promise.resolve(null)).catch(() => null)
+  if (!cachePromise) {
+    cachePromise = (self.caches ? caches.open(CACHE) : Promise.resolve(null)).catch(() => null)
+    self.caches?.delete('tpphotos-thumbs-v1').catch(() => {})
+  }
   return cachePromise
 }
 

@@ -45,6 +45,8 @@ public final class NetworkStore: ObservableObject {
     @Published public private(set) var networks: [SavedNetwork] = []
     @Published public private(set) var currentID: String?
     @Published public private(set) var address: URL?
+    /// The version the network in use says it runs (from its card), once read.
+    @Published public private(set) var hostVersion: String?
 
     public var current: SavedNetwork? { networks.first { $0.id == currentID } }
 
@@ -156,6 +158,7 @@ public final class NetworkStore: ObservableObject {
             currentID = loaded.card.id
             defaults.set(loaded.card.id, forKey: Self.currentKey)
         }
+        hostVersion = loaded.card.version
         networks[i].name = loaded.card.name
         networks[i].addresses = loaded.card.addresses
         if let anchor = loaded.anchor { networks[i].anchor = anchor }

@@ -3,10 +3,14 @@
 // `v` is the file's version, so the browser keeps them for good and still notices a change.
 
 const THUMB_SIZE = 320
+// Bumped when the host's thumbnails change for files that didn't (2: photos turned by their EXIF
+// tag used to be sideways), so the browser asks again instead of keeping the old ones for good.
+export const THUMB_GENERATION = '2'
 
 function url(endpoint, location, path, version, extra = {}) {
   const params = new URLSearchParams({ path, location, ...extra })
   if (version) params.set('v', String(version))
+  if (endpoint === 'thumbnail') params.set('t', THUMB_GENERATION)
   return `/store/api/files/${endpoint}?${params}`
 }
 
@@ -29,7 +33,7 @@ export function shareMediaUrls(token, pathOf) {
     return `/store/api/share/${token}/files/${endpoint}?${params}`
   }
   return {
-    thumbnail: entry => u('thumbnail', entry, { size: String(THUMB_SIZE) }),
+    thumbnail: entry => u('thumbnail', entry, { size: String(THUMB_SIZE), t: THUMB_GENERATION }),
     poster: entry => u('poster', entry),
     preview: entry => u('preview', entry),
     download: entry => `/store/api/share/${token}/files/download?${new URLSearchParams({ path: pathOf(entry) })}`,

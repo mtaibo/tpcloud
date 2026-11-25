@@ -15,7 +15,7 @@ function iconEntry(share) {
 function thumbnailUrl(share) {
   if (!share.is_file || share.has_password || brokenThumbs.value.has(share.token)) return null
   if (!/^(image|video)\//.test(share.content_type || '')) return null
-  const params = new URLSearchParams({ path: '', size: '120', v: String(share.modified ?? 0) })
+  const params = new URLSearchParams({ path: '', size: '120', v: String(share.modified ?? 0), t: '2' })
   return `/share/api/share/${share.token}/files/thumbnail?${params}`
 }
 function thumbFailed(share) {

@@ -60,7 +60,8 @@ export function shareFileUrls(token, sessionToken, folderPath) {
     return `/share/api/share/${token}/files/${endpoint}?${params}`
   }
   return {
-    thumbnail: (entry, size = 320) => url('thumbnail', entry, { size: String(size), v: String(Math.floor(entry.modified)) }),
+    // `t`: the host's thumbnail generation (2: photos turned by their EXIF tag are upright now).
+    thumbnail: (entry, size = 320) => url('thumbnail', entry, { size: String(size), v: String(Math.floor(entry.modified)), t: '2' }),
     preview: (entry) => url('preview', entry, { v: String(Math.floor(entry.modified)) }),
     poster: (entry) => url('poster', entry, { v: String(Math.floor(entry.modified)) }),
     view: (entry) => url('view', entry),

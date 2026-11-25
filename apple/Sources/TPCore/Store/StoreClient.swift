@@ -111,7 +111,10 @@ public struct StoreClient: Sendable {
         components.queryItems = [
             URLQueryItem(name: "path", value: path),
             URLQueryItem(name: "location", value: location.rawValue),
-            URLQueryItem(name: "size", value: String(size))
+            URLQueryItem(name: "size", value: String(size)),
+            // The host's thumbnail generation (2: photos turned by their EXIF tag are upright),
+            // so ones cached from before are asked for again.
+            URLQueryItem(name: "t", value: "2")
         ]
         return components.url!
     }

@@ -288,6 +288,15 @@ final class PhotoThumbnailTable: @unchecked Sendable {
         }
     }
 
+    /// Forgets every thumbnail (their slots are written over as new ones come in).
+    func removeAll() {
+        lock.lock()
+        index = Index()
+        lock.unlock()
+        images.removeAllObjects()
+        saveIndex()
+    }
+
     /// Writes the index now (the scheduled save does this on its own).
     func saveIndex() {
         lock.lock()

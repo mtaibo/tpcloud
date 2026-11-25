@@ -65,6 +65,24 @@ public enum PhotoThumbnailCache {
     /// Where the thumbnails (and `PhotoThumbnailTable`'s files) live.
     static var directoryURL: URL { directory }
 
+    private static let uprightKey = "PhotoThumbnailCache.upright"
+
+    /// Hosts before 0.5.6 made sideways thumbnails of photos turned by their EXIF tag (the viewer
+    /// was right). Once the host says it's past that, the thumbnails kept here are thrown away,
+    /// once, and come back upright from it as they're needed. Waiting for the host matters: an
+    /// app updated first would otherwise download the same sideways ones again and keep them.
+    public static func discardSidewaysIfHostFixed(hostVersion: String?) {
+        guard let hostVersion, !UserDefaults.standard.bool(forKey: uprightKey),
+              hostVersion.compare("0.5.6", options: .numeric) != .orderedAscending else { return }
+        UserDefaults.standard.set(true, forKey: uprightKey)
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.pathExtension == "jpg" {
+            try? FileManager.default.removeItem(at: file)
+        }
+        memory.removeAllObjects()
+        PhotoThumbnailTable.shared.removeAll()
+    }
+
     static func fileURL(forChecksum checksum: String) -> URL {
         directory.appendingPathComponent("\(checksum).jpg")
     }
