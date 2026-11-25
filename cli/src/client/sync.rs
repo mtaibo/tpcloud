@@ -1005,6 +1005,9 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
+/// On a Mac, files on demand are the TPCloud app's location in the Finder (its File Provider).
+pub const MAC_FINDER: &str = "On a Mac your files are in the Finder: open the TPCloud app, sign in, and they're under Locations.";
+
 /// A new synced folder, checked and made, not saved yet: what `add` and the terminal app share.
 pub fn new_pair(remote: &Remote, network: &Value, folder: Option<PathBuf>, remote_path: Option<String>) -> Result<Pair> {
     let me = remote.get("/auth/passkey/me")?;
@@ -1073,13 +1076,20 @@ fn foreground_pass(pair: &Pair, remote: &Remote, hint: &'static str) -> (Result<
 /// FUSE), a full copy otherwise or when asked.
 pub fn add(folder: Option<PathBuf>, remote_path: Option<String>, full: bool) -> Result<()> {
     let (remote, network) = super::connect()?;
+    if !full && cfg!(target_os = "macos") {
+        println!();
+        println!("  {}", ui::bold(MAC_FINDER));
+        println!("  {}", ui::dim("`tpcloud sync add --full` keeps a full copy in a folder instead."));
+        println!();
+        return Ok(());
+    }
     let pair = new_pair(&remote, &network, folder, remote_path)?;
     if !full && demand_possible() {
         return add_on_demand(pair, &remote);
     }
     if !full {
         println!();
-        println!("  {}", ui::dim(if cfg!(target_os = "macos") { "On a Mac, folders on demand will come with the TPCloud app: this one is a full copy." } else { "This computer can't mount folders on demand (no FUSE): this one is a full copy." }));
+        println!("  {}", ui::dim("This computer can't mount folders on demand (no FUSE): this one is a full copy."));
     }
     let shown = pretty(&pair.local);
     println!();

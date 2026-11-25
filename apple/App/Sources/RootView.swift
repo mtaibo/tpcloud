@@ -42,6 +42,15 @@ struct RootView: View {
             await session.restoreIfPossible()
             await homeStore.start()
         }
+        #if os(macOS)
+        // While the app is open, the Finder's locations look for changes on their hosts every 30 s.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                FinderLocations.refresh()
+            }
+        }
+        #endif
         .onChange(of: session.state) { _, newState in
             // The background upload engine has no SwiftUI view hierarchy to read `profile.email`
             // from when iOS wakes it directly (BGProcessingTask, or a background URLSession
@@ -49,6 +58,9 @@ struct RootView: View {
             // signed-in user, as the only two events that matter (signing in, signing out) happen.
             switch newState {
             case .signedIn(let profile):
+                if let network = networks.current {
+                    Task { await FinderLocations.signedIn(network, email: profile.email) }
+                }
                 #if os(iOS)
                 PhotoBackgroundUploader.rememberSignedIn(ownerEmail: profile.email)
                 PhotoBackupScheduler.scheduleNext()
@@ -72,6 +84,9 @@ struct RootView: View {
                     storeClient: storeClient,
                     rootPath: "users/\(profile.email)"
                 )
+                #if os(macOS)
+                .safeAreaInset(edge: .top, spacing: 0) { FinderLocationBanner() }
+                #endif
             }
             Tab("Photos", systemImage: "photo.on.rectangle", value: AppTab.photos) {
                 PhotoGalleryView(

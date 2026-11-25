@@ -46,6 +46,7 @@ struct AppRoot: View {
         .task {
             await networks.start()
             started = true
+            await FinderLocations.keep(only: networks.networks)
         }
     }
 }

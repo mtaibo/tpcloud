@@ -235,6 +235,7 @@ fn worker(remote: Remote, data: Arc<Mutex<Data>>, jobs: mpsc::Receiver<Job>) {
                             (format!("{url}{}", if copied { "  (copied)" } else { "" }), GREEN)
                         }),
                     Job::Unshare(token) => remote.send("DELETE", &format!("/store/api/shares/{token}"), None).map(|_| ("Link revoked: it doesn't open any more.".to_string(), GREEN)),
+                    Job::SyncAdd(_) if cfg!(target_os = "macos") => Ok((sync::MAC_FINDER.to_string(), ACCENT)),
                     Job::SyncAdd(folder) => {
                         let folder = if folder.trim().is_empty() { None } else { Some(std::path::PathBuf::from(folder.trim())) };
                         data.lock().unwrap().message = Some(("Syncing for the first time…".into(), ACCENT, Instant::now()));
