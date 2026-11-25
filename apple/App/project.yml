@@ -89,6 +89,39 @@ targets:
         product: TPHomeFeature
       - package: tpapp
         product: TPPhotosFeature
+      - target: TPCloudFileProvider
+        embed: true
+        codeSign: true
+
+  # TPCloud in the Finder (File Provider): one location per network the app is signed in to.
+  TPCloudFileProvider:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: FileProvider
+        excludes:
+          - Info.plist
+          - FileProvider.entitlements
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.migueltaibo.tpcloud.FileProvider
+        INFOPLIST_FILE: FileProvider/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        PRODUCT_NAME: "$(TARGET_NAME)"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: G3YVULBVD2
+        CODE_SIGN_ENTITLEMENTS: FileProvider/FileProvider.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+      configs:
+        Release:
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+    dependencies:
+      - package: tpapp
+        product: TPCore
+      - sdk: FileProvider.framework
 
   # Performance tests on a real iPhone (`make perf`).
   TPAppUITests:

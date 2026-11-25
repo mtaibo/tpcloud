@@ -84,25 +84,32 @@ public struct HTTPClient: Sendable {
     private let fixedURL: URL?
     private let module: TPServer.Module
     private let session: URLSession
+    private let connection: TPConnection
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
     /// Where requests go: the module's path on the network in use, read on every request (the
     /// app can move to another network or address while running), or a fixed URL.
-    public var baseURL: URL { fixedURL ?? TPServer.current.url(for: module) }
+    public var baseURL: URL { fixedURL ?? connection.server.url(for: module) }
 
     public init(_ module: TPServer.Module, session: URLSession = TPConnection.shared.session) {
-        self.init(fixedURL: nil, module: module, session: session)
+        self.init(fixedURL: nil, module: module, session: session, connection: .shared)
     }
 
     public init(baseURL: URL, session: URLSession = TPConnection.shared.session) {
-        self.init(fixedURL: baseURL, module: .auth, session: session)
+        self.init(fixedURL: baseURL, module: .auth, session: session, connection: .shared)
     }
 
-    private init(fixedURL: URL?, module: TPServer.Module, session: URLSession) {
+    /// A module of one network through a connection of its own (not the app's network in use).
+    public init(_ module: TPServer.Module, connection: TPConnection) {
+        self.init(fixedURL: nil, module: module, session: connection.session, connection: connection)
+    }
+
+    private init(fixedURL: URL?, module: TPServer.Module, session: URLSession, connection: TPConnection) {
         self.fixedURL = fixedURL
         self.module = module
         self.session = session
+        self.connection = connection
 
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -174,7 +181,7 @@ public struct HTTPClient: Sendable {
             throw APIError.transport(error.localizedDescription)
         }
         do {
-            try Self.validate(response, data: { (try? Data(contentsOf: fileURL)) ?? Data() })
+            try validate(response, data: { (try? Data(contentsOf: fileURL)) ?? Data() })
         } catch {
             try? FileManager.default.removeItem(at: fileURL)
             throw error
@@ -241,7 +248,7 @@ public struct HTTPClient: Sendable {
         } catch {
             throw APIError.transport(error.localizedDescription)
         }
-        try Self.validate(response, data: { data })
+        try validate(response, data: { data })
         return try decode(data)
     }
 
@@ -274,7 +281,7 @@ public struct HTTPClient: Sendable {
         } catch {
             throw APIError.transport(error.localizedDescription)
         }
-        try Self.validate(response, data: { data })
+        try validate(response, data: { data })
         return data
     }
 
@@ -291,7 +298,7 @@ public struct HTTPClient: Sendable {
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(TPConnection.clientPlatform, forHTTPHeaderField: "X-TP-Client")
-        TPConnection.shared.authorize(&request)
+        connection.authorize(&request)
         request.httpBody = body
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -300,21 +307,21 @@ public struct HTTPClient: Sendable {
     }
 
     /// `data` is only read for a failed response's error detail.
-    private static func validate(_ response: URLResponse, data: () -> Data) throws {
+    private func validate(_ response: URLResponse, data: () -> Data) throws {
         guard let http = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
         // A sign-in's session, for the app (cookies belong to one host; this works on every
         // address of the network).
         if let token = http.value(forHTTPHeaderField: "X-TP-Session"), !token.isEmpty {
-            TPConnection.shared.adopt(token: token)
+            connection.adopt(token: token)
         }
         if (300..<400).contains(http.statusCode) {
             NotificationCenter.default.post(name: .tpSessionExpired, object: nil)
             throw APIError.sessionExpired
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw APIError.server(status: http.statusCode, message: errorDetail(from: data()))
+            throw APIError.server(status: http.statusCode, message: Self.errorDetail(from: data()))
         }
     }
 

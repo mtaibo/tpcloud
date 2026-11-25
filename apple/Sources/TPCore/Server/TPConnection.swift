@@ -31,27 +31,34 @@ public final class TPConnection: @unchecked Sendable {
     /// safer than memory (`NetworkStore` puts it in the Keychain).
     public var onTokenChange: (@Sendable (String?) -> Void)?
 
+    /// Whether this is the app's own connection (the one the network in use goes through), whose
+    /// address is remembered for the next launch.
+    private let isShared: Bool
+
     init(server: TPServer = TPServer(url: URL(string: "https://cloud.migueltaibo.com")!)) {
         _server = server
+        isShared = true
+    }
+
+    /// A connection of its own to one network, apart from the app's (the Finder's file provider
+    /// has one per network it shows).
+    public init(network: SavedNetwork, address: URL, token: String?) {
+        _server = TPServer(url: address)
+        _token = token
+        _anchors = network.anchors
+        isShared = false
     }
 
     private func restoreSaved() {
-        let defaults = UserDefaults.standard
-        guard let id = defaults.string(forKey: "tpcloud.network.current"),
-              let data = defaults.data(forKey: "tpcloud.networks"),
-              let networks = try? JSONDecoder().decode([SavedNetwork].self, from: data),
-              let network = networks.first(where: { $0.id == id }) else { return }
+        TPShared.migrateDefaults([NetworkStore.networksKey, NetworkStore.currentKey, Self.addressKey])
+        let defaults = TPShared.defaults
+        guard let id = defaults.string(forKey: NetworkStore.currentKey),
+              let network = SavedNetwork.saved().first(where: { $0.id == id }) else { return }
         let url = defaults.url(forKey: Self.addressKey) ?? network.lastAddress ?? network.addresses.first?.url
         guard let url else { return }
-        var anchors: [String: SecCertificate] = [:]
-        if let der = network.anchor, let cert = SecCertificateCreateWithData(nil, der as CFData) {
-            for address in network.addresses where address.kind == "local" {
-                if let host = address.url.host() { anchors[host.lowercased()] = cert }
-            }
-        }
         _server = TPServer(url: url)
         _token = SessionTokenStore().load(for: id)
-        _anchors = anchors
+        _anchors = network.anchors
     }
 
     public var server: TPServer {
@@ -69,7 +76,8 @@ public final class TPConnection: @unchecked Sendable {
             _token = token
             _anchors = anchors
         }
-        UserDefaults.standard.set(server.url, forKey: Self.addressKey)
+        guard isShared else { return }
+        TPShared.defaults.set(server.url, forKey: Self.addressKey)
         NotificationCenter.default.post(name: .tpConnectionChanged, object: nil)
     }
 
@@ -110,7 +118,11 @@ public final class TPConnection: @unchecked Sendable {
 
     /// The session every request to a TPCloud server uses: the shared caches and cookies, and
     /// a delegate that accepts the host's own certificate authority where it's pinned.
-    public lazy var session: URLSession = URLSession(configuration: .default, delegate: TPTrustDelegate.shared, delegateQueue: nil)
+    public lazy var session: URLSession = URLSession(
+        configuration: .default,
+        delegate: isShared ? TPTrustDelegate.shared : TPTrustDelegate(connection: self),
+        delegateQueue: nil
+    )
 
     #if os(iOS)
     public static let clientPlatform = "ios"
@@ -125,14 +137,21 @@ public final class TPConnection: @unchecked Sendable {
 /// certificate authority pinned for its host (a local address with the host's own authority):
 /// the system still checks the name, the dates and the chain, only against that anchor.
 public final class TPTrustDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, @unchecked Sendable {
-    public static let shared = TPTrustDelegate()
+    public static let shared = TPTrustDelegate(connection: nil)
+
+    /// Whose pinned authorities count; nil is the app's own connection.
+    private weak var connection: TPConnection?
+
+    init(connection: TPConnection?) {
+        self.connection = connection
+    }
 
     public func urlSession(
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        let (disposition, credential) = Self.evaluate(challenge)
+        let (disposition, credential) = Self.evaluate(challenge, connection: connection ?? .shared)
         completionHandler(disposition, credential)
     }
 
@@ -142,13 +161,13 @@ public final class TPTrustDelegate: NSObject, URLSessionDelegate, URLSessionTask
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        let (disposition, credential) = Self.evaluate(challenge)
+        let (disposition, credential) = Self.evaluate(challenge, connection: connection ?? .shared)
         completionHandler(disposition, credential)
     }
 
     /// What every TPCloud session answers to a server-trust challenge (also the background
     /// upload session, which has a delegate of its own).
-    public static func evaluate(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+    public static func evaluate(_ challenge: URLAuthenticationChallenge, connection: TPConnection = .shared) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let trust = challenge.protectionSpace.serverTrust else {
             return (.performDefaultHandling, nil)
@@ -156,7 +175,7 @@ public final class TPTrustDelegate: NSObject, URLSessionDelegate, URLSessionTask
         if SecTrustEvaluateWithError(trust, nil) {
             return (.useCredential, URLCredential(trust: trust))
         }
-        guard let anchor = TPConnection.shared.anchor(for: challenge.protectionSpace.host),
+        guard let anchor = connection.anchor(for: challenge.protectionSpace.host),
               Self.trusts(trust, anchor: anchor) else {
             return (.cancelAuthenticationChallenge, nil)
         }

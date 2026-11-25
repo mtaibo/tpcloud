@@ -13,6 +13,12 @@ public struct StoreClient: Sendable {
         try await client.get("/api/files/list", query: ["path": path, "location": location.rawValue])
     }
 
+    /// Every file and folder under `path` at once, with sizes and dates (what a computer's copy
+    /// compares against).
+    public func tree(path: String) async throws -> FileTree {
+        try await client.get("/api/files/tree", query: ["path": path, "location": StoreLocation.external.rawValue])
+    }
+
     public func diskInfo() async throws -> DiskInfo {
         try await client.get("/api/files/disk")
     }
@@ -95,6 +101,11 @@ public struct StoreClient: Sendable {
         )
     }
 
+    /// A photo's or video's square thumbnail (JPEG), up to 400 px.
+    public func thumbnail(path: String, size: Int) async throws -> Data {
+        try await client.getData("/api/files/thumbnail", query: ["path": path, "location": StoreLocation.external.rawValue, "size": String(size)])
+    }
+
     public func thumbnailURL(path: String, location: StoreLocation = .external, size: Int = 160) -> URL {
         var components = URLComponents(url: client.baseURL.appending(path: "/api/files/thumbnail"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
@@ -105,10 +116,13 @@ public struct StoreClient: Sendable {
         return components.url!
     }
 
-    public func upload(path: String, location: StoreLocation = .external, filename: String, data: Data, mimeType: String = "application/octet-stream") async throws {
+    /// `mtime`: the file's own date, kept by the host (a computer's copy and the host's then read the same).
+    public func upload(path: String, location: StoreLocation = .external, filename: String, data: Data, mimeType: String = "application/octet-stream", mtime: Date? = nil) async throws {
+        var query = ["path": path, "location": location.rawValue]
+        if let mtime { query["mtime"] = String(mtime.timeIntervalSince1970) }
         let _: [String: [String]] = try await client.upload(
             "/api/files/upload",
-            query: ["path": path, "location": location.rawValue],
+            query: query,
             files: [HTTPClient.UploadFile(filename: filename, mimeType: mimeType, data: data)]
         )
     }
@@ -137,12 +151,13 @@ public struct StoreClient: Sendable {
         to path: String,
         location: StoreLocation = .external,
         filename: String,
+        mtime: Date? = nil,
         progress: Progress? = nil
     ) async throws {
         let fileSize = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         // `/upload-chunk` turns down an empty body, so empty files go the plain way.
         guard fileSize > 0 else {
-            try await upload(path: path, location: location, filename: filename, data: Data())
+            try await upload(path: path, location: location, filename: filename, data: Data(), mtime: mtime)
             progress?.completedUnitCount = progress?.totalUnitCount ?? 0
             return
         }
@@ -157,7 +172,7 @@ public struct StoreClient: Sendable {
 
         do {
             try await uploadChunks(from: handle, uploadID: uploadID, totalChunks: totalChunks, fileSize: fileSize,
-                                   to: path, location: location, filename: filename, progress: progress)
+                                   to: path, location: location, filename: filename, mtime: mtime, progress: progress)
         } catch {
             // Chunks that did land would otherwise linger in the folder as an upload that never
             // finishes. Detached, because a cancelled upload would cancel this request with it.
@@ -179,6 +194,7 @@ public struct StoreClient: Sendable {
         to path: String,
         location: StoreLocation,
         filename: String,
+        mtime: Date?,
         progress: Progress?
     ) async throws {
         let chunkSize = Self.uploadChunkSize
@@ -188,7 +204,7 @@ public struct StoreClient: Sendable {
             guard let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty else {
                 throw APIError.transport("The file changed while it was being uploaded")
             }
-            let query = [
+            var query = [
                 "upload_id": uploadID,
                 "chunk_index": String(index),
                 "total_chunks": String(totalChunks),
@@ -198,6 +214,8 @@ public struct StoreClient: Sendable {
                 "path": path,
                 "location": location.rawValue
             ]
+            // Applied by the host once the last chunk is in (older hosts ignore it).
+            if let mtime { query["mtime"] = String(mtime.timeIntervalSince1970) }
             let sentBefore = Int64(index * chunkSize)
             let chunkProgress = Progress(totalUnitCount: Int64(chunk.count))
             let observation = chunkProgress.observe(\.completedUnitCount) { [weak progress] chunkProgress, _ in

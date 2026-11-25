@@ -86,7 +86,10 @@ struct MoreView: View {
             }
             .confirmationDialog("Sign out of TPCloud?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
                 Button("Sign Out", role: .destructive) {
-                    Task { await session.signOut() }
+                    Task {
+                        await FinderLocations.remove(networks.currentID)
+                        await session.signOut()
+                    }
                 }
             }
         }

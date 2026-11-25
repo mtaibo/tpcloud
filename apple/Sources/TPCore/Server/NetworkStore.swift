@@ -19,6 +19,22 @@ public struct SavedNetwork: Codable, Identifiable, Equatable, Sendable {
         self.anchor = anchor
         self.lastAddress = lastAddress
     }
+
+    /// The networks saved on this device (the app's list, shared with its extensions on the Mac).
+    public static func saved(in defaults: UserDefaults = TPShared.defaults) -> [SavedNetwork] {
+        guard let data = defaults.data(forKey: NetworkStore.networksKey) else { return [] }
+        return (try? JSONDecoder().decode([SavedNetwork].self, from: data)) ?? []
+    }
+
+    /// Host → the host's own certificate authority, for each of its local addresses.
+    var anchors: [String: SecCertificate] {
+        guard let der = anchor, let cert = SecCertificateCreateWithData(nil, der as CFData) else { return [:] }
+        var map: [String: SecCertificate] = [:]
+        for address in addresses where address.kind == "local" {
+            if let host = address.url.host() { map[host.lowercased()] = cert }
+        }
+        return map
+    }
 }
 
 /// The networks this app has been added to, which one is in use, and how it's reached. One is
@@ -34,12 +50,13 @@ public final class NetworkStore: ObservableObject {
 
     private let defaults: UserDefaults
     private let tokens = SessionTokenStore()
-    private static let networksKey = "tpcloud.networks"
-    private static let currentKey = "tpcloud.network.current"
+    nonisolated static let networksKey = "tpcloud.networks"
+    nonisolated static let currentKey = "tpcloud.network.current"
     /// Cloud address of the app before it had networks: its session becomes this network's.
     public static let legacyAddress = URL(string: "https://cloud.migueltaibo.com")!
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = TPShared.defaults) {
+        TPShared.migrateDefaults([Self.networksKey, Self.currentKey, TPConnection.addressKey])
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.networksKey),
            let saved = try? JSONDecoder().decode([SavedNetwork].self, from: data) {
@@ -111,7 +128,7 @@ public final class NetworkStore: ObservableObject {
     /// then the public one) and points every request at it.
     public func connect(_ id: String) async {
         guard let network = networks.first(where: { $0.id == id }) else { return }
-        let anchors = anchorMap(network)
+        let anchors = network.anchors
         let token = tokens.load(for: id)
         let fallback = network.lastAddress ?? network.addresses.first?.url ?? Self.legacyAddress
         // Probes go through the shared session, which needs the anchors to reach local addresses.
@@ -145,16 +162,7 @@ public final class NetworkStore: ObservableObject {
         save()
     }
 
-    private func anchorMap(_ network: SavedNetwork) -> [String: SecCertificate] {
-        guard let der = network.anchor, let cert = SecCertificateCreateWithData(nil, der as CFData) else { return [:] }
-        var map: [String: SecCertificate] = [:]
-        for address in network.addresses where address.kind == "local" {
-            if let host = address.url.host() { map[host.lowercased()] = cert }
-        }
-        return map
-    }
-
-    private static func priority(_ kind: String) -> Int {
+    nonisolated private static func priority(_ kind: String) -> Int {
         switch kind {
         case "local": 0
         case "tailscale": 1
@@ -163,7 +171,7 @@ public final class NetworkStore: ObservableObject {
     }
 
     /// Asks every address at once; the best kind that answers within a moment wins.
-    static func fastest(_ network: SavedNetwork) async -> URL? {
+    nonisolated public static func fastest(_ network: SavedNetwork, session: URLSession = TPConnection.shared.session) async -> URL? {
         let candidates = network.addresses.sorted { priority($0.kind) < priority($1.kind) }
         return await withTaskGroup(of: (Int, URL)?.self) { group in
             for (rank, address) in candidates.enumerated() {
@@ -171,7 +179,7 @@ public final class NetworkStore: ObservableObject {
                     var request = URLRequest(url: address.url.appending(path: ".well-known/tpcloud"))
                     request.timeoutInterval = 2.5
                     request.cachePolicy = .reloadIgnoringLocalCacheData
-                    guard let (data, response) = try? await TPConnection.shared.session.data(for: request),
+                    guard let (data, response) = try? await session.data(for: request),
                           (response as? HTTPURLResponse)?.statusCode == 200,
                           let card = try? JSONDecoder().decode(IDOnly.self, from: data),
                           card.id == network.id || network.id.hasPrefix("legacy:") else { return nil }
@@ -210,33 +218,6 @@ public final class NetworkStore: ObservableObject {
         if let data = try? JSONEncoder().encode(networks) {
             defaults.set(data, forKey: Self.networksKey)
         }
-    }
-}
-
-/// Session tokens, one per network, in this app's Keychain.
-struct SessionTokenStore: Sendable {
-    private let service = "com.migueltaibo.tpcloud.session"
-
-    func load(for network: String) -> String? {
-        var query = base(network)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    func save(_ token: String?, for network: String) {
-        SecItemDelete(base(network) as CFDictionary)
-        guard let token else { return }
-        var item = base(network)
-        item[kSecValueData as String] = Data(token.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(item as CFDictionary, nil)
-    }
-
-    private func base(_ network: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: network]
     }
 }
 

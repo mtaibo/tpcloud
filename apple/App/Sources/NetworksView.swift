@@ -29,7 +29,10 @@ struct NetworksView: View {
                     }
                     .swipeActions {
                         Button("Remove", role: .destructive) {
-                            Task { await networks.remove(network.id) }
+                            Task {
+                                await FinderLocations.remove(network.id)
+                                await networks.remove(network.id)
+                            }
                         }
                     }
                 }
