@@ -17,7 +17,7 @@ use net::{Api, Blind, Entry, Host, Me, Photo, PhotoPage};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 use store::Store;
-use theme::{Palette, Prefs, View, BOLD, MEDIUM, SEMIBOLD};
+use theme::{u, Palette, Prefs, View, BOLD, MEDIUM, SEMIBOLD};
 
 const FONTS: [&[u8]; 4] = [
     include_bytes!("../assets/fonts/Inter-Regular.ttf"),
@@ -29,6 +29,21 @@ const FONTS: [&[u8]; 4] = [
 /// Thumbnails asked of the server at once: enough to fill a screen quickly, few enough not to
 /// queue the Pi.
 const THUMBS_AT_ONCE: usize = 8;
+
+/// The sidebar's width, its margin, and the heights around the file list (for working out
+/// what fits and what's on screen).
+fn sidebar() -> f32 {
+    u(256.0)
+}
+fn toolbar() -> f32 {
+    u(64.0)
+}
+fn pathbar() -> f32 {
+    u(36.0)
+}
+fn list_head() -> f32 {
+    u(32.0)
+}
 
 fn main() -> iced::Result {
     let args: Vec<String> = std::env::args().collect();
@@ -142,6 +157,7 @@ struct App {
     error: Option<String>,
     notice: Option<(String, Instant)>,
     width: f32,
+    height: f32,
     // Networks and sign-in
     address: String,
     found: Vec<discover::Found>,
@@ -161,6 +177,9 @@ struct App {
     search: String,
     selected: Option<String>,
     last_click: Option<(String, Instant)>,
+    /// How far the file list is scrolled and how tall its viewport is, to keep the selection
+    /// in sight when the arrows move it.
+    files_scroll: (f32, f32),
     // Thumbnails (files and photos)
     thumbs: HashMap<String, image::Handle>,
     queued: HashSet<String>,
@@ -212,6 +231,7 @@ enum Message {
     Thumb(String, Result<Vec<u8>, String>),
     PhotosLoaded(bool, Result<PhotoPage, String>),
     PhotosScrolled(scrollable::Viewport),
+    FilesScrolled(scrollable::Viewport),
     Blinds(Result<Vec<Blind>, String>),
     BlindCommand(String, &'static str),
     Done(Result<(), String>),
@@ -239,6 +259,7 @@ enum Pref {
     Roundness(f32),
     View(View),
     IconSize(f32),
+    Size(f32),
     Reset,
 }
 
@@ -259,6 +280,7 @@ impl App {
             error: None,
             notice: None,
             width: 1180.0,
+            height: 760.0,
             address: String::new(),
             found: vec![],
             waiting: vec![],
@@ -276,6 +298,7 @@ impl App {
             search: String::new(),
             selected: None,
             last_click: None,
+            files_scroll: (0.0, 0.0),
             thumbs: HashMap::new(),
             queued: HashSet::new(),
             queue: VecDeque::new(),
@@ -345,6 +368,7 @@ impl App {
             Pref::Roundness(v) => p.roundness = v,
             Pref::View(v) => p.view = v,
             Pref::IconSize(v) => p.icon_size = v,
+            Pref::Size(v) => p.size = v,
             Pref::Reset => {
                 *p = Prefs::default();
                 theme::apply_window_opacity(1.0);
@@ -735,12 +759,12 @@ impl App {
                 return self.navigate(self.place, path);
             }
             Message::Click(name) => {
-                // A second click within a moment opens it, like the Finder.
+                // One click selects (folders too), a second within a moment opens, like the
+                // Finder and the web.
                 let double = self.last_click.as_ref().is_some_and(|(n, t)| *n == name && t.elapsed() < Duration::from_millis(450));
                 self.last_click = Some((name.clone(), Instant::now()));
                 self.selected = Some(name.clone());
-                let folder = self.entries().iter().any(|e| e.name == name && e.kind == "directory");
-                if double || folder {
+                if double {
                     self.last_click = None;
                     return self.open_entry(&name);
                 }
@@ -837,6 +861,7 @@ impl App {
                 cache::save_photos(&self.net_id(), &self.photos);
                 return self.want_thumbs();
             }
+            Message::FilesScrolled(viewport) => self.files_scroll = (viewport.absolute_offset().y, viewport.bounds().height),
             Message::PhotosScrolled(viewport) => {
                 let near_end = viewport.relative_offset().y > 0.85;
                 if near_end && !self.more_loading {
@@ -911,7 +936,10 @@ impl App {
                     self.error = Some(e);
                 }
             }
-            Message::Resized(size) => self.width = size.width,
+            Message::Resized(size) => {
+                self.width = size.width;
+                self.height = size.height;
+            }
             Message::Key(key, mods) => return self.key(key, mods),
             Message::Pref(pref) => {
                 let reload = matches!(pref, Pref::View(_));
@@ -946,6 +974,10 @@ impl App {
                 let up = self.path.len() - 1;
                 return self.update(Message::Crumb(up));
             }
+            keyboard::Key::Named(Named::ArrowUp) if !mods.alt() => return self.move_selection(-(self.columns() as isize)),
+            keyboard::Key::Named(Named::ArrowDown) if !mods.alt() => return self.move_selection(self.columns() as isize),
+            keyboard::Key::Named(Named::ArrowLeft) if self.prefs.view == View::Icons => return self.move_selection(-1),
+            keyboard::Key::Named(Named::ArrowRight) if self.prefs.view == View::Icons => return self.move_selection(1),
             keyboard::Key::Named(Named::Enter) => {
                 if let Some(name) = self.selected.clone() {
                     return self.open_entry(&name);
@@ -967,6 +999,62 @@ impl App {
             _ => {}
         }
         Task::none()
+    }
+
+    /// What the files view shows, filtered by the search.
+    fn shown(&self) -> Vec<&Entry> {
+        let needle = self.search.to_lowercase();
+        self.entries().iter().filter(|e| needle.is_empty() || e.name.to_lowercase().contains(&needle)).collect()
+    }
+
+    fn list_row_height(&self) -> f32 {
+        u(if self.p.compact { 34.0 } else { 42.0 })
+    }
+
+    /// The icon view's tile width and how many fit in a row.
+    fn icon_layout(&self) -> (f32, usize) {
+        let icon = u(self.prefs.icon_size.clamp(40.0, 128.0));
+        let tile = (icon + u(54.0)).max(u(118.0));
+        let usable = (self.width - sidebar() - u(8.0 + 24.0)).max(tile);
+        (tile, ((usable / (tile + 4.0)).floor() as usize).max(1))
+    }
+
+    /// Items per row: the arrows up and down move by this much.
+    fn columns(&self) -> usize {
+        if self.prefs.view == View::Icons { self.icon_layout().1 } else { 1 }
+    }
+
+    /// The arrows: the next item becomes the selection, scrolled into sight.
+    fn move_selection(&mut self, step: isize) -> Task<Message> {
+        if !matches!(self.place, Place::Files | Place::Shared) {
+            return Task::none();
+        }
+        let names: Vec<String> = self.shown().iter().map(|e| e.name.clone()).collect();
+        if names.is_empty() {
+            return Task::none();
+        }
+        let current = self.selected.as_ref().and_then(|s| names.iter().position(|n| n == s));
+        let next = match current {
+            None => 0,
+            Some(i) => (i as isize + step).clamp(0, names.len() as isize - 1) as usize,
+        };
+        self.selected = Some(names[next].clone());
+        self.last_click = None;
+        // Where that item sits in the scrolled list, and whether it's already in view.
+        let (top, h) = if self.prefs.view == View::Icons {
+            let per_row = self.icon_layout().1;
+            let row_h = u(self.prefs.icon_size.clamp(40.0, 128.0)) + u(10.0 + 6.0 + 16.0 + 4.0) + 17.0 * self.p.scale;
+            (u(6.0) + (next / per_row) as f32 * row_h, row_h)
+        } else {
+            (next as f32 * self.list_row_height(), self.list_row_height())
+        };
+        let (offset, mut view) = self.files_scroll;
+        if view <= 0.0 {
+            view = self.height - toolbar() - pathbar() - if self.prefs.view == View::List { list_head() } else { 0.0 };
+        }
+        let to = if top < offset { top } else if top + h > offset + view { top + h - view } else { return Task::none() };
+        self.files_scroll.0 = to;
+        scrollable::scroll_to(scrollable::Id::new("files"), scrollable::AbsoluteOffset { x: 0.0, y: to.max(0.0) })
     }
 
     fn reset_network(&mut self) {
@@ -1017,7 +1105,7 @@ impl App {
     fn view(&self) -> Element<'_, Message> {
         let p = self.p;
         let body: Element<Message> = match self.screen {
-            Screen::Loading => center(column![spinner_dot(p), text("Connecting…").size(p.sz(14.0)).color(p.label2)].spacing(10).align_x(Alignment::Center).into()),
+            Screen::Loading => center(column![spinner_dot(p), text("Connecting…").size(p.sz(14.0)).color(p.label2)].spacing(u(10.0)).align_x(Alignment::Center).into()),
             Screen::Networks => self.networks_view(),
             Screen::Login => self.login_view(),
             Screen::Main => self.main_view(),
@@ -1040,7 +1128,7 @@ impl App {
         } else if let Some((n, _)) = &self.notice {
             main = main.push(banner(p, n, p.accent));
         }
-        row![container(self.sidebar()).padding(Padding { top: 8.0, right: 0.0, bottom: 8.0, left: 8.0 }).height(Length::Fill), main].into()
+        row![container(self.sidebar()).padding(Padding { top: u(8.0), right: 0.0, bottom: u(8.0), left: u(8.0) }).height(Length::Fill), main].into()
     }
 
     fn sidebar(&self) -> Element<'_, Message> {
@@ -1050,24 +1138,25 @@ impl App {
         let home = modules.iter().any(|m| m == "home");
         let item = |icon: &str, label: &str, place: Place| -> Element<Message> {
             let on = self.place == place;
-            let h = if p.compact { 28.0 } else { 32.0 };
-            button(row![line_icon(icon, 17.0, p.accent), text(label.to_string()).size(p.sz(13.5)).font(if on { SEMIBOLD } else { theme::INTER })].spacing(9).align_y(Alignment::Center))
+            let h = if p.compact { 32.0 } else { 36.0 };
+            // The row fills the button's height so its contents sit in the middle of it.
+            button(row![line_icon(icon, 19.0, p.accent), text(label.to_string()).size(p.sz(15.0)).font(if on { SEMIBOLD } else { theme::INTER })].spacing(u(10.0)).height(Length::Fill).align_y(Alignment::Center))
                 .width(Length::Fill)
                 .height(h)
-                .padding([0, 10])
+                .padding([u(0.0), u(10.0)])
                 .style(theme::side_item(p, on))
                 .on_press(Message::Go(place))
                 .into()
         };
-        let group = |label: &str| container(text(label.to_string()).size(p.sz(11.0)).font(BOLD).color(p.label3)).padding(Padding { top: 14.0, right: 10.0, bottom: 4.0, left: 10.0 });
+        let group = |label: &str| container(text(label.to_string()).size(p.sz(12.0)).font(BOLD).color(p.label3)).padding(Padding { top: u(16.0), right: u(10.0), bottom: u(5.0), left: u(10.0) });
         let name = self.store.current().map(|n| n.name.clone()).unwrap_or_default();
         let brand = row![
-            container(line_icon("cloud", 14.0, Color::WHITE)).width(24).height(24).center(24).style(theme::fill(p, p.accent, 7.0)),
-            column![text("TPCloud").size(p.sz(14.0)).font(BOLD), text(name).size(p.sz(11.5)).color(p.label2)].spacing(0),
+            container(line_icon("cloud", 16.0, Color::WHITE)).width(u(30.0)).height(u(30.0)).center(u(30.0)).style(theme::fill(p, p.accent, 8.0)),
+            column![text("TPCloud").size(p.sz(16.0)).font(BOLD), text(name).size(p.sz(12.5)).color(p.label2)].spacing(u(0.0)),
         ]
-        .spacing(8)
+        .spacing(u(10.0))
         .align_y(Alignment::Center);
-        let mut nav = column![container(brand).padding(Padding { top: 6.0, right: 10.0, bottom: 8.0, left: 10.0 })].spacing(1);
+        let mut nav = column![container(brand).padding(Padding { top: u(6.0), right: u(10.0), bottom: u(8.0), left: u(10.0) })].spacing(u(1.0));
         if store {
             nav = nav.push(group("Files")).push(item("house", "Home", Place::Files)).push(item("person-2", "Shared", Place::Shared)).push(group("Library")).push(item("photo", "Photos", Place::Photos));
         }
@@ -1078,44 +1167,45 @@ impl App {
         let initial = email.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_default();
         let account = button(
             row![
-                container(text(initial).size(p.sz(12.0)).font(SEMIBOLD).color(Color::WHITE)).width(26).height(26).center(26).style(theme::fill(p, p.accent, 13.0)),
-                text(ellipsize(&email, 16)).size(p.sz(12.5)).wrapping(text::Wrapping::None).width(Length::Fill),
+                container(text(initial).size(p.sz(13.0)).font(SEMIBOLD).color(Color::WHITE)).width(u(30.0)).height(u(30.0)).center(u(30.0)).style(theme::fill(p, p.accent, 15.0)),
+                text(ellipsize(&email, 20)).size(p.sz(14.0)).wrapping(text::Wrapping::None).width(Length::Fill),
             ]
-            .spacing(8)
+            .spacing(u(10.0))
+            .height(Length::Fill)
             .align_y(Alignment::Center),
         )
         .width(Length::Fill)
-        .padding([6, 8])
+        .height(u(46.0))
+        .padding([u(0.0), u(8.0)])
         .style(theme::side_item(p, self.place == Place::Account))
         .on_press(Message::Go(Place::Account));
-        let settings = button(line_icon("gear", 17.0, p.label2)).padding(8).style(theme::side_item(p, self.place == Place::Settings)).on_press(Message::Go(Place::Settings));
-        let bottom = row![account, settings].spacing(2).align_y(Alignment::Center);
-        container(column![scrollable(nav).height(Length::Fill).style(theme::scroll(p)), container(Space::with_height(0.5)).width(Length::Fill).style(theme::separator(p)), container(bottom).padding(Padding { top: 6.0, ..Padding::ZERO })])
-            .width(232)
+        // Settings is an item with its name, not a lone gear (it read as a light/dark switch).
+        let bottom = column![item("gear", "Settings", Place::Settings), container(Space::with_height(u(0.5))).width(Length::Fill).style(theme::separator(p)), account].spacing(u(6.0));
+        container(column![scrollable(nav).height(Length::Fill).style(theme::scroll(p)), container(bottom).padding(Padding { top: u(6.0), ..Padding::ZERO })])
+            .width(sidebar())
             .height(Length::Fill)
-            .padding([10, 10])
+            .padding([u(10.0), u(10.0)])
             .style(theme::sidebar(p))
             .into()
     }
 
     fn toolbar<'a>(&'a self, title: String, trailing: Element<'a, Message>) -> Element<'a, Message> {
         let p = self.p;
-        let nav = |icon: &str, msg: Option<Message>| button(container(line_icon(icon, 16.0, if msg.is_some() { p.label } else { p.label3 })).center(16)).width(34).height(34).style(theme::glass_button(p)).on_press_maybe(msg);
+        let nav = |icon: &str, msg: Option<Message>| button(container(line_icon(icon, 18.0, if msg.is_some() { p.label } else { p.label3 })).center(Length::Fill)).width(u(36.0)).height(u(36.0)).padding(u(0.0)).style(theme::glass_button(p)).on_press_maybe(msg);
         container(
             row![
                 nav("chevron-left", (!self.back.is_empty()).then_some(Message::Back)),
                 nav("chevron-right", (!self.forward.is_empty()).then_some(Message::Forward)),
-                Space::with_width(6),
-                text(title).size(p.sz(17.0)).font(BOLD),
+                Space::with_width(u(8.0)),
+                text(title).size(p.sz(21.0)).font(BOLD),
                 horizontal_space(),
                 trailing,
             ]
-            .spacing(6)
+            .spacing(u(8.0))
             .align_y(Alignment::Center),
         )
-        .height(60)
-        .padding(Padding { top: 0.0, right: 16.0, bottom: 0.0, left: 14.0 })
-        .center_y(60)
+        .padding(Padding { top: 0.0, right: u(18.0), bottom: 0.0, left: u(16.0) })
+        .center_y(toolbar())
         .into()
     }
 
@@ -1125,26 +1215,26 @@ impl App {
         let title = self.path.last().cloned().unwrap_or_else(|| root.into());
         let view_switch = container(
             row![
-                button(container(line_icon("grid", 15.0, p.label)).center(15)).width(32).height(26).style(theme::segment(p, self.prefs.view == View::Icons)).on_press(Message::Pref(Pref::View(View::Icons))),
-                button(container(line_icon("list", 15.0, p.label)).center(15)).width(32).height(26).style(theme::segment(p, self.prefs.view == View::List)).on_press(Message::Pref(Pref::View(View::List))),
+                button(container(line_icon("grid", 17.0, p.label)).center(Length::Fill)).width(u(38.0)).height(u(30.0)).padding(u(0.0)).style(theme::segment(p, self.prefs.view == View::Icons)).on_press(Message::Pref(Pref::View(View::Icons))),
+                button(container(line_icon("list", 17.0, p.label)).center(Length::Fill)).width(u(38.0)).height(u(30.0)).padding(u(0.0)).style(theme::segment(p, self.prefs.view == View::List)).on_press(Message::Pref(Pref::View(View::List))),
             ]
-            .spacing(2),
+            .spacing(u(2.0)),
         )
-        .padding(2)
+        .padding(u(2.0))
         .style(theme::track(p));
-        let search = text_input("Search", &self.search).id(text_input::Id::new("search")).on_input(Message::Search).padding([6, 10]).size(p.sz(13.0)).width(180).style(theme::field(p));
-        let mut trailing = row![view_switch, search].spacing(8).align_y(Alignment::Center);
+        let search = text_input("Search", &self.search).id(text_input::Id::new("search")).on_input(Message::Search).padding([u(8.0), u(12.0)]).size(p.sz(14.0)).width(u(220.0)).style(theme::field(p));
+        let mut trailing = row![view_switch, search].spacing(u(8.0)).align_y(Alignment::Center);
         if self.selected.as_ref().is_some_and(|s| self.entries().iter().any(|e| &e.name == s && e.kind == "file")) {
             trailing = trailing.push(icon_button(p, "download", Message::Download));
         }
         trailing = trailing.push(icon_button(p, "refresh", Message::Refresh));
-        trailing = trailing.push(button(row![line_icon("upload", 15.0, Color::WHITE), text("Upload").size(p.sz(13.0)).font(SEMIBOLD)].spacing(6).align_y(Alignment::Center)).padding([7, 14]).style(theme::prominent(p)).on_press(Message::Upload));
+        trailing = trailing.push(button(row![line_icon("upload", 17.0, Color::WHITE), text("Upload").size(p.sz(14.0)).font(SEMIBOLD)].spacing(u(7.0)).height(Length::Fill).align_y(Alignment::Center)).height(u(36.0)).padding([u(0.0), u(16.0)]).style(theme::prominent(p)).on_press(Message::Upload));
         let needle = self.search.to_lowercase();
-        let shown: Vec<&Entry> = self.entries().iter().filter(|e| needle.is_empty() || e.name.to_lowercase().contains(&needle)).collect();
+        let shown = self.shown();
         let body: Element<Message> = if self.loading && shown.is_empty() {
-            center(column![spinner_dot(p), text("Loading…").size(p.sz(13.0)).color(p.label2)].spacing(8).align_x(Alignment::Center).into())
+            center(column![spinner_dot(p), text("Loading…").size(p.sz(13.0)).color(p.label2)].spacing(u(8.0)).align_x(Alignment::Center).into())
         } else if shown.is_empty() {
-            center(column![line_icon("folder", 44.0, p.label3), text(if needle.is_empty() { "This folder is empty" } else { "Nothing matches" }).size(p.sz(15.0)).font(SEMIBOLD).color(p.label2), text(if needle.is_empty() { "Drop files here, or use Upload." } else { "" }).size(p.sz(13.0)).color(p.label3)].spacing(8).align_x(Alignment::Center).into())
+            center(column![line_icon("folder", 44.0, p.label3), text(if needle.is_empty() { "This folder is empty" } else { "Nothing matches" }).size(p.sz(17.0)).font(SEMIBOLD).color(p.label2), text(if needle.is_empty() { "Drop files here, or use Upload." } else { "" }).size(p.sz(14.0)).color(p.label3)].spacing(u(8.0)).align_x(Alignment::Center).into())
         } else if self.prefs.view == View::Icons {
             self.icon_grid(&shown)
         } else {
@@ -1155,14 +1245,12 @@ impl App {
 
     fn icon_grid(&self, shown: &[&Entry]) -> Element<'_, Message> {
         let p = self.p;
-        let icon = self.prefs.icon_size.clamp(40.0, 128.0);
-        let tile = (icon + 54.0).max(110.0);
-        let usable = (self.width - 232.0 - 8.0 - 24.0).max(tile);
-        let per_row = ((usable / (tile + 4.0)).floor() as usize).max(1);
+        let icon = u(self.prefs.icon_size.clamp(40.0, 128.0));
+        let (tile, per_row) = self.icon_layout();
         let folder = self.folder();
-        let mut grid = Column::new().spacing(4).padding([6, 12]);
+        let mut grid = Column::new().spacing(u(4.0)).padding([u(6.0), u(12.0)]);
         for chunk in shown.chunks(per_row) {
-            let mut r = Row::new().spacing(4);
+            let mut r = Row::new().spacing(u(4.0));
             for e in chunk {
                 let picture: Element<Message> = if e.kind == "directory" {
                     svg(icons::folder()).width(icon).height(icon * 0.82).into()
@@ -1174,79 +1262,95 @@ impl App {
                     }
                 };
                 let selected = self.selected.as_deref() == Some(e.name.as_str());
-                let label = text(ellipsize(&e.name, ((tile / 7.0) as usize).max(10))).size(p.sz(12.0)).align_x(Alignment::Center).width(Length::Fill);
+                let label = text(ellipsize(&e.name, ((tile / 7.5) as usize).max(10))).size(p.sz(13.0)).align_x(Alignment::Center);
+                // Selected like web/store's: the picture on fill-3, the name on the accent.
                 let label: Element<Message> = if selected {
-                    container(label.color(Color::WHITE)).padding([1, 5]).style(theme::fill(p, p.accent, 5.0)).into()
+                    container(label.color(Color::WHITE)).padding([u(1.0), u(6.0)]).style(theme::fill(p, p.accent, 5.0)).into()
                 } else {
-                    label.into()
+                    container(label).padding([u(1.0), u(6.0)]).into()
                 };
+                let pic = container(picture).width(icon + 16.0).height(icon + 10.0).center_x(icon + 16.0).align_y(Alignment::Center);
+                let pic = if selected { pic.style(theme::fill(p, p.fill3, 10.0)) } else { pic };
                 r = r.push(
-                    button(column![container(picture).height(icon + 4.0).center_x(Length::Fill).align_y(Alignment::End), label].spacing(6).align_x(Alignment::Center))
+                    button(column![pic, label].spacing(u(6.0)).align_x(Alignment::Center))
                         .width(tile)
-                        .padding([8, 4])
-                        .style(theme::item(p, false, 12.0))
+                        .padding([u(8.0), u(4.0)])
+                        .style(theme::item(p, selected, 12.0))
                         .on_press(Message::Click(e.name.clone())),
                 );
             }
             grid = grid.push(r);
         }
-        scrollable(grid).height(Length::Fill).width(Length::Fill).style(theme::scroll(p)).into()
+        scrollable(grid).id(scrollable::Id::new("files")).on_scroll(Message::FilesScrolled).height(Length::Fill).width(Length::Fill).style(theme::scroll(p)).into()
     }
 
     fn list_table(&self, shown: &[&Entry]) -> Element<'_, Message> {
         let p = self.p;
-        let h = if p.compact { 28.0 } else { 34.0 };
-        let head = |label: &str| text(label.to_string()).size(p.sz(11.5)).font(SEMIBOLD).color(p.label2);
-        let header = container(row![head("Name").width(Length::FillPortion(5)), head("Date Modified").width(Length::FillPortion(2)), head("Size").width(Length::FillPortion(1)), head("Kind").width(Length::FillPortion(2))].spacing(10))
-            .padding(Padding { top: 4.0, right: 14.0, bottom: 6.0, left: 44.0 });
-        let mut list = Column::new().spacing(0).padding([0, 12]);
+        let h = self.list_row_height();
+        // Name, Date Modified, Size, Kind: the same columns (and the same gaps) in the header and
+        // in every row, so they line up.
+        let cols = |name: Element<'static, Message>, date: Element<'static, Message>, size: Element<'static, Message>, kind: Element<'static, Message>| {
+            row![
+                // web/store's columns: the name takes what's left, then 190 / 100 / 160.
+                container(name).width(Length::Fill).clip(true),
+                container(date).width(u(190.0)),
+                container(size).width(u(100.0)).align_x(Alignment::End),
+                container(kind).width(u(160.0)).padding(Padding { left: u(16.0), ..Padding::ZERO }),
+            ]
+            .spacing(u(12.0))
+            .height(Length::Fill)
+            .align_y(Alignment::Center)
+        };
+        let head = |label: &str| -> Element<'static, Message> { text(label.to_string()).size(p.sz(12.5)).font(SEMIBOLD).color(p.label2).into() };
+        let header = container(cols(row![Space::with_width(u(34.0)), head("Name")].into(), head("Date Modified"), head("Size"), head("Kind")))
+            .height(list_head())
+            .padding([u(0.0), u(22.0)]);
+        let mut list = Column::new().spacing(u(0.0)).padding(Padding { top: u(2.0), right: u(12.0), bottom: u(6.0), left: u(12.0) });
         for (i, e) in shown.iter().enumerate() {
             let selected = self.selected.as_deref() == Some(e.name.as_str());
-            let fg = if selected { p.label } else { p.label };
-            let icon: Element<Message> = if e.kind == "directory" { svg(icons::folder()).width(20).height(17).into() } else { svg(icons::file(&e.name)).width(15).height(19).into() };
+            // Selected rows are the accent with white text, like the web (and the Finder).
+            let (fg, fg2) = if selected { (Color::WHITE, Color::WHITE) } else { (p.label, p.label2) };
+            let icon: Element<'static, Message> = if e.kind == "directory" { svg(icons::folder()).width(u(24.0)).height(u(20.0)).into() } else { svg(icons::file(&e.name)).width(u(19.0)).height(u(24.0)).into() };
             let kind = if e.kind == "directory" { "Folder" } else { icons::kind_of(&e.name).1 };
             let date = e.modified.map(when).unwrap_or_default();
             let size = if e.kind == "directory" { "—".to_string() } else { e.size.map(human).unwrap_or_default() };
-            let zebra = i % 2 == 1;
-            let line = row![
-                container(icon).width(22).center_x(22),
-                text(e.name.clone()).size(p.sz(13.0)).color(fg).width(Length::FillPortion(5)),
-                text(date).size(p.sz(12.5)).color(p.label2).width(Length::FillPortion(2)),
-                text(size).size(p.sz(12.5)).color(p.label2).width(Length::FillPortion(1)),
-                text(kind).size(p.sz(12.5)).color(p.label2).width(Length::FillPortion(2)),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center);
-            let row_btn = button(line).width(Length::Fill).height(h).padding([0, 8]).style(theme::item(p, selected, 7.0)).on_press(Message::Click(e.name.clone()));
-            list = list.push(if zebra && !selected { container(row_btn).style(theme::fill(p, p.fill4, 7.0)) } else { container(row_btn) });
+            let cell = |t: String, c: Color| -> Element<'static, Message> { text(t).size(p.sz(13.5)).color(c).wrapping(text::Wrapping::None).into() };
+            let name: Element<'static, Message> = row![container(icon).width(u(24.0)).center_x(u(24.0)), text(e.name.clone()).size(p.sz(15.0)).color(fg).wrapping(text::Wrapping::None)].spacing(u(10.0)).align_y(Alignment::Center).into();
+            let line = cols(name, cell(date, fg2), cell(size, fg2), cell(kind.to_string(), fg2));
+            list = list.push(button(line).width(Length::Fill).height(h).padding([u(0.0), u(10.0)]).style(theme::list_row(p, selected, i % 2 == 1)).on_press(Message::Click(e.name.clone())));
         }
-        column![header, container(Space::with_height(0.5)).width(Length::Fill).style(theme::separator(p)), scrollable(list).height(Length::Fill).style(theme::scroll(p))].into()
+        column![
+            header,
+            container(Space::with_height(u(0.5))).width(Length::Fill).style(theme::separator(p)),
+            scrollable(list).id(scrollable::Id::new("files")).on_scroll(Message::FilesScrolled).height(Length::Fill).style(theme::scroll(p))
+        ]
+        .into()
     }
 
     fn pathbar(&self, count: usize) -> Element<'_, Message> {
         let p = self.p;
         let root = if self.place == Place::Shared { "Shared" } else { "Home" };
-        let mut crumbs = Row::new().spacing(4).align_y(Alignment::Center);
-        crumbs = crumbs.push(button(row![line_icon(if self.place == Place::Shared { "person-2" } else { "house" }, 13.0, p.accent), text(root).size(p.sz(12.0))].spacing(5).align_y(Alignment::Center)).padding([2, 6]).style(theme::side_item(p, false)).on_press(Message::Crumb(0)));
+        let mut crumbs = Row::new().spacing(u(4.0)).align_y(Alignment::Center);
+        crumbs = crumbs.push(button(row![line_icon(if self.place == Place::Shared { "person-2" } else { "house" }, 15.0, p.accent), text(root).size(p.sz(13.0))].spacing(u(6.0)).align_y(Alignment::Center)).padding([u(3.0), u(7.0)]).style(theme::side_item(p, false)).on_press(Message::Crumb(0)));
         for (i, part) in self.path.iter().enumerate() {
-            crumbs = crumbs.push(line_icon("chevron-right", 10.0, p.label3));
-            crumbs = crumbs.push(button(row![svg(icons::folder()).width(14).height(12), text(part.clone()).size(p.sz(12.0))].spacing(5).align_y(Alignment::Center)).padding([2, 6]).style(theme::side_item(p, false)).on_press(Message::Crumb(i + 1)));
+            crumbs = crumbs.push(line_icon("chevron-right", 11.0, p.label3));
+            crumbs = crumbs.push(button(row![svg(icons::folder()).width(u(16.0)).height(u(13.0)), text(part.clone()).size(p.sz(13.0))].spacing(u(6.0)).align_y(Alignment::Center)).padding([u(3.0), u(7.0)]).style(theme::side_item(p, false)).on_press(Message::Crumb(i + 1)));
         }
         let items = format!("{count} item{}", if count == 1 { "" } else { "s" });
         column![
-            container(Space::with_height(0.5)).width(Length::Fill).style(theme::separator(p)),
-            container(row![crumbs, horizontal_space(), text(items).size(p.sz(11.5)).color(p.label2)].align_y(Alignment::Center)).height(32).padding([0, 12]).center_y(32),
+            container(Space::with_height(u(0.5))).width(Length::Fill).style(theme::separator(p)),
+            container(row![crumbs, horizontal_space(), text(items).size(p.sz(12.5)).color(p.label2)].align_y(Alignment::Center)).padding([u(0.0), u(14.0)]).center_y(pathbar()),
         ]
         .into()
     }
 
     fn photos_view(&self) -> Element<'_, Message> {
         let p = self.p;
-        let usable = (self.width - 232.0 - 8.0 - 28.0).max(200.0);
+        let usable = (self.width - sidebar() - 8.0 - 28.0).max(200.0);
         let target = 150.0;
         let per_row = ((usable / target).round() as usize).clamp(2, 16);
         let cell = (usable - (per_row as f32 - 1.0) * 2.0) / per_row as f32;
-        let mut col = Column::new().spacing(2).padding([4, 14]);
+        let mut col = Column::new().spacing(u(2.0)).padding([u(4.0), u(14.0)]);
         let mut month = String::new();
         let mut current: Vec<&Photo> = Vec::new();
         for ph in &self.photos {
@@ -1260,14 +1364,14 @@ impl App {
         }
         col = self.month_block(col, &current, &month, per_row, cell);
         if self.more_loading {
-            col = col.push(container(spinner_dot(p)).center_x(Length::Fill).padding(16));
+            col = col.push(container(spinner_dot(p)).center_x(Length::Fill).padding(u(16.0)));
         }
         let body: Element<Message> = if self.photos.is_empty() {
-            center(column![line_icon("photo", 44.0, p.label3), text("No photos yet").size(p.sz(15.0)).font(SEMIBOLD).color(p.label2), text("The iPhone app backs them up here.").size(p.sz(13.0)).color(p.label3)].spacing(8).align_x(Alignment::Center).into())
+            center(column![line_icon("photo", 44.0, p.label3), text("No photos yet").size(p.sz(15.0)).font(SEMIBOLD).color(p.label2), text("The iPhone app backs them up here.").size(p.sz(13.0)).color(p.label3)].spacing(u(8.0)).align_x(Alignment::Center).into())
         } else {
             scrollable(col).height(Length::Fill).width(Length::Fill).on_scroll(Message::PhotosScrolled).style(theme::scroll(p)).into()
         };
-        let count = text(format!("{} photos", self.photos.len())).size(p.sz(12.0)).color(p.label2);
+        let count = text(format!("{} photos", self.photos.len())).size(p.sz(13.5)).color(p.label2);
         column![self.toolbar("Photos".into(), count.into()), body].into()
     }
 
@@ -1277,9 +1381,9 @@ impl App {
         if items.is_empty() {
             return col;
         }
-        col = col.push(container(text(label.to_string()).size(p.sz(22.0)).font(BOLD)).padding(Padding { top: 18.0, right: 0.0, bottom: 8.0, left: 2.0 }));
+        col = col.push(container(text(label.to_string()).size(p.sz(22.0)).font(BOLD)).padding(Padding { top: u(18.0), right: 0.0, bottom: u(8.0), left: u(2.0) }));
         for chunk in items.chunks(per_row) {
-            let mut r = Row::new().spacing(2);
+            let mut r = Row::new().spacing(u(2.0));
             for ph in chunk {
                 let tile: Element<Message> = match self.thumbs.get(&ThumbKey::Photo(ph.id).id()) {
                     Some(h) => image(h.clone()).width(cell).height(cell).content_fit(iced::ContentFit::Cover).into(),
@@ -1295,30 +1399,30 @@ impl App {
     fn house_view(&self) -> Element<'_, Message> {
         let p = self.p;
         let orange = p.orange;
-        let mut grid = Column::new().spacing(12).padding([4, 18]);
-        let usable = (self.width - 232.0 - 8.0 - 36.0).max(260.0);
+        let mut grid = Column::new().spacing(u(12.0)).padding([u(4.0), u(18.0)]);
+        let usable = (self.width - sidebar() - 8.0 - 36.0).max(260.0);
         let per_row = ((usable / 260.0).floor() as usize).max(1);
         for chunk in self.blinds.chunks(per_row) {
-            let mut r = Row::new().spacing(12);
+            let mut r = Row::new().spacing(u(12.0));
             for b in chunk {
                 let pos = b.state.as_ref().map(|s| s.position).unwrap_or(-1);
                 let open = pos.clamp(0, 100) as f32 / 100.0;
                 let capsule = container(column![container(Space::with_height(Length::Fill)).height(Length::FillPortion(((1.0 - open) * 100.0) as u16 + 1)).width(Length::Fill).style(theme::fill(p, theme::alpha(orange, 0.85), 10.0)), Space::with_height(Length::FillPortion((open * 100.0) as u16 + 1))])
-                    .width(44)
-                    .height(86)
-                    .padding(3)
+                    .width(u(44.0))
+                    .height(u(86.0))
+                    .padding(u(3.0))
                     .style(theme::fill(p, p.fill3, 12.0));
-                let ctl = |icon: &str, cmd: &'static str| button(container(line_icon(icon, 15.0, p.label)).center(15)).width(34).height(34).style(theme::glass_button(p)).on_press(Message::BlindCommand(b.id.clone(), cmd));
+                let ctl = |icon: &str, cmd: &'static str| button(container(line_icon(icon, 15.0, p.label)).center(u(15.0))).width(u(34.0)).height(u(34.0)).style(theme::glass_button(p)).on_press(Message::BlindCommand(b.id.clone(), cmd));
                 let state = if pos < 0 { "—".to_string() } else if pos >= 100 { "Open".into() } else if pos <= 0 { "Closed".into() } else { format!("{pos}% open") };
                 let card = container(
                     row![
                         capsule,
-                        column![text(b.name.clone()).size(p.sz(15.0)).font(SEMIBOLD), text(state).size(p.sz(12.5)).color(p.label2), Space::with_height(6), row![ctl("chevron-up", "up"), ctl("stop", "stop"), ctl("chevron-down", "down")].spacing(6)].spacing(2).width(Length::Fill),
+                        column![text(b.name.clone()).size(p.sz(15.0)).font(SEMIBOLD), text(state).size(p.sz(12.5)).color(p.label2), Space::with_height(u(6.0)), row![ctl("chevron-up", "up"), ctl("stop", "stop"), ctl("chevron-down", "down")].spacing(u(6.0))].spacing(u(2.0)).width(Length::Fill),
                     ]
-                    .spacing(14)
+                    .spacing(u(14.0))
                     .align_y(Alignment::Center),
                 )
-                .padding(14)
+                .padding(u(14.0))
                 .width(Length::Fill)
                 .style(theme::card(p));
                 r = r.push(card);
@@ -1329,7 +1433,7 @@ impl App {
             grid = grid.push(r);
         }
         let body: Element<Message> = if self.blinds.is_empty() { center(text("No blinds yet").size(p.sz(15.0)).color(p.label2).into()) } else { scrollable(grid).height(Length::Fill).style(theme::scroll(p)).into() };
-        column![self.toolbar("Blinds".into(), Space::with_width(0).into()), body].into()
+        column![self.toolbar("Blinds".into(), Space::with_width(u(0.0)).into()), body].into()
     }
 
     fn account_view(&self) -> Element<'_, Message> {
@@ -1347,7 +1451,7 @@ impl App {
                 action_row(p, "network", "Other networks…", Message::ShowNetworks, false),
             ]),
         ]
-        .spacing(4);
+        .spacing(u(4.0));
         if let Some(h) = &self.host {
             let state = h.update.as_ref().map(|u| u.state.as_str());
             let line = match state {
@@ -1369,32 +1473,40 @@ impl App {
             col = col.push(section(p, "Server", rows));
         }
         col = col.push(section(p, "", vec![action_row(p, "sign-out", "Sign out", Message::SignOut, true)]));
-        let page = container(col.max_width(640)).padding([8, 24]).center_x(Length::Fill);
-        column![self.toolbar("Account".into(), Space::with_width(0).into()), scrollable(page).height(Length::Fill).style(theme::scroll(p))].into()
+        let page = container(col.max_width(u(640.0))).padding([u(8.0), u(24.0)]).center_x(Length::Fill);
+        column![self.toolbar("Account".into(), Space::with_width(u(0.0)).into()), scrollable(page).height(Length::Fill).style(theme::scroll(p))].into()
     }
 
     fn settings_view(&self) -> Element<'_, Message> {
         let p = self.p;
         let pr = &self.prefs;
         let seg = |items: Vec<(&'static str, bool, Message)>| -> Element<Message> {
-            let mut r = Row::new().spacing(2);
+            let n = items.len();
+            let mut r = Row::new().spacing(u(2.0));
             for (label, on, msg) in items {
-                r = r.push(button(text(label).size(p.sz(12.5)).font(if on { SEMIBOLD } else { theme::INTER }).align_x(Alignment::Center).width(Length::Fill)).width(Length::Fill).padding([5, 10]).style(theme::segment(p, on)).on_press(msg));
+                r = r.push(button(text(label).size(p.sz(13.5)).font(if on { SEMIBOLD } else { theme::INTER }).align_x(Alignment::Center).width(Length::Fill)).width(Length::Fill).padding([u(6.0), u(10.0)]).style(theme::segment(p, on)).on_press(msg));
             }
-            container(r).padding(2).width(260).style(theme::track(p)).into()
+            container(r).padding(u(2.0)).width(u(if n > 3 { 380.0 } else { 280.0 })).style(theme::track(p)).into()
         };
-        let mut swatches = Row::new().spacing(10).align_y(Alignment::Center);
+        let mut swatches = Row::new().spacing(u(10.0)).align_y(Alignment::Center);
         for a in theme::Accent::ALL {
             let on = pr.accent == a;
-            let dot = button(container(if on { Element::from(line_icon("checkmark", 11.0, Color::WHITE)) } else { Space::new(11, 11).into() }).center(11)).width(22).height(22).style(theme::swatch(p, a.color(p.dark), on)).on_press(Message::Pref(Pref::Accent(a)));
+            let dot = button(container(if on { Element::from(line_icon("checkmark", 11.0, Color::WHITE)) } else { Space::new(u(11.0), u(11.0)).into() }).center(u(11.0))).width(u(22.0)).height(u(22.0)).style(theme::swatch(p, a.color(p.dark), on)).on_press(Message::Pref(Pref::Accent(a)));
             swatches = swatches.push(dot);
         }
         let range = |value: f32, lo: f32, hi: f32, f: fn(f32) -> Pref, shown: String| -> Element<Message> {
-            row![slider(lo..=hi, value, move |v| Message::Pref(f(v))).step(0.01).width(200).style(theme::range(p)), text(shown).size(p.sz(12.5)).color(p.label2).width(46)].spacing(10).align_y(Alignment::Center).into()
+            row![slider(lo..=hi, value, move |v| Message::Pref(f(v))).step(0.01).width(u(200.0)).style(theme::range(p)), text(shown).size(p.sz(13.5)).color(p.label2).width(u(56.0))].spacing(u(12.0)).align_y(Alignment::Center).into()
         };
         let pct = |v: f32| format!("{}%", (v * 100.0).round());
         let col = column![
             section(p, "Appearance", vec![
+                setting_row(p, "Size", seg(vec![
+                    ("100%", pr.size < 1.12, Message::Pref(Pref::Size(1.0))),
+                    ("125%", (1.12..1.37).contains(&pr.size), Message::Pref(Pref::Size(1.25))),
+                    ("150%", (1.37..1.62).contains(&pr.size), Message::Pref(Pref::Size(1.5))),
+                    ("175%", (1.62..1.87).contains(&pr.size), Message::Pref(Pref::Size(1.75))),
+                    ("200%", pr.size >= 1.87, Message::Pref(Pref::Size(2.0))),
+                ])),
                 setting_row(p, "Theme", seg(vec![("System", pr.mode == theme::Mode::System, Message::Pref(Pref::Mode(theme::Mode::System))), ("Light", pr.mode == theme::Mode::Light, Message::Pref(Pref::Mode(theme::Mode::Light))), ("Dark", pr.mode == theme::Mode::Dark, Message::Pref(Pref::Mode(theme::Mode::Dark)))])),
                 setting_row(p, "Accent colour", swatches.into()),
                 setting_row(p, "Text size", seg(vec![("Small", pr.text_scale < 0.95, Message::Pref(Pref::TextScale(0.9))), ("Medium", (0.95..1.05).contains(&pr.text_scale), Message::Pref(Pref::TextScale(1.0))), ("Large", pr.text_scale >= 1.05, Message::Pref(Pref::TextScale(1.12)))])),
@@ -1411,19 +1523,19 @@ impl App {
                 } else {
                     "Window transparency needs a compositor that lets apps set it (Hyprland); here the window stays solid."
                 })
-                .size(p.sz(12.0))
+                .size(p.sz(13.0))
                 .color(p.label2),
             )
-            .padding(Padding { top: 0.0, right: 16.0, bottom: 10.0, left: 16.0 }),
+            .padding(Padding { top: 0.0, right: u(16.0), bottom: u(10.0), left: u(16.0) }),
             section(p, "Files", vec![
                 setting_row(p, "Show as", seg(vec![("Icons", pr.view == View::Icons, Message::Pref(Pref::View(View::Icons))), ("List", pr.view == View::List, Message::Pref(Pref::View(View::List)))])),
                 setting_row(p, "Icon size", range(pr.icon_size, 40.0, 128.0, |v| Pref::IconSize((v / 4.0).round() * 4.0), format!("{} pt", pr.icon_size as u32))),
             ]),
             section(p, "", vec![action_row(p, "refresh", "Back to the default look", Message::Pref(Pref::Reset), false)]),
         ]
-        .spacing(4);
-        let page = container(col.max_width(640)).padding([8, 24]).center_x(Length::Fill);
-        column![self.toolbar("Settings".into(), Space::with_width(0).into()), scrollable(page).height(Length::Fill).style(theme::scroll(p))].into()
+        .spacing(u(4.0));
+        let page = container(col.max_width(u(640.0))).padding([u(8.0), u(24.0)]).center_x(Length::Fill);
+        column![self.toolbar("Settings".into(), Space::with_width(u(0.0)).into()), scrollable(page).height(Length::Fill).style(theme::scroll(p))].into()
     }
 
     fn networks_view(&self) -> Element<'_, Message> {
@@ -1433,12 +1545,12 @@ impl App {
             let current = self.store.current.as_deref() == Some(&n.id);
             rows.push(
                 row![
-                    button(row![line_icon("cloud", 18.0, p.accent), column![text(n.name.clone()).size(p.sz(14.0)).font(SEMIBOLD), text(n.last_address.clone().unwrap_or_default()).size(p.sz(12.0)).color(p.label2)].spacing(1).width(Length::Fill), if current { Element::from(line_icon("checkmark", 15.0, p.accent)) } else { Space::with_width(0).into() }].spacing(10).align_y(Alignment::Center))
+                    button(row![line_icon("cloud", 18.0, p.accent), column![text(n.name.clone()).size(p.sz(14.0)).font(SEMIBOLD), text(n.last_address.clone().unwrap_or_default()).size(p.sz(12.0)).color(p.label2)].spacing(u(1.0)).width(Length::Fill), if current { Element::from(line_icon("checkmark", 15.0, p.accent)) } else { Space::with_width(u(0.0)).into() }].spacing(u(10.0)).align_y(Alignment::Center))
                         .width(Length::Fill)
-                        .padding([8, 12])
+                        .padding([u(8.0), u(12.0)])
                         .style(theme::side_item(p, false))
                         .on_press(Message::Use(n.id.clone())),
-                    button(line_icon("trash", 15.0, p.label3)).padding(8).style(theme::side_item(p, false)).on_press(Message::Remove(n.id.clone())),
+                    button(line_icon("trash", 15.0, p.label3)).padding(u(8.0)).style(theme::side_item(p, false)).on_press(Message::Remove(n.id.clone())),
                 ]
                 .align_y(Alignment::Center)
                 .into(),
@@ -1447,84 +1559,84 @@ impl App {
         let known: Vec<&str> = self.store.networks.iter().map(|n| n.id.as_str()).collect();
         let mut found: Vec<Element<Message>> = Vec::new();
         for f in self.found.iter().filter(|f| f.network_id.as_deref().map_or(true, |id| !known.contains(&id))) {
-            found.push(button(row![line_icon("network", 18.0, p.accent), column![text(f.name.clone()).size(p.sz(14.0)).font(SEMIBOLD), text(f.url.clone()).size(p.sz(12.0)).color(p.label2)].spacing(1)].spacing(10).align_y(Alignment::Center)).width(Length::Fill).padding([8, 12]).style(theme::side_item(p, false)).on_press(Message::AddFound(f.url.clone())).into());
+            found.push(button(row![line_icon("network", 18.0, p.accent), column![text(f.name.clone()).size(p.sz(14.0)).font(SEMIBOLD), text(f.url.clone()).size(p.sz(12.0)).color(p.label2)].spacing(u(1.0))].spacing(u(10.0)).align_y(Alignment::Center)).width(Length::Fill).padding([u(8.0), u(12.0)]).style(theme::side_item(p, false)).on_press(Message::AddFound(f.url.clone())).into());
         }
         for w in &self.waiting {
-            found.push(button(row![line_icon("server", 18.0, p.orange), column![text(format!("{} · waiting to be set up", w.name)).size(p.sz(14.0)).font(SEMIBOLD), text(w.url.clone()).size(p.sz(12.0)).color(p.label2)].spacing(1)].spacing(10).align_y(Alignment::Center)).width(Length::Fill).padding([8, 12]).style(theme::side_item(p, false)).on_press(Message::HostStarted(Ok(w.url.clone()))).into());
+            found.push(button(row![line_icon("server", 18.0, p.orange), column![text(format!("{} · waiting to be set up", w.name)).size(p.sz(14.0)).font(SEMIBOLD), text(w.url.clone()).size(p.sz(12.0)).color(p.label2)].spacing(u(1.0))].spacing(u(10.0)).align_y(Alignment::Center)).width(Length::Fill).padding([u(8.0), u(12.0)]).style(theme::side_item(p, false)).on_press(Message::HostStarted(Ok(w.url.clone()))).into());
         }
         if found.is_empty() {
-            found.push(container(text(if self.looking { "Looking on this network…" } else { "Nothing found here." }).size(p.sz(13.0)).color(p.label2)).padding([8, 12]).into());
+            found.push(container(text(if self.looking { "Looking on this network…" } else { "Nothing found here." }).size(p.sz(13.0)).color(p.label2)).padding([u(8.0), u(12.0)]).into());
         }
         let add = row![
-            text_input("tpcloud.local or cloud.example.com", &self.address).on_input(Message::Address).on_submit(Message::Add).padding([9, 12]).size(p.sz(14.0)).style(theme::field(p)),
-            button(text(if self.busy { "Adding…" } else { "Add" }).size(p.sz(14.0)).font(SEMIBOLD)).padding([9, 18]).style(theme::prominent(p)).on_press_maybe((!self.busy && !self.address.trim().is_empty()).then_some(Message::Add)),
+            text_input("tpcloud.local or cloud.example.com", &self.address).on_input(Message::Address).on_submit(Message::Add).padding([u(9.0), u(12.0)]).size(p.sz(14.0)).style(theme::field(p)),
+            button(text(if self.busy { "Adding…" } else { "Add" }).size(p.sz(14.0)).font(SEMIBOLD)).padding([u(9.0), u(18.0)]).style(theme::prominent(p)).on_press_maybe((!self.busy && !self.address.trim().is_empty()).then_some(Message::Add)),
         ]
-        .spacing(8)
+        .spacing(u(8.0))
         .align_y(Alignment::Center);
         let mut col = column![
-            row![container(line_icon("cloud", 22.0, Color::WHITE)).width(40).height(40).center(40).style(theme::fill(p, p.accent, 11.0)), column![text("TPCloud").size(p.sz(28.0)).font(BOLD), text("Your files, photos and home.").size(p.sz(14.0)).color(p.label2)].spacing(0)].spacing(14).align_y(Alignment::Center),
-            Space::with_height(8),
+            row![container(line_icon("cloud", 22.0, Color::WHITE)).width(u(40.0)).height(u(40.0)).center(u(40.0)).style(theme::fill(p, p.accent, 11.0)), column![text("TPCloud").size(p.sz(28.0)).font(BOLD), text("Your files, photos and home.").size(p.sz(14.0)).color(p.label2)].spacing(u(0.0))].spacing(u(14.0)).align_y(Alignment::Center),
+            Space::with_height(u(8.0)),
         ]
-        .spacing(10)
-        .max_width(560);
+        .spacing(u(10.0))
+        .max_width(u(560.0));
         if !rows.is_empty() {
             col = col.push(group_card(p, "Your networks", rows));
         }
         col = col.push(group_card(p, "On this network", found)).push(row![horizontal_space(), button(text("Look again").size(p.sz(13.0))).style(theme::plain(p)).on_press(Message::Look)]);
-        col = col.push(group_card(p, "Add one by its address", vec![container(add).padding(10).into()]));
-        col = col.push(group_card(p, "This computer", vec![row![column![text("Make it the host").size(p.sz(14.0)).font(SEMIBOLD), text("Installs TPCloud here (asks for your password) and opens its setup.").size(p.sz(12.0)).color(p.label2)].spacing(2).width(Length::Fill), button(text("Set up").size(p.sz(13.0)).font(SEMIBOLD)).padding([7, 14]).style(theme::glass_button(p)).on_press_maybe((!self.busy).then_some(Message::MakeHost))].align_y(Alignment::Center).padding([10, 12]).into()]));
+        col = col.push(group_card(p, "Add one by its address", vec![container(add).padding(u(10.0)).into()]));
+        col = col.push(group_card(p, "This computer", vec![row![column![text("Make it the host").size(p.sz(14.0)).font(SEMIBOLD), text("Installs TPCloud here (asks for your password) and opens its setup.").size(p.sz(12.0)).color(p.label2)].spacing(u(2.0)).width(Length::Fill), button(text("Set up").size(p.sz(13.0)).font(SEMIBOLD)).padding([u(7.0), u(14.0)]).style(theme::glass_button(p)).on_press_maybe((!self.busy).then_some(Message::MakeHost))].align_y(Alignment::Center).padding([u(10.0), u(12.0)]).into()]));
         if let Some(e) = &self.error {
             col = col.push(text(e.clone()).size(p.sz(13.0)).color(p.red));
         }
-        container(scrollable(container(col).padding(36).center_x(Length::Fill)).style(theme::scroll(p))).height(Length::Fill).into()
+        container(scrollable(container(col).padding(u(36.0)).center_x(Length::Fill)).style(theme::scroll(p))).height(Length::Fill).into()
     }
 
     fn login_view(&self) -> Element<'_, Message> {
         let p = self.p;
         let name = self.store.current().map(|n| n.name.clone()).unwrap_or_default();
-        let field = |hint: &str, value: &str| text_input(hint, value).padding([11, 14]).size(p.sz(15.0)).style(theme::field(p));
+        let field = |hint: &str, value: &str| text_input(hint, value).padding([u(11.0), u(14.0)]).size(p.sz(15.0)).style(theme::field(p));
         let form: Element<Message> = if self.totp {
             column![
                 text("Enter the 6-digit code from your authenticator app.").size(p.sz(13.5)).color(p.label2),
-                text_input("123456", &self.code).on_input(Message::Code).on_submit(Message::Verify).padding([12, 14]).size(p.sz(22.0)).style(theme::field(p)),
-                button(text("Continue").size(p.sz(15.0)).font(SEMIBOLD).align_x(Alignment::Center).width(Length::Fill)).padding([12, 18]).width(Length::Fill).style(theme::prominent(p)).on_press_maybe((self.code.len() == 6 && !self.busy).then_some(Message::Verify)),
+                text_input("123456", &self.code).on_input(Message::Code).on_submit(Message::Verify).padding([u(12.0), u(14.0)]).size(p.sz(22.0)).style(theme::field(p)),
+                button(text("Continue").size(p.sz(15.0)).font(SEMIBOLD).align_x(Alignment::Center).width(Length::Fill)).padding([u(12.0), u(18.0)]).width(Length::Fill).style(theme::prominent(p)).on_press_maybe((self.code.len() == 6 && !self.busy).then_some(Message::Verify)),
             ]
-            .spacing(10)
+            .spacing(u(10.0))
             .into()
         } else {
             column![
                 field("Email", &self.email).on_input(Message::Email),
                 field("Password", &self.password).on_input(Message::Password).on_submit(Message::SignIn).secure(true),
-                button(text(if self.busy { "Signing in…" } else { "Sign in" }).size(p.sz(15.0)).font(SEMIBOLD).align_x(Alignment::Center).width(Length::Fill)).padding([12, 18]).width(Length::Fill).style(theme::prominent(p)).on_press_maybe((!self.busy && !self.email.is_empty() && !self.password.is_empty()).then_some(Message::SignIn)),
+                button(text(if self.busy { "Signing in…" } else { "Sign in" }).size(p.sz(15.0)).font(SEMIBOLD).align_x(Alignment::Center).width(Length::Fill)).padding([u(12.0), u(18.0)]).width(Length::Fill).style(theme::prominent(p)).on_press_maybe((!self.busy && !self.email.is_empty() && !self.password.is_empty()).then_some(Message::SignIn)),
             ]
-            .spacing(10)
+            .spacing(u(10.0))
             .into()
         };
         let mut col = column![
-            container(line_icon("cloud", 26.0, Color::WHITE)).width(52).height(52).center(52).style(theme::fill(p, p.accent, 14.0)),
+            container(line_icon("cloud", 26.0, Color::WHITE)).width(u(52.0)).height(u(52.0)).center(u(52.0)).style(theme::fill(p, p.accent, 14.0)),
             text("Sign in").size(p.sz(26.0)).font(BOLD),
             text(format!("to {name}")).size(p.sz(14.0)).color(p.label2),
-            Space::with_height(6),
+            Space::with_height(u(6.0)),
             form,
             button(text("Another network").size(p.sz(13.0))).style(theme::plain(p)).on_press(Message::ShowNetworks),
         ]
-        .spacing(8)
+        .spacing(u(8.0))
         .align_x(Alignment::Center);
         if let Some(e) = &self.error {
             col = col.push(text(e.clone()).size(p.sz(13.0)).color(p.red));
         }
-        center(container(col).width(360).padding(28).style(theme::glass(p)).into())
+        center(container(col).width(u(360.0)).padding(u(28.0)).style(theme::glass(p)).into())
     }
 }
 
 // ── Pieces ──
 
 fn line_icon<'a>(name: &str, size: f32, color: Color) -> Element<'a, Message> {
-    svg(icons::line(name)).width(size).height(size).style(move |_, _| svg::Style { color: Some(color) }).into()
+    svg(icons::line(name)).width(u(size)).height(u(size)).style(move |_, _| svg::Style { color: Some(color) }).into()
 }
 
 fn icon_button<'a>(p: Palette, icon: &str, msg: Message) -> Element<'a, Message> {
-    button(container(line_icon(icon, 15.0, p.label)).center(15)).width(32).height(32).style(theme::glass_button(p)).on_press(msg).into()
+    button(container(line_icon(icon, 17.0, p.label)).center(Length::Fill)).width(u(36.0)).height(u(36.0)).padding(u(0.0)).style(theme::glass_button(p)).on_press(msg).into()
 }
 
 fn center(content: Element<'_, Message>) -> Element<'_, Message> {
@@ -1532,11 +1644,11 @@ fn center(content: Element<'_, Message>) -> Element<'_, Message> {
 }
 
 fn spinner_dot<'a>(p: Palette) -> Element<'a, Message> {
-    container(Space::new(10, 10)).style(theme::fill(p, theme::alpha(p.accent, 0.8), 5.0)).into()
+    container(Space::new(u(10.0), u(10.0))).style(theme::fill(p, theme::alpha(p.accent, 0.8), 5.0)).into()
 }
 
 fn banner<'a>(p: Palette, message: &str, color: Color) -> Element<'a, Message> {
-    container(row![container(Space::new(8, 8)).style(theme::fill(p, color, 4.0)), text(message.to_string()).size(p.sz(12.5)).color(p.label)].spacing(8).align_y(Alignment::Center)).padding([8, 16]).width(Length::Fill).into()
+    container(row![container(Space::new(u(8.0), u(8.0))).style(theme::fill(p, color, 4.0)), text(message.to_string()).size(p.sz(13.5)).color(p.label)].spacing(u(8.0)).align_y(Alignment::Center)).padding([u(10.0), u(18.0)]).width(Length::Fill).into()
 }
 
 /// A grouped-list section: its header, then the rows in a card with separators between them.
@@ -1550,31 +1662,32 @@ fn group_card<'a>(p: Palette, title: &str, rows: Vec<Element<'a, Message>>) -> E
     for (i, r) in rows.into_iter().enumerate() {
         inner = inner.push(r);
         if i + 1 < n {
-            inner = inner.push(container(container(Space::with_height(0.5)).width(Length::Fill).style(theme::separator(p))).padding(Padding { left: 12.0, ..Padding::ZERO }));
+            inner = inner.push(container(container(Space::with_height(u(0.5))).width(Length::Fill).style(theme::separator(p))).padding(Padding { left: u(12.0), ..Padding::ZERO }));
         }
     }
-    let mut col = Column::new().spacing(6);
+    let mut col = Column::new().spacing(u(6.0));
     if !title.is_empty() {
-        col = col.push(container(text(title.to_string()).size(p.sz(12.5)).font(MEDIUM).color(p.label2)).padding(Padding { top: 14.0, right: 0.0, bottom: 0.0, left: 14.0 }));
+        col = col.push(container(text(title.to_string()).size(p.sz(13.5)).font(MEDIUM).color(p.label2)).padding(Padding { top: u(16.0), right: 0.0, bottom: 0.0, left: u(16.0) }));
     } else {
-        col = col.push(Space::with_height(14));
+        col = col.push(Space::with_height(u(14.0)));
     }
     col.push(container(inner).width(Length::Fill).style(theme::card(p))).into()
 }
 
 fn kv_row<'a>(p: Palette, icon: &str, label: &str, value: String) -> Element<'a, Message> {
-    row![line_icon(icon, 16.0, p.accent), text(label.to_string()).size(p.sz(13.5)).width(Length::Fill), text(value).size(p.sz(13.5)).color(p.label2)].spacing(10).align_y(Alignment::Center).padding([10, 14]).into()
+    row![line_icon(icon, 18.0, p.accent), text(label.to_string()).size(p.sz(15.0)).width(Length::Fill), text(value).size(p.sz(15.0)).color(p.label2)].spacing(u(12.0)).align_y(Alignment::Center).padding([u(0.0), u(16.0)]).height(u(46.0)).into()
 }
 
 fn setting_row<'a>(p: Palette, label: &str, control: Element<'a, Message>) -> Element<'a, Message> {
-    row![text(label.to_string()).size(p.sz(13.5)).width(Length::Fill), control].spacing(10).align_y(Alignment::Center).padding([9, 14]).into()
+    row![text(label.to_string()).size(p.sz(15.0)).width(Length::Fill), control].spacing(u(12.0)).align_y(Alignment::Center).padding([u(8.0), u(16.0)]).height(Length::Shrink).into()
 }
 
 fn action_row<'a>(p: Palette, icon: &str, label: &str, msg: Message, danger: bool) -> Element<'a, Message> {
     let color = if danger { p.red } else { p.accent };
-    button(row![line_icon(icon, 16.0, color), text(label.to_string()).size(p.sz(13.5)).color(color).width(Length::Fill)].spacing(10).align_y(Alignment::Center))
+    button(row![line_icon(icon, 18.0, color), text(label.to_string()).size(p.sz(15.0)).color(color).width(Length::Fill)].spacing(u(12.0)).height(Length::Fill).align_y(Alignment::Center))
         .width(Length::Fill)
-        .padding([10, 14])
+        .height(u(46.0))
+        .padding([u(0.0), u(16.0)])
         .style(theme::side_item(p, false))
         .on_press(msg)
         .into()

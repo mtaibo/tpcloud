@@ -5,6 +5,24 @@
 use iced::widget::{button, container, scrollable, slider, text_input};
 use iced::{Background, Border, Color, Font, Shadow, Theme};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+/// Settings → Size: every length in the app goes through `u` (iced 0.13's own `scale_factor`
+/// drew SVGs and images in the wrong place, with both renderers, so it isn't used).
+static UI: AtomicU32 = AtomicU32::new(0x3f80_0000); // 1.0
+
+pub fn set_ui(size: f32) {
+    UI.store(size.clamp(1.0, 2.0).to_bits(), Ordering::Relaxed);
+}
+
+pub fn ui() -> f32 {
+    f32::from_bits(UI.load(Ordering::Relaxed))
+}
+
+/// A length at the chosen size.
+pub fn u(points: f32) -> f32 {
+    (points * ui()).round()
+}
 
 pub const INTER: Font = Font::with_name("Inter");
 pub const MEDIUM: Font = Font { weight: iced::font::Weight::Medium, ..INTER };
@@ -94,11 +112,13 @@ pub struct Prefs {
     pub view: View,
     /// Icon size in the icon view, in points.
     pub icon_size: f32,
+    /// How big the whole app is drawn, on top of the display's own scale (1 = 100 %).
+    pub size: f32,
 }
 
 impl Default for Prefs {
     fn default() -> Prefs {
-        Prefs { mode: Mode::System, accent: Accent::Blue, window_opacity: 1.0, sidebar_opacity: 0.7, text_scale: 1.0, compact: false, roundness: 1.0, view: View::Icons, icon_size: 64.0 }
+        Prefs { mode: Mode::System, accent: Accent::Blue, window_opacity: 1.0, sidebar_opacity: 0.7, text_scale: 1.0, compact: false, roundness: 1.0, view: View::List, icon_size: 64.0, size: 1.0 }
     }
 }
 
@@ -215,6 +235,7 @@ pub fn over(under: Color, top: Color) -> Color {
 
 impl Palette {
     pub fn new(prefs: &Prefs, system_dark: bool) -> Palette {
+        set_ui(prefs.size);
         let dark = match prefs.mode {
             Mode::System => system_dark,
             Mode::Light => false,
@@ -226,7 +247,7 @@ impl Palette {
             // `apply_window_opacity`): translucent drawing left unrepainted patches on Wayland.
             window_opacity: 1.0,
             sidebar_opacity: prefs.sidebar_opacity.clamp(0.0, 1.0),
-            scale: prefs.text_scale.clamp(0.8, 1.4),
+            scale: prefs.text_scale.clamp(0.8, 1.4) * prefs.size.clamp(1.0, 2.0),
             compact: prefs.compact,
             round: prefs.roundness.clamp(0.2, 1.6),
             ..p
@@ -373,11 +394,29 @@ pub fn side_item(p: Palette, active: bool) -> impl Fn(&Theme, button::Status) ->
     }
 }
 
-/// A file in the icon or list view: selection in the accent, like the Finder.
+/// A row of the list view, like web/store's `.list-row`: every other one faintly banded (the
+/// label colour at 3.5 %), the selected one filled with the accent and its text white.
+pub fn list_row(p: Palette, selected: bool, zebra: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| button::Style {
+        background: match (selected, status) {
+            (true, _) => Some(Background::Color(p.accent)),
+            (false, button::Status::Hovered) => Some(Background::Color(p.fill4)),
+            (false, button::Status::Pressed) => Some(Background::Color(p.fill3)),
+            _ if zebra => Some(Background::Color(alpha(p.label, 0.035))),
+            _ => None,
+        },
+        text_color: if selected { Color::WHITE } else { p.label },
+        border: Border { radius: p.r(8.0).into(), ..Default::default() },
+        shadow: Shadow::default(),
+    }
+}
+
+/// A tile of the icon view (web/store's `.icon-item`): no fill of its own; when selected its
+/// picture sits on fill-3 and its name on the accent (drawn by the tile itself).
 pub fn item(p: Palette, selected: bool, radius: f32) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| button::Style {
         background: match (selected, status) {
-            (true, _) => Some(Background::Color(alpha(p.accent, if p.dark { 0.32 } else { 0.18 }))),
+            (true, _) => None,
             (false, button::Status::Hovered) => Some(Background::Color(p.fill4)),
             (false, button::Status::Pressed) => Some(Background::Color(p.fill3)),
             _ => None,
