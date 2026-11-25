@@ -1,7 +1,6 @@
-#if os(iOS)
 import CoreGraphics
+import Foundation
 import TPCore
-import UIKit
 
 /// Draws the dense grids' rows (see `PhotoGridView.drawsRows`): one picture per row, made off the
 /// main thread from the thumbnail table's ready-made bitmaps, and cached. Photos not in the table
@@ -39,6 +38,17 @@ final class PhotoGridRowRenderer {
 
     func forget(_ key: String) {
         cache.removeObject(forKey: key as NSString)
+    }
+
+    /// Draws `request` on the spot (cached afterwards): for a zoom about to show rows that
+    /// aren't drawn yet, which would otherwise be grey for the whole animation.
+    func renderNow(_ request: Request) -> Result {
+        if let image = cache.object(forKey: request.key as NSString) { return Result(image: image, missing: []) }
+        let result = Self.draw(request)
+        if let image = result.image {
+            cache.setObject(image, forKey: request.key as NSString, cost: image.bytesPerRow * image.height)
+        }
+        return result
     }
 
     /// Draws `request` unless it's cached or already being drawn; `completion` runs on the main
@@ -99,4 +109,3 @@ final class PhotoGridRowRenderer {
         return Result(image: context.makeImage(), missing: missing)
     }
 }
-#endif

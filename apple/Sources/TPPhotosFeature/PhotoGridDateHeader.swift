@@ -80,39 +80,5 @@ final class PhotoGridDateHeader: UIView {
         get { dateLabel.text }
         set { if newValue != dateLabel.text { dateLabel.text = newValue } }
     }
-
-    // MARK: Wording
-
-    private static func formatter(_ template: String) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.setLocalizedDateFormatFromTemplate(template)
-        return formatter
-    }
-
-    private static func intervalFormatter(_ template: String) -> DateIntervalFormatter {
-        let formatter = DateIntervalFormatter()
-        formatter.dateTemplate = template
-        return formatter
-    }
-
-    private static let day = formatter("dMMMy")
-    private static let days = intervalFormatter("dMMMy")
-
-    private static let count: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter
-    }()
-
-    static func countText(_ count: Int) -> String {
-        let number = Self.count.string(from: NSNumber(value: count)) ?? String(count)
-        return count == 1 ? "1 Item" : "\(number) Items"
-    }
-
-    /// "18 Oct 2026" for one day, "4–7 Nov 2026" or "27 Oct–7 Nov 2026" for several.
-    static func rangeText(from oldest: Date, to newest: Date) -> String {
-        let start = min(oldest, newest), end = max(oldest, newest)
-        return Calendar.current.isDate(start, inSameDayAs: end) ? day.string(from: start) : days.string(from: start, to: end)
-    }
 }
 #endif

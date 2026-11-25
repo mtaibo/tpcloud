@@ -18,6 +18,9 @@ struct TPAppApp: App {
         // occasional use, not a gallery grid scrolling back and forth over thousands of already-
         // seen thumbnails. Sizing it explicitly avoids re-fetching those over the network.
         URLCache.shared = URLCache(memoryCapacity: 50 * 1024 * 1024, diskCapacity: 500 * 1024 * 1024)
+        #if os(macOS)
+        Task { @MainActor in WindowSnapshots.startIfAsked() }
+        #endif
     }
 
     var body: some Scene {

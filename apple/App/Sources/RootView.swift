@@ -22,7 +22,15 @@ struct RootView: View {
     let photoGalleryStore: PhotoGalleryStore
     let photoSyncStore: PhotoSyncStore
 
-    @State private var selectedTab: AppTab = .store
+    /// `-openTab photos` (or home, more) at launch opens that tab, for checking a screen straight away.
+    @State private var selectedTab: AppTab = {
+        switch UserDefaults.standard.string(forKey: "openTab") {
+        case "photos": .photos
+        case "home": .home
+        case "more": .more
+        default: .store
+        }
+    }()
     @State private var moreResetSignal = 0
     @State private var photosScrollSignal = 0
 

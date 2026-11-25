@@ -51,16 +51,17 @@ struct PhotoListScreen: View {
                 if gone, filter.albumID != nil, !albums.albums.isEmpty { dismiss() }
             }
             #if os(macOS)
-            .sheet(item: Binding(get: { detailPhotoID.map(DetailID.init) }, set: { detailPhotoID = $0?.id })) { item in
-                PhotoDetailView(photos: store.photos.reversed(), initialPhotoID: item.id, client: client) { photo in
-                    Task { await store.delete(photo) }
+            .overlay {
+                if let id = detailPhotoID {
+                    PhotoDetailView(photos: store.photos.reversed(), initialPhotoID: id, client: client, onDelete: { photo in
+                        Task { await store.delete(photo) }
+                    }, onClose: { detailPhotoID = nil })
+                    .transition(.opacity)
                 }
-                .frame(minWidth: 720, minHeight: 540)
             }
+            .animation(.easeOut(duration: 0.18), value: detailPhotoID)
             #endif
     }
-
-    private struct DetailID: Identifiable { let id: Int }
 
     @ViewBuilder
     private var content: some View {

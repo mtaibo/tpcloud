@@ -156,29 +156,21 @@ public struct PhotoGalleryView: View {
             store.filter = newValue
         }
         #if os(macOS)
-        .sheet(item: detailBinding) { selection in
-            detail(startingAt: selection.id)
-                .frame(minWidth: 720, minHeight: 540)
+        .overlay {
+            if let id = detailPhotoID {
+                detail(startingAt: id)
+                    .transition(.opacity)
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: detailPhotoID)
         #endif
     }
 
     #if os(macOS)
-    private struct DetailSelection: Identifiable {
-        let id: Int
-    }
-
-    private var detailBinding: Binding<DetailSelection?> {
-        Binding(
-            get: { detailPhotoID.map(DetailSelection.init) },
-            set: { detailPhotoID = $0?.id }
-        )
-    }
-
     private func detail(startingAt id: Int) -> some View {
-        PhotoDetailView(photos: displayedPhotos, initialPhotoID: id, client: client) { photo in
+        PhotoDetailView(photos: displayedPhotos, initialPhotoID: id, client: client, onDelete: { photo in
             Task { await store.delete(photo) }
-        }
+        }, onClose: { detailPhotoID = nil })
     }
     #endif
 

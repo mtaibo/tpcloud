@@ -117,23 +117,5 @@ final class PhotoGridDateChips: UIView {
         formatter.setLocalizedDateFormatFromTemplate("y")
         return formatter
     }()
-
-    /// Where each month begins, oldest first: `dates` in display order (oldest first, nil for a
-    /// photo with no date, which joins the month before it).
-    nonisolated static func monthStarts(_ dates: [Date?]) -> [(item: Int, date: Date)] {
-        let calendar = Calendar.current
-        var starts: [(item: Int, date: Date)] = []
-        var last: (Int, Int)?
-        for (item, date) in dates.enumerated() {
-            guard let date else { continue }
-            let parts = calendar.dateComponents([.year, .month], from: date)
-            let key = (parts.year ?? 0, parts.month ?? 0)
-            if last.map({ $0 != key }) ?? true {
-                starts.append((item, date))
-                last = key
-            }
-        }
-        return starts
-    }
 }
 #endif

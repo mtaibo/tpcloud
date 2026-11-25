@@ -370,8 +370,7 @@ struct PhotoCollectionGrid: UIViewRepresentable {
             let photos = self.photos
             monthStartsTask = Task { [weak self] in
                 let starts = await Task.detached(priority: .utility) { () -> [(item: Int, date: Date)] in
-                    let dates = photos.reversed().map { $0.takenAt.flatMap(PhotoDates.parse) }
-                    return PhotoGridDateChips.monthStarts(dates)
+                    PhotoGridDateWording.monthStarts(isoDates: photos.reversed().map(\.takenAt), parse: PhotoDates.parse)
                 }.value
                 guard let self, !Task.isCancelled else { return }
                 self.monthStarts = starts
@@ -874,17 +873,17 @@ struct PhotoCollectionGrid: UIViewRepresentable {
             }
             let atNewest = visible.upperBound >= photos.count && gridView.contentOffset.y >= gridView.contentSize.height + insets.bottom - bounds.height - gridView.geometry.pitch
             if atNewest || visible.isEmpty {
-                dateHeader.text = PhotoGridDateHeader.countText(photos.count)
+                dateHeader.text = PhotoGridDateWording.countText(photos.count)
                 return
             }
             // Items run oldest to newest; some photos have no date, so look inwards for one.
             let dates = visible.lazy.compactMap { self.photo(at: $0).takenAt.flatMap(PhotoDates.parse) }
             let newestDates = visible.reversed().lazy.compactMap { self.photo(at: $0).takenAt.flatMap(PhotoDates.parse) }
             guard let oldest = dates.first, let newest = newestDates.first else {
-                dateHeader.text = PhotoGridDateHeader.countText(photos.count)
+                dateHeader.text = PhotoGridDateWording.countText(photos.count)
                 return
             }
-            dateHeader.text = PhotoGridDateHeader.rangeText(from: oldest, to: newest)
+            dateHeader.text = PhotoGridDateWording.rangeText(from: oldest, to: newest)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {

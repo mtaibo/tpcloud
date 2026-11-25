@@ -1,4 +1,3 @@
-#if os(iOS)
 import CoreGraphics
 
 /// Where every tile of the grid sits for one column count: plain arithmetic on the item index.
@@ -73,4 +72,3 @@ struct PhotoGridGeometry {
         (value * scale).rounded() / scale
     }
 }
-#endif
