@@ -200,6 +200,10 @@ def host(admin: User = Depends(require_admin)):
     update = _read_json("update.json")
     version = VERSION
     newest = latest.get("version")
+    # The daily look may predate an update (it said 0.5.0 on a host already running 0.5.3):
+    # what's running is never older than the newest.
+    if version and (not newest or _newer(version, newest)):
+        newest = version
     # Running the version it was installing: it's done (a version before 0.4.1 didn't say so).
     if update and update.get("state") == "installing" and update.get("detail") == version:
         update = {**update, "state": "done"}

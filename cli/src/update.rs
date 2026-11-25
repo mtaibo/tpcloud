@@ -177,6 +177,7 @@ fn command_inner(force: bool) -> Result<()> {
     let installed = installed.unwrap();
     ui::step("Looking for a newer TPCloud");
     let release = latest()?;
+    remember_latest(&release.version);
     if !force && !newer(&release.version, &installed) {
         write_state("latest", &installed);
         ui::done(&format!("TPCloud {installed} is the latest."));
@@ -198,9 +199,15 @@ pub fn available() -> Option<String> {
 /// The service's daily look, kept in run/latest.json.
 pub fn check_quietly() {
     if let Ok(release) = latest() {
-        let body = serde_json::json!({ "version": release.version, "checked": crate::backup::now_secs() });
-        let _ = std::fs::write(paths::state_dir().join("run/latest.json"), body.to_string());
+        remember_latest(&release.version);
     }
+}
+
+/// What GitHub said is the newest, for `status`, the apps and the next look (written by the
+/// daily look and by every `update`, so an update doesn't leave yesterday's answer behind).
+fn remember_latest(version: &str) {
+    let body = serde_json::json!({ "version": version, "checked": crate::backup::now_secs() });
+    let _ = std::fs::write(paths::state_dir().join("run/latest.json"), body.to_string());
 }
 
 #[cfg(test)]
